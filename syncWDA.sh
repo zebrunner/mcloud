@@ -14,6 +14,25 @@ do
         fi
 
         wda=`ps -ef | grep xcodebuild | grep $udid | grep WebDriverAgent`
+
+        simulator=`echo $line | grep simul`
+        if [[ -n "$simulator" && -n "$wda" ]]; then
+                echo "WDA is running for simulator : ${udid}"
+                continue
+        elif [[ -n "$simulator" ]]; then
+                echo "Will check if WDA needed for simulator : ${simulator}"
+                device=`instruments -s devices | grep $udid`
+        fi
+        if [[ -n "$simulator" && -z "$device" ]]; then
+                echo "Simulator is populated in ${devices} but not started in OS"
+                continue
+        elif [[ -n "$simulator" && -z "$wda" ]]; then
+                echo "Starting simulator WDA: ${udid}"
+                ${selenium_home}/startNodeWDA.sh $udid
+                continue
+        fi
+
+
 	device=`/usr/local/bin/ios-deploy -c -t 1 | grep $udid`
         if [[ -n "$device" &&  -z "$wda" ]]; then
 		echo "Starting wda: ${udid}"
