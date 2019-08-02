@@ -1,0 +1,5 @@
+docker-compose.yml
+variables.env
+nginx/conf.d/default.conf
+stf-storage-temp
+rethinkdb
