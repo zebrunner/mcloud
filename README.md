@@ -24,7 +24,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 ```
 ./setup.sh demo.qaprosoft.com 192.168.88.10
 ```
-<B>Note: public ip and 80 http port should be accessible from user's browsers. Private ip should be used for internal services communication. Also to be able to connect to devices remotely range of ports should be opened (7400-7700).
+<B>Note</B>: public ip and 80 http port should be accessible from user's browsers. Private ip should be used for internal services communication. Also to be able to connect to devices remotely range of ports should be opened (7400-7700).
 * Setup Android provider using steps from android-slave branch (TODO: publish steps and ansible scripts with details)
 * Setup iOS provider using steps from ios-slave (not officially released yet)
 
