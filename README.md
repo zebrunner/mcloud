@@ -33,6 +33,12 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 ## Usage
 * Open in your browser http://<PUBLIC_IP>, authenticate yourself based on preconfigured auth system and enjoy.
 
+## F.A.Q.
+* Any steps to make screenshots and upload apk to device features workable?
+```
+sudo chmod -R a+rwx stf-storage-temp
+```
+
 ## License
 Code - [Apache Software License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
