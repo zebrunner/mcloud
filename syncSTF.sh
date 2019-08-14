@@ -2,8 +2,8 @@
 BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 
-echo “Script started”
-date +“%T”
+echo "Script started"
+date +"%T"
 while read -r line
 do
  	udid=`echo $line | cut -d '|' -f ${udid_position}`
@@ -25,5 +25,5 @@ do
         	echo "Nothing to do for ${udid}"
         fi
 done < ${devices}
-echo “Script finished”
-date +“%T”
+echo "Script finished"
+date +"%T"
