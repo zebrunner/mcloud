@@ -34,7 +34,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * Open in your browser http://<PUBLIC_IP>, authenticate yourself based on preconfigured auth system and enjoy.
 
 ## F.A.Q.
-* Any steps to make screenshots and upload apk to device features workable?
+1. Any steps to make screenshots and upload apk to device features workable?
 ```
 sudo chmod -R a+rwx stf-storage-temp
 ```
