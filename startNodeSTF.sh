@@ -16,6 +16,9 @@ export RETHINKDB_PORT_28015_TCP="tcp://${STF_HOST}:28015"
 
 
 #iPhone_7         | phone     | 12.3.1 | 4828ca6492816ddd4996fea31c175f7ab97cbc19 | 4841 | 20001 | 20002 | 20003 |  7701   |  7710   | 192.168.88.14
+echo Starting iSTF provider for device for $name:$udid
+#TODO: parametrize stf cli path
+
 nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --provider iMac-Developer.local --screen-port ${stf_min_port} --connect-port ${mjpeg_port} --vnc-port 7732 --public-ip ${STF_HOST} --group-timeout 3600 \
         --storage-url https://${STF_HOST}/ --adb-host 127.0.0.1 --adb-port 5037 --screen-jpeg-quality 40 --screen-ping-interval 30000 \
@@ -24,15 +27,7 @@ nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --connect-app-dealer tcp://192.168.88.95:7160 --connect-dev-dealer tcp://192.168.88.95:7260 \
         --wda-host ${device_ip} \
         --wda-port ${wda_port} \
-	--udid-storage false --iproxy false --connect-sub tcp://192.168.88.95:7250 --connect-push tcp://192.168.88.95:7270 --no-cleanup &
-
-echo Starting iSTF provider for device for $name:$udid
-#nohup stf ios-provider --name ${PROVIDER_NAME} --min-port=${stf_min_port} --max-port=${stf_max_port} --connect-app-dealer tcp://${STF_HOST}:7160 --connect-dev-dealer tcp://${STF_HOST}:7260 --connect-sub tcp://${STF_HOST}:7250 \
-#	--connect-push tcp://${STF_HOST}:7270 --group-timeout 3600 \
-#	--public-ip ${STF_HOST} --storage-url https://${STF_HOST}/ --screen-jpeg-quality 40 --heartbeat-interval 10000 --vnc-initial-size 600x800 \
-#	--wda-host ${device_ip} --wda-port ${wda_port} --mjpeg-port ${mjpeg_port} \
-#	--udid-storage false --iproxy false \
-#	--no-cleanup &
+	--udid-storage false --iproxy false --connect-sub tcp://192.168.88.95:7250 --connect-push tcp://192.168.88.95:7270 --no-cleanup > "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
 
 #--screen-ws-url-pattern "wss://${STF_HOST}/d/192.168.88.91/b3c999df4a0de71be4fb5878f0df20c25442b883/7702/" &
 #--screen-ws-url-pattern "wss://istf.qaprosoft.com/d/192.168.88.91/<%= serial %>/<%= publicPort %>/" &
