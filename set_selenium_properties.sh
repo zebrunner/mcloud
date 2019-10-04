@@ -30,3 +30,9 @@ export stf_min_port_position=9
 export stf_max_port_position=10
 
 export device_ip_position=11
+
+
+if [ ! -d "${BASEDIR}/logs" ]; then
+    mkdir "${BASEDIR}/logs"
+fi
+
