@@ -39,6 +39,7 @@ do
                 ${selenium_home}/startNodeWDA.sh $udid
         elif [[ -z "$device" &&  -n "$wda" ]]; then
 		echo "WDA  will be stopped: ${udid}"
+                ${selenium_home}/stopNodeWDA.sh $udid
         else
         	echo "Nothing to do for ${udid}"
         fi
