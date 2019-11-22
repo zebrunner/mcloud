@@ -6,7 +6,7 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 export hubHost=stage.qaprosoft.com
 export hubPort=4446
 
-export nodeHost=192.168.88.90
+export nodeHost=192.168.88.91
 
 export automation_name=XCUITest
 export appium_home=/usr/local/lib/node_modules/appium
