@@ -6,7 +6,7 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 export hubHost=stage.qaprosoft.com
 export hubPort=4446
 
-export nodeHost=192.168.88.91
+export nodeHost=192.168.88.90
 
 export automation_name=XCUITest
 export appium_home=/usr/local/lib/node_modules/appium
@@ -15,6 +15,7 @@ export selenium_home=${BASEDIR}
 export devices=${selenium_home}/devices.txt
 export configFolder=${selenium_home}/configs
 export logFolder=${selenium_home}/logs
+export tmpFolder=${selenium_home}/tmp
 
 #general vars declaration to parse devices.txt correctly
 export name_position=1
@@ -36,3 +37,6 @@ if [ ! -d "${BASEDIR}/logs" ]; then
     mkdir "${BASEDIR}/logs"
 fi
 
+if [ ! -d "${tmpFolder}" ]; then
+    mkdir "${tmpFolder}"
+fi
