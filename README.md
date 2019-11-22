@@ -79,7 +79,8 @@ Note: we temporary hardcoded in startNodeSTF.sh extra items like STF_HOST, path 
   * Appium agent setup
   * WDA agent setup
   * STF agent setup
-  NOTE: you can use [launchd](https://www.launchd.info/) functionality.
+  
+NOTE: you can use [launchd](https://www.launchd.info/) functionality.
 
 ## License
 Code - [Apache Software License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
