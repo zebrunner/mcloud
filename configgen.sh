@@ -29,7 +29,7 @@ cat << EndOfMessage
   "capabilities":
       [
         {
-          "browserName": "${DEVICENAME}",
+          "browserName": "safari",
           "version":"${DEVICEVERSION}",
           "maxInstances": 1,
           "platform":"${DEVICEPLATFORM}",
