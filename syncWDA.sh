@@ -41,6 +41,8 @@ do
         if [[ -n "$device" &&  -z "$wda" ]]; then
 		echo "Starting wda: ${udid}"
                 ${selenium_home}/startNodeWDA.sh $udid
+		# added pause to avoid startup by next sync
+		sleep 10
         elif [[ -z "$device" &&  -n "$wda" ]]; then
 		echo "WDA  will be stopped: ${udid}"
                 ${selenium_home}/stopNodeWDA.sh $udid
