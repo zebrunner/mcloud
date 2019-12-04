@@ -15,6 +15,7 @@ export selenium_home=${BASEDIR}
 export devices=${selenium_home}/devices.txt
 export configFolder=${selenium_home}/configs
 export logFolder=${selenium_home}/logs
+export metaDataFolder=${selenium_home}/metaData
 
 #general vars declaration to parse devices.txt correctly
 export name_position=1
@@ -36,3 +37,6 @@ if [ ! -d "${BASEDIR}/logs" ]; then
     mkdir "${BASEDIR}/logs"
 fi
 
+if [ ! -d "${BASEDIR}/metaData" ]; then
+    mkdir "${BASEDIR}/metaData"
+fi
