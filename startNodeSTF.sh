@@ -24,12 +24,12 @@ echo Starting iSTF provider for device for $name:$udid
 nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --provider iMac-Developer.local --screen-port ${stf_min_port} --connect-port ${mjpeg_port} --vnc-port 7732 --public-ip ${STF_PUBLIC_HOST} --group-timeout 3600 \
         --storage-url https://${STF_PUBLIC_HOST}/ --adb-host 127.0.0.1 --adb-port 5037 --screen-jpeg-quality 40 --screen-ping-interval 30000 \
-        --screen-ws-url-pattern wss://${STF_PUBLIC_HOST}/d/${nodeHost}/${udid}/${stf_min_port}/ \
+	--screen-ws-url-pattern wss://${STF_PUBLIC_HOST}/d/${nodeHost}/${udid}/${stf_min_port}/ \
 	--connect-url-pattern ${publicIp}:${publicPort} --heartbeat-interval 10000 \
         --boot-complete-timeout 60000 --vnc-initial-size 600x800 --mute-master never \
         --connect-app-dealer tcp://${STF_PRIVATE_HOST}:7160 --connect-dev-dealer tcp://${STF_PRIVATE_HOST}:7260 \
         --wda-host ${device_ip} \
         --wda-port ${wda_port} \
-	--udid-storage false --iproxy false --connect-sub tcp://${STF_PRIVATE_HOST}:7250 --connect-push tcp://${STF_PRIVATE_HOST}:7270 --no-cleanup > "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
+	--udid-storage false --connect-sub tcp://${STF_PRIVATE_HOST}:7250 --connect-push tcp://${STF_PRIVATE_HOST}:7270 --no-cleanup > "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
 
 
