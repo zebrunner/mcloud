@@ -18,7 +18,6 @@ export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
 #TODO: switch to http and ws if no secure protocol configured
 export WEBSOCKET_PROTOCOL=wss
 export WEB_PROTOCOL=https
-export PROVIDER_NAME=iMac-Developer.local
 
 #iPhone_7         | phone     | 12.3.1 | 4828ca6492816ddd4996fea31c175f7ab97cbc19 | 4841 | 20001 | 20002 | 20003 |  7701   |  7710   | 192.168.88.14
 echo Starting iSTF provider for device for $name:$udid
