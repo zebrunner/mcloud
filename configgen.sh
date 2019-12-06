@@ -52,7 +52,8 @@ cat << EndOfMessage
     "maxSession": 1,
     "register": true,
     "registerCycle": 5000,
-    "automationName": "${AUTOMATION_NAME}"
+    "automationName": "${AUTOMATION_NAME}",
+    "downPollingLimit": 10
   }
 }
 EndOfMessage
