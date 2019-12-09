@@ -11,6 +11,7 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 export PROVIDER_NAME=iMac-Developer.local
 export STF_PUBLIC_HOST=stage.qaprosoft.com
 export STF_PRIVATE_HOST=192.168.88.95
+
 #TODO: move rethink db declaration to set_common...
 export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
 
@@ -19,8 +20,6 @@ export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
 export WEBSOCKET_PROTOCOL=wss
 export WEB_PROTOCOL=https
 
-#iPhone_7         | phone     | 12.3.1 | 4828ca6492816ddd4996fea31c175f7ab97cbc19 | 4841 | 20001 | 20002 | 20003 |  7701   |  7710   | 192.168.88.14
-echo Starting iSTF provider for device for $name:$udid
 #TODO: parametrize hardcoded path to stf cli
 nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --provider ${PROVIDER_NAME} --screen-port ${stf_min_port} --connect-port ${mjpeg_port} --public-ip ${STF_PUBLIC_HOST} --group-timeout 3600 \
@@ -31,6 +30,6 @@ nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --wda-host ${device_ip} \
         --wda-port ${wda_port} \
 	--vnc-port 7732 \
-	--connect-sub tcp://${STF_PRIVATE_HOST}:7250 --connect-push tcp://${STF_PRIVATE_HOST}:7270 --no-cleanup > "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
+	--connect-sub tcp://${STF_PRIVATE_HOST}:7250 --connect-push tcp://${STF_PRIVATE_HOST}:7270 --no-cleanup >> "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
 
 
