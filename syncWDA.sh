@@ -2,11 +2,9 @@
 BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 
-echo "Sync wda script started"
-date +"%T"
+echo `date +"%T"` Sync wda script started
 
-logFile=${metaDataFolder}/connectedDevices4WDA.txt
-/usr/local/bin/ios-deploy -c -t 10 > ${logFile}
+logFile=${metaDataFolder}/connectedDevices.txt
 
 while read -r line
 do
@@ -20,16 +18,16 @@ do
        . ${selenium_home}/getDeviceArgs.sh $udid
 
         #wda check is only for approach with syncWda.sh and usePrebuildWda=true
-        /usr/bin/curl --max-time 30 --connect-timeout 30 http://${device_ip}:${wda_port}/status > ${metaDataFolder}/${udid}_wda_status.txt 2>&1
+        /usr/bin/curl --max-time 60 --connect-timeout 60 http://${device_ip}:${wda_port}/status > ${metaDataFolder}/${udid}_wda_status.txt 2>&1
         wda=`cat ${metaDataFolder}/${udid}_wda_status.txt | grep success`
-        wda_zombie=`cat ${metaDataFolder}/${udid}_wda_status.txt | grep 'Operation timed out'`
-#        echo "wda: $wda"
+#        wda_zombie=`cat ${metaDataFolder}/${udid}_wda_status.txt | grep 'Operation timed out'`
+##        echo "wda: $wda"
 
-        if [[ -n "$wda_zombie" ]]; then
-                echo "WDA process is zombie for simulator udid : ${udid} - device name : ${name}. WDA will be killed and statred."
-                ${selenium_home}/stopNodeWDA.sh $udid
-                continue
-        fi
+#        if [[ -n "$wda_zombie" ]]; then
+#                echo "WDA process is zombie for simulator udid : ${udid} - device name : ${name}. WDA will be killed and statred."
+#                ${selenium_home}/stopNodeWDA.sh $udid
+#                continue
+#        fi
 
         if [[ -n "$simulator" ]]; then
                 device=${name}
@@ -45,11 +43,12 @@ do
 		sleep 10
         elif [[ -z "$device" &&  -n "$wda" ]]; then
 		echo "WDA  will be stopped: ${udid}"
-                ${selenium_home}/stopNodeWDA.sh $udid
+		echo device: $device
+	        echo wda: $wda
+#                ${selenium_home}/stopNodeWDA.sh $udid
         else
                 echo "Nothing to do for ${udid} - device name : ${name}"
         fi
 
 done < ${devices}
-echo "Script finished"
-date +"%T"
+echo `date +"%T"` Script finished
