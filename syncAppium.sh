@@ -2,11 +2,9 @@
 BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 
-echo "Sync Appium script started"
-date +"%T"
+echo `date +"%T"` Sync Appium script started
 
-logFile=${metaDataFolder}/connectedDevices4Appium.txt
-/usr/local/bin/ios-deploy -c -t 10 > ${logFile}
+logFile=${metaDataFolder}/connectedDevices.txt
 
 while read -r line
 do
@@ -35,10 +33,11 @@ do
                 ${selenium_home}/startNodeAppium.sh $udid
         elif [[ -z "$device" &&  -n "$appium" ]]; then
 		echo "Appium will be stopped: ${udid} - device name : ${name}"
-                ${selenium_home}/stopNodeAppium.sh $udid
+		echo device: $device
+		echo appium: $appium
+#                ${selenium_home}/stopNodeAppium.sh $udid
         else
         	echo "Nothing to do for ${udid} - device name : ${name}"
         fi
 done < ${devices}
-echo "Script finished"
-date +"%T"
+echo `date +"%T"` Script finished
