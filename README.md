@@ -13,7 +13,8 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * [License](#license)
 
 ## Software prerequisites
-* Install node 8.16.0
+* Install node 8.16.0.
+  Note: that's still a requirement of open stf
 * Install XCode 11.2
 * Install Appium 1.15.1
 * brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
@@ -74,13 +75,15 @@ tail -f ./logs/<deviceName>_appium.log
 tail -f ./logs/<deviceName>_stf.log
 ```  
 
-Note: we temporary hardcoded in startNodeSTF.sh extra items like STF_HOST, path to STF cli, current host ip. Before starting those changes should be updated
-### Setup sync scripts via Launch Agents for Appium, WDA and STF services
+Note: we temporary hardcoded in startNodeSTF.sh extra items like STF_HOST, path to STF cli, current host ip. Before startup update onto the valid values
+
+### Setup sync scripts via Launch Agents for Devices, Appium, WDA and STF services
+  * Devices agent setup
   * Appium agent setup
   * WDA agent setup
   * STF agent setup
   
-NOTE: you can use [launchd](https://www.launchd.info/) functionality.
+Note: you can use [launchd](https://www.launchd.info/) functionality. Examples and README.txt with details can be found in MCLOUD_HOME/LauncgAgents folder
 
 ## License
 Code - [Apache Software License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
