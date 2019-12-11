@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+	"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>EnvironmentVariables</key>
+		<dict>
+			<key>PATH</key>
+			<string>/bin:/usr/bin:/usr/local/bin:/usr/sbin:/sbin</string>
+		</dict>
+		<key>Label</key>
+		<string>com.syncDevices</string>
+		<key>ProgramArguments</key>
+		<array>
+                	<string>/Users/build/tools/mcloud/syncDevices.sh</string>
+        	</array>
+		<key>WorkingDirectory</key>
+		<string>/Users/build/tools/mcloud</string>
+		<key>UserName</key>
+		<string>build</string>
+		<key>GroupName</key>
+                <string>staff</string>
+		<key>KeepAlive</key>
+		<false/>
+
+		<key>AbandonProcessGroup</key>
+		<true/>
+
+		<key>StartInterval</key>
+ 		<integer>5</integer>
+
+		<key>StandardErrorPath</key>
+		<string>/Users/build/tools/mcloud/logs/agent_devices.log</string>
+		<key>StandardOutPath</key>
+		<string>/Users/build/tools/mcloud/logs/agent_devices.log</string>
+	</dict>
+</plist>
+
