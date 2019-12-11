@@ -12,8 +12,6 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * [License](#license)
 
 ## Software prerequisites
-* Change current user uid/guid to uid=1000 and gid=1000 - (https://github.com/jenkinsci/docker)
-  Note: for current user just change uid/guid inside /etc/passwd and reboot host
 * Install [docker](http://www.techrepublic.com/article/how-to-install-docker-on-ubuntu-16-04/)
 * Installed [docker-composer](https://docs.docker.com/compose/install/#install-compose)
 
