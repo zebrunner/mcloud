@@ -29,7 +29,6 @@ nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --connect-app-dealer tcp://${STF_PRIVATE_HOST}:7160 --connect-dev-dealer tcp://${STF_PRIVATE_HOST}:7260 \
         --wda-host ${device_ip} \
         --wda-port ${wda_port} \
-	--vnc-port 7732 \
 	--connect-sub tcp://${STF_PRIVATE_HOST}:7250 --connect-push tcp://${STF_PRIVATE_HOST}:7270 --no-cleanup >> "${BASEDIR}/logs/${name}_stf.log" 2>&1 &
 
 
