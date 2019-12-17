@@ -27,7 +27,7 @@ do
         fi
 
 	#TODO: [Optional] think about verification by http call
-        stf=`ps -eaf | grep ${udid} | grep 'stf' | grep 'ios-device' | grep -v grep`
+        stf=`ps -eaf | grep ${udid} | grep 'ios-device' | grep -v grep`
 
         if [[ -n "$device" && -z "$stf" ]]; then
 		echo "Starting iSTF ios-device: ${udid} device name : ${name}"
