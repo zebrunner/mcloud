@@ -16,6 +16,15 @@ services:
     depends_on:
      - "stf-app"
     restart: always
+  selenium-hub:
+    image: qaprosoft/selenium-hub:3.5.1
+    env_file:
+     - variables.env
+#    environment:
+#     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
+    ports:
+     - 4444:4444
+    restart: always
   rethinkdb:
     image: rethinkdb:2.3
     ports:
@@ -84,7 +93,7 @@ services:
     env_file:
      - variables.env
     #TODO: remove --connect-push if possible
-    command: stf processor proc001 --connect-app-dealer tcp://PUBLIC_IP:7160 --connect-dev-dealer tcp://PUBLIC_IP:7260 --connect-push tcp://PUBLIC_IP:7270
+    command: stf processor proc001 --connect-app-dealer tcp://PUBLIC_IP:7160 --connect-dev-dealer tcp://PUBLIC_IP:7260
     extra_hosts:
      - "PUBLIC_IP:PRIVATE_IP"
     depends_on:
