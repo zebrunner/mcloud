@@ -40,7 +40,7 @@ do
 		echo "Starting wda: ${udid}"
                 ${selenium_home}/startNodeWDA.sh $udid
 		# added pause to avoid startup by next sync
-		sleep 10
+		sleep 20
         elif [[ -z "$device" &&  -n "$wda" ]]; then
 		echo "WDA  will be stopped: ${udid}"
 		echo device: $device

@@ -32,11 +32,14 @@ do
         if [[ -n "$device" && -z "$stf" ]]; then
 		echo "Starting iSTF ios-device: ${udid} device name : ${name}"
                 ${selenium_home}/startNodeSTF.sh $udid
-        elif [[ -z "$device" &&  -n "$stf" ]]; then
-		echo "The iSTF ios-device will be stopped: ${udid} device name : ${name}"
-		echo device: $device
-		echo stf: $stf
-#                ${selenium_home}/stopNodeSTF.sh $udid
+        elif [[ -z "$device" && -n "$stf" ]]; then
+		device_status=`/usr/local/bin/ios-deploy -c -t 5 | grep ${udid}`
+		if [[ -z "${device_status}" ]]; then
+			echo "The iSTF ios-device will be stopped: ${udid} device name : ${name}"
+                	echo device: $device
+                	echo stf: $stf
+            		${selenium_home}/stopNodeSTF.sh $udid
+        	fi
         else
         	echo "Nothing to do for ${udid} device name ${name}"
         fi
