@@ -8,18 +8,6 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 . ${selenium_home}/getDeviceArgs.sh $devicePattern
 
-export PROVIDER_NAME=iMac-Developer.local
-export STF_PUBLIC_HOST=stage.qaprosoft.com
-export STF_PRIVATE_HOST=192.168.88.95
-
-#TODO: move rethink db declaration to set_common...
-export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
-
-
-#TODO: switch to http and ws if no secure protocol configured
-export WEBSOCKET_PROTOCOL=wss
-export WEB_PROTOCOL=https
-
 #TODO: parametrize hardcoded path to stf cli
 nohup node /Users/build/tools/stf/lib/cli ios-device --serial ${udid} \
         --provider ${PROVIDER_NAME} --screen-port ${stf_min_port} --connect-port ${mjpeg_port} --public-ip ${STF_PUBLIC_HOST} --group-timeout 3600 \
