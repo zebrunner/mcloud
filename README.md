@@ -16,7 +16,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * Install node 8.16.0.
   Note: that's still a requirement of open stf
 * Install XCode 11.2
-* Install Appium 1.15.1
+* Install Appium 1.16.0+
 * brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
 * Install extra modules
 ```
