@@ -53,7 +53,7 @@ Phone_X1         | simulator | 12.3.1 | 7643aa9bd1638255f48ca6beac4285cae4f6454g
 ```
 Note: For simulators DEVICE_IP is actual host ip address. Also we suggest
 
-* Update set_selenium_properties.sh. Specify actual values for hubHost, hubPort and nodeHost values
+* Update set_selenium_properties.sh. Specify actual values for hubHost, hubPort and STF_PRIVATE_NODE_HOST values
 
 * Sign WebDriverAgent using your Dev Apple certificate and install WDA on each device manually
   * Open in XCode /usr/loca/lib/node_modules/appium/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj
