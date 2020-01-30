@@ -19,7 +19,7 @@ HUB_PORT=${hubPort}
 HUB_HOST=${hubHost}
 
 # current host
-HOST=${nodeHost}
+HOST=${STF_PRIVATE_NODE_HOST}
 PORT=${appium_port}
 
 WDA_PORT=${wda_port}

@@ -33,11 +33,14 @@ export mjpeg_port=$(echo $mjpeg_port)
 iwdp_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${iwdp_port_position}`
 export iwdp_port=$(echo $iwdp_port)
 
-stf_min_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_min_port_position}`
-export stf_min_port=$(echo $stf_min_port)
+stf_screen_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_screen_port_position}`
+export stf_screen_port=$(echo $stf_screen_port)
 
-stf_max_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_max_port_position}`
-export stf_max_port=$(echo $stf_max_port)
+stf_appium_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_appium_port_position}`
+export stf_appium_port=$(echo $stf_appium_port)
 
 device_ip=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${device_ip_position}`
 export device_ip=$(echo $device_ip)
+
+stf_public_node_host=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_public_node_host_position}`
+export stf_public_node_host=$(echo $stf_public_node_host)

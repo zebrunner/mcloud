@@ -6,7 +6,7 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 export hubHost=stage.qaprosoft.com
 export hubPort=4446
 
-export nodeHost=192.168.88.91
+export STF_PRIVATE_NODE_HOST=192.168.88.91
 
 export automation_name=XCUITest
 export appium_home=/usr/local/lib/node_modules/appium
@@ -27,11 +27,12 @@ export wda_port_position=6
 export mjpeg_port_position=7
 export iwdp_port_position=8
 
-export stf_min_port_position=9
-export stf_max_port_position=10
+export stf_screen_port_position=9
+export stf_appium_port_position=10
 
 export device_ip_position=11
 
+export stf_public_node_host_position=12
 
 if [ ! -d "${BASEDIR}/logs" ]; then
     mkdir "${BASEDIR}/logs"
