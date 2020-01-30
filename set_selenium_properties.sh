@@ -2,7 +2,17 @@
 
 BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 
+# iSTF settings
+export PROVIDER_NAME=iMac-Developer.local
+export STF_PUBLIC_HOST=stage.qaprosoft.com
+export STF_PRIVATE_HOST=192.168.88.95
 
+export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
+
+export WEBSOCKET_PROTOCOL=wss
+export WEB_PROTOCOL=https
+
+# selenium hub settings
 export hubHost=stage.qaprosoft.com
 export hubPort=4446
 
