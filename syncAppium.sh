@@ -7,7 +7,7 @@ echo `date +"%T"` Sync Appium script started
 logFile=${metaDataFolder}/connectedDevices.txt
 
 #stop operation is pretty heavy, so we double check wda status after this pause
-check_wda_staus_pause=10
+check_wda_status_pause=10
 
 while read -r line
 do
