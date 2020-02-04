@@ -6,6 +6,9 @@ echo `date +"%T"` Sync Appium script started
 
 logFile=${metaDataFolder}/connectedDevices.txt
 
+#stop operation is pretty heavy, so we double check wda status after this pause
+check_wda_staus_pause=10
+
 while read -r line
 do
  	udid=`echo $line | cut -d '|' -f ${udid_position}`
@@ -27,7 +30,7 @@ do
 
 	wda=`ps -ef | grep xcodebuild | grep $udid | grep WebDriverAgent`
         if [[ -n "$appium" && -z "$wda" ]]; then
-                sleep 10
+                sleep ${check_wda_status_pause}
 		wda_status=`/usr/bin/curl http://${device_ip}:${wda_port}/status --connect-timeout 5 | grep success`
                 if [[ -z "${wda_status}" ]]; then
 			echo "Stopping Appium process. Wda is crashed or not started but Appium process exists. ${udid} device name : ${name}"
