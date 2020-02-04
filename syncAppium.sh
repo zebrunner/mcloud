@@ -6,6 +6,9 @@ echo `date +"%T"` Sync Appium script started
 
 logFile=${metaDataFolder}/connectedDevices.txt
 
+#stop operation is pretty heavy, so we double check wda status after this pause
+check_wda_staus_pause=10
+
 while read -r line
 do
  	udid=`echo $line | cut -d '|' -f ${udid_position}`
@@ -17,25 +20,37 @@ do
         simulator=`echo $line | grep simul`
         . ${selenium_home}/getDeviceArgs.sh $udid
 
-        appium=`/usr/bin/curl -s --max-time 30 --connect-timeout 30 http://localhost:${appium_port}/wd/hub/status | grep version`
-#	appium=`ps -ef | grep $appium_home/build/lib/main.js  | grep $udid`
-#	echo appium: $appium
+	appium=`ps -ef | grep $appium_home/build/lib/main.js  | grep $udid`
 
 	if [[ -n "$simulator" ]]; then
 		device=${name}
 	else
 	        device=`cat ${logFile} | grep $udid`
 	fi
-#	echo device: $device
 
-        if [[ -n "$device" && -z "$appium" ]]; then
+	wda=`ps -ef | grep xcodebuild | grep $udid | grep WebDriverAgent`
+        if [[ -n "$appium" && -z "$wda" ]]; then
+                sleep ${check_wda_status_pause}
+		wda_status=`/usr/bin/curl http://${device_ip}:${wda_port}/status --connect-timeout 5 | grep success`
+                if [[ -z "${wda_status}" ]]; then
+			echo "Stopping Appium process. Wda is crashed or not started but Appium process exists. ${udid} device name : ${name}"
+                	${selenium_home}/stopNodeAppium.sh $udid
+                	continue
+                fi
+        fi
+
+        if [[ -n "$device" && -n "$wda" && -z "$appium" ]]; then
 		echo "Starting appium node: ${udid} - device name : ${name}"
                 ${selenium_home}/startNodeAppium.sh $udid
         elif [[ -z "$device" &&  -n "$appium" ]]; then
-		echo "Appium will be stopped: ${udid} - device name : ${name}"
-		echo device: $device
-		echo appium: $appium
-#                ${selenium_home}/stopNodeAppium.sh $udid
+ 		#double check if device really empty
+                device=`/usr/local/bin/ios-deploy -c -t 5 | grep ${udid}`
+                if [[ -z "${device}" ]]; then
+                        echo "Appium will be stopped: ${udid} - device name : ${name}"
+                        echo device: $device
+                        echo appium: $appium
+                        ${selenium_home}/stopNodeAppium.sh $udid
+                fi
         else
         	echo "Nothing to do for ${udid} - device name : ${name}"
         fi

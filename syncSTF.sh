@@ -26,10 +26,15 @@ do
                 device=`cat ${logFile} | grep $udid`
         fi
 
-	#TODO: [Optional] think about verification by http call
         stf=`ps -eaf | grep ${udid} | grep 'ios-device' | grep -v grep`
+	wda=`ps -ef | grep xcodebuild | grep $udid | grep WebDriverAgent`
+        if [[ -n "$stf" && -z "$wda" ]]; then
+                echo "Stopping STF process. Wda is crashed or not started but STF process exists. ${udid} device name : ${name}"
+                ${selenium_home}/stopNodeSTF.sh $udid
+                continue
+        fi
 
-        if [[ -n "$device" && -z "$stf" ]]; then
+        if [[ -n "$device" && -n "$wda" && -z "$stf" ]]; then
 		echo "Starting iSTF ios-device: ${udid} device name : ${name}"
                 ${selenium_home}/startNodeSTF.sh $udid
         elif [[ -z "$device" && -n "$stf" ]]; then
