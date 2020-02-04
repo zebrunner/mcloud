@@ -18,23 +18,13 @@ do
        . ${selenium_home}/getDeviceArgs.sh $udid
 
         #wda check is only for approach with syncWda.sh and usePrebuildWda=true
-        /usr/bin/curl --max-time 60 --connect-timeout 60 http://${device_ip}:${wda_port}/status > ${metaDataFolder}/${udid}_wda_status.txt 2>&1
-        wda=`cat ${metaDataFolder}/${udid}_wda_status.txt | grep success`
-#        wda_zombie=`cat ${metaDataFolder}/${udid}_wda_status.txt | grep 'Operation timed out'`
-##        echo "wda: $wda"
-
-#        if [[ -n "$wda_zombie" ]]; then
-#                echo "WDA process is zombie for simulator udid : ${udid} - device name : ${name}. WDA will be killed and statred."
-#                ${selenium_home}/stopNodeWDA.sh $udid
-#                continue
-#        fi
+        wda=`ps -ef | grep xcodebuild | grep $udid | grep WebDriverAgent`
 
         if [[ -n "$simulator" ]]; then
                 device=${name}
         else
                 device=`cat ${logFile} | grep $udid`
         fi
-#        echo device: $device
 
         if [[ -n "$device" &&  -z "$wda" ]]; then
 		echo "Starting wda: ${udid}"
@@ -45,7 +35,6 @@ do
 		echo "WDA  will be stopped: ${udid}"
 		echo device: $device
 	        echo wda: $wda
-#                ${selenium_home}/stopNodeWDA.sh $udid
         else
                 echo "Nothing to do for ${udid} - device name : ${name}"
         fi
