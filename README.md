@@ -14,19 +14,10 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 
 ## Software prerequisites
 * Install node 8.16.0.
-  Note: that's still a requirement of open stf
+  Note: that's still a requirement of open stf. To install node 8 you can use nvm.
 * Install XCode 11.2
 * Install Appium 1.16.0+
 * brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
-* Install extra modules
-```
-  npm install promise
-  npm install request-promise
-  npm install websocket-stream
-  npm install mjpeg-consumer
-  npm install udid
-  
-```
 
 ## iSTF components setup
 * Clone and build iSTF from sources
