@@ -33,6 +33,7 @@ npm link
 * Clone mcloud and switch to ios-slave
 ```
 git clone https://github.com/qaprosoft/mcloud
+cd mcloud
 git checkout ios-slave
 
 ```
