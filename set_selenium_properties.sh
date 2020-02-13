@@ -9,8 +9,8 @@ export STF_PRIVATE_HOST=192.168.88.95
 
 export RETHINKDB_PORT_28015_TCP="tcp://${STF_PUBLIC_HOST}:28015"
 
-export WEBSOCKET_PROTOCOL=wss
-export WEB_PROTOCOL=https
+export WEBSOCKET_PROTOCOL=ws
+export WEB_PROTOCOL=http
 
 # selenium hub settings
 export hubHost=stage.qaprosoft.com
