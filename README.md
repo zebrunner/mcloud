@@ -14,7 +14,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 
 ## Software prerequisites
 * Install node 8.16.0.
-  Note: that's still a requirement of open stf. To install node 8 you can use nvm.
+  Note: that's still a requirement of open stf. To install node 8 you can use [nvm](https://www.codementor.io/@mercurial/how-to-install-node-js-on-macos-sierra-mphz41ekk).
 * Install XCode 11.2
 * Install Appium 1.16.0+
 * brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
