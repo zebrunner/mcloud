@@ -50,7 +50,7 @@ services:
 #    - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
 #    restart: always
   stf-app:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     env_file:
      - variables.env
     ## Unsecure default mock auth example
@@ -64,7 +64,7 @@ services:
     restart: always
 # Mock auth with unsecure access via username and email
   stf-auth-mock:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     env_file:
      - variables.env
     command: stf auth-mock --port 3000 --app-url http://PUBLIC_IP/
@@ -72,7 +72,7 @@ services:
      - "PUBLIC_IP:PRIVATE_IP"
     restart: always
 #  stf-auth-ldap:
-#    image: qaprosoft/stf:2.8
+#    image: qaprosoft/stf:2.10
 #    env_file:
 #     - variables.env
 #    command: stf auth-ldap --port 3000 --ldap-timeout 30000 --ldap-url "CHANGE_ME" --ldap-search-scope "one" --ldap-search-dn "ou=People,dc=mydomain,dc=com" --ldap-search-class "person" --ldap-search-field "uid" --app-url http://PUBLIC_IP/ --ldap-bind-dn "cn=admin,dc=domain,dc=com" --ldap-bind-credentials "CHANGE_ME"
@@ -80,7 +80,7 @@ services:
 #     - "PUBLIC_IP:PRIVATE_IP"
 #    restart: always
   stf-migrate:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     command: stf migrate
     extra_hosts:
      - "PUBLIC_IP:PRIVATE_IP"
@@ -89,7 +89,7 @@ services:
     depends_on:
      - "rethinkdb"
   stf-processor001:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     env_file:
      - variables.env
     #TODO: remove --connect-push if possible
@@ -100,7 +100,7 @@ services:
      - "rethinkdb"
     restart: always
 #  stf-processor002:
-#    image: qaprosoft/stf:2.8
+#    image: qaprosoft/stf:2.10
 #    env_file:
 #     - variables.env
 #    command: stf processor proc002 --connect-app-dealer tcp://PUBLIC_IP:7160 --connect-dev-dealer tcp://PUBLIC_IP:7260
@@ -110,7 +110,7 @@ services:
 #     - "rethinkdb"
 #    restart: always
   stf-reaper:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     env_file:
      - variables.env
     command: stf reaper reaper001 --connect-push tcp://PUBLIC_IP:7270 --connect-sub tcp://PUBLIC_IP:7150 --heartbeat-timeout 30000
@@ -120,35 +120,47 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-plugin-apk:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
+    env_file:
+     - variables.env
     command: stf storage-plugin-apk --port 3000 --storage-url http://PUBLIC_IP/
     extra_hosts:
      - "PUBLIC_IP:PRIVATE_IP"
+    depends_on:
+     - "rethinkdb"
     restart: always
   stf-storage-plugin-image:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
+    env_file:
+     - variables.env
     command: stf storage-plugin-image --port 3000 --storage-url http://PUBLIC_IP/
     extra_hosts:
      - "PUBLIC_IP:PRIVATE_IP"
+    depends_on:
+     - "rethinkdb"
     restart: always
   stf-storage-temp:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
+    env_file:
+     - variables.env
     volumes:
      - ./stf-storage-temp:/data
     command: stf storage-temp --port 3000 --save-dir /data --connect-sub tcp://PUBLIC_IP:7150 --connect-push tcp://PUBLIC_IP:7170
+    depends_on:
+     - "rethinkdb"
     restart: always
   stf-triproxy-app:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     network_mode: host
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
     restart: always
   stf-triproxy-dev:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     network_mode: host
     command: stf triproxy dev001 --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
     restart: always
   stf-websocket:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     env_file:
      - variables.env
     command: stf websocket --port 3000 --storage-url http://PUBLIC_IP/ --connect-sub tcp://PUBLIC_IP:7150 --connect-push tcp://PUBLIC_IP:7170
@@ -158,12 +170,22 @@ services:
      - "rethinkdb"
     restart: always
   stf-api:
-    image: qaprosoft/stf:2.8
+    image: qaprosoft/stf:2.10
     ports:
      - "3700:3000"
     env_file:
      - variables.env
-    command: stf api --port 3000 --connect-sub tcp://PUBLIC_IP:7150 --connect-push tcp://PUBLIC_IP:7170
+    command: stf api --port 3000 --connect-sub tcp://PUBLIC_IP:7150 --connect-push tcp://PUBLIC_IP:7170 --connect-sub-dev tcp://PRIVATE_IP:7250 --connect-push-dev tcp://PRIVATE_IP:7270
+    extra_hosts:
+     - "PUBLIC_IP:PRIVATE_IP"
+    depends_on:
+     - "rethinkdb"
+    restart: always
+  stf-api-groups-engine:
+    image: qaprosoft/stf:2.10
+    env_file:
+     - variables.env
+    command: stf groups-engine --connect-sub tcp://PUBLIC_IP:7150 --connect-push tcp://PUBLIC_IP:7170 --connect-sub-dev tcp://PRIVATE_IP:7250 --connect-push-dev tcp://PRIVATE_IP:7270
     extra_hosts:
      - "PUBLIC_IP:PRIVATE_IP"
     depends_on:
