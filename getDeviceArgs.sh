@@ -41,6 +41,3 @@ export stf_appium_port=$(echo $stf_appium_port)
 
 device_ip=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${device_ip_position}`
 export device_ip=$(echo $device_ip)
-
-stf_public_node_host=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_public_node_host_position}`
-export stf_public_node_host=$(echo $stf_public_node_host)

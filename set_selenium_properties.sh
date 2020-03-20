@@ -16,7 +16,8 @@ export WEB_PROTOCOL=http
 export hubHost=stage.qaprosoft.com
 export hubPort=4446
 
-export STF_PRIVATE_NODE_HOST=192.168.88.91
+export STF_PUBLIC_NODE_HOST=node-stage.qaprosoft.com
+export STF_PRIVATE_NODE_HOST=192.168.88.96
 
 export automation_name=XCUITest
 export appium_home=/usr/local/lib/node_modules/appium
