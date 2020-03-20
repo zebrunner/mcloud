@@ -13,39 +13,49 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * [License](#license)
 
 ## Software prerequisites
-* Install node 8.16.0.
-  Note: that's still a requirement of open stf. To install node 8 you can use [nvm](https://www.codementor.io/@mercurial/how-to-install-node-js-on-macos-sierra-mphz41ekk).
 * Install XCode 11.2
+* Make sure you have latest Appium compatible node version installed (13.11.0+) or install it using [nvm](http://npm.github.io/installation-setup-docs/installing/using-a-node-version-manager.html).
 * Install Appium 1.16.0+
-* brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
 
 ## iSTF components setup
+* Install node 8.17.0 using nvm. Make sure it is used by default for below operations!
+Note: 8.x node is still required by OpenSTF!
+* Install additional packages
+```
+brew install rethinkdb graphicsmagick zeromq protobuf yasm pkg-config
+```
 * Clone and build iSTF from sources
 ```
-git clone https://github.com/qaprosoft/stf
+git clone --single-branch --branch master https://github.com/qaprosoft/stf
 cd stf
 npm install
 npm link
 ```
 * 
 
-## iOS-slave mcloud setup
-* Clone mcloud and switch to ios-slave
+## iOS-slave MCloud setup
+* Clone mcloud ios-slave branch
 ```
-git clone https://github.com/qaprosoft/mcloud
+git clone --single-branch --branch ios-slave https://github.com/qaprosoft/mcloud
 cd mcloud
-git checkout ios-slave
-
 ```
 * Update devices.txt registering all whitelisted devices in it
 ```
-# DEVICE NAME    | TYPE      | VERSION| UDID                                     |APPIUM|  WDA  | MJPEG | IWDP  | STF_MIN | STF_MAX | DEVICE IP
+# DEVICE NAME    | TYPE      | VERSION| UDID                                     |APPIUM|  WDA  | MJPEG | IWDP  | STF_SCREEN | STF_APPIUM | DEVICE IP
 iPhone_7         | phone     | 12.3.1 | 48ert45492kjdfhgj896fea31c175f7ab97cbc19 | 4841 | 20001 | 20002 | 20003 |  7701   |  7710   | 192.168.88.250
 Phone_X1         | simulator | 12.3.1 | 7643aa9bd1638255f48ca6beac4285cae4f6454g | 4842 | 20011 | 20022 | 20023 |  7711   |  7720   | 192.168.88.251
 ```
-Note: For simulators DEVICE_IP is actual host ip address. Also we suggest
+Note: For simulators DEVICE_IP is actual host ip address.
 
-* Update set_selenium_properties.sh. Specify actual values for hubHost, hubPort and STF_PRIVATE_NODE_HOST values
+* Update set_selenium_properties.sh. Specify actual values for 
+  * STF_PUBLIC_HOST
+  * STF_PRIVATE_HOST
+  * WEBSOCKET_PROTOCOL
+  * WEB_PROTOCOL
+  * hubHost
+  * hubPort
+  * STF_PUBLIC_NODE_HOST
+  * STF_PRIVATE_NODE_HOST
 
 * Sign WebDriverAgent using your Dev Apple certificate and install WDA on each device manually
   * Open in XCode /usr/loca/lib/node_modules/appium/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj
