@@ -75,7 +75,7 @@ Note: we temporary hardcoded in startNodeSTF.sh extra items like STF_HOST, path 
   * WDA agent setup
   * STF agent setup
   
-Note: you can use [launchd](https://www.launchd.info/) functionality. Examples and README.txt with details can be found in MCLOUD_HOME/LauncgAgents folder
+Note: you can use [launchd](https://www.launchd.info/) functionality. Examples and README.txt with details can be found in MCLOUD_HOME/LaunchAgents folder
 
 ## License
 Code - [Apache Software License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
