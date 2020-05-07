@@ -25,15 +25,4 @@ echo generating ./nginx/conf.d/default.conf...
 sed 's/PUBLIC_IP/'$PUBLIC_IP'/g' ./nginx/conf.d/default.conf.original > ./nginx/conf.d/default.conf
 sed -i 's/PRIVATE_IP/'$PRIVATE_IP'/g' ./nginx/conf.d/default.conf
 
-
-if [[ ! -d stf-storage-temp ]]; then
-    echo creating stf-storage-temp folder...
-    mkdir stf-storage-temp
-fi
-
-if [[ ! -d rethinkdb ]]; then
-    echo creating rethinkdb folder...
-    mkdir rethinkdb
-fi
-
 echo Setup finished successfully using $HOST_NAME hostname.
