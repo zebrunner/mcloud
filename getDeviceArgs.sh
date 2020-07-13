@@ -39,5 +39,11 @@ export stf_screen_port=$(echo $stf_screen_port)
 stf_appium_port=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${stf_appium_port_position}`
 export stf_appium_port=$(echo $stf_appium_port)
 
-device_ip=`cat ${devices} | grep "$devicePattern" | cut -d '|' -f ${device_ip_position}`
+device_ip=""
+if [[ -f "${metaDataFolder}/${udid}.txt" ]]; then
+  device_ip=`cat ${metaDataFolder}/${udid}.txt`
+else
+  echo "getDeviceArgs.sh: unable to detect device_ip for ${name}!"
+fi
 export device_ip=$(echo $device_ip)
+

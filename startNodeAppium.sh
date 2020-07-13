@@ -8,6 +8,11 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 . ${selenium_home}/getDeviceArgs.sh $devicePattern
 
+if [ "${device_ip}" == "" ]; then
+  echo "Unable to detect ${name} device ip address! No sense to start Appium!" >> "${BASEDIR}/logs/${name}_appium.log"
+  exit -1
+fi
+
 ${selenium_home}/configgen.sh $udid > configs/$udid.json
 
 

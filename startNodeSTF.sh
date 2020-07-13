@@ -8,6 +8,11 @@ BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . ${BASEDIR}/set_selenium_properties.sh
 . ${selenium_home}/getDeviceArgs.sh $devicePattern
 
+if [ "${device_ip}" == "" ]; then
+  echo "Unable to detect ${name} device ip address! No sense to start STF!" >> "${BASEDIR}/logs/${name}_stf.log"
+  exit -1
+fi
+
 export PATH=/Users/build/.nvm/versions/node/v8.17.0/bin:$PATH
 
 #TODO: parametrize hardcoded path to stf cli

@@ -41,10 +41,6 @@ export iwdp_port_position=8
 export stf_screen_port_position=9
 export stf_appium_port_position=10
 
-export device_ip_position=11
-
-export stf_public_node_host_position=12
-
 if [ ! -d "${BASEDIR}/logs" ]; then
     mkdir "${BASEDIR}/logs"
 fi
