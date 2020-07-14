@@ -1,5 +1,2 @@
-docker-compose.yml
+.env
 variables.env
-nginx/conf.d/default.conf
-stf-storage-temp
-rethinkdb
