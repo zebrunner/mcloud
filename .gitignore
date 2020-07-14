@@ -1,4 +1,5 @@
 nohup.out
-configs
-logs
+logs/*
+configs/*
+metadata/*
 .DS_Store
