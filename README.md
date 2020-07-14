@@ -20,9 +20,9 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 ```
 git clone https://github.com/qaprosoft/mcloud
 cd ./mcloud
-./setup.sh demo.qaprosoft.com 192.168.88.10
+./setup.sh demo.qaprosoft.com
 ```
-<B>Note</B>: public ip and 80 http port should be accessible from user's browsers. Private ip should be used for internal services communication. Also to be able to connect to devices remotely range of ports should be opened (7400-7700).
+<B>Note</B>: public ip and 80 http port should be accessible from user's browsers. Also to be able to connect to devices remotely range of ports should be opened (7400-7700).
 * Setup Android provider using steps from [android-slave](https://github.com/qaprosoft/mcloud/tree/android-slave) branch
 * Setup iOS provider using steps from [ios-slave](https://github.com/qaprosoft/mcloud/tree/ios-slave) branch
 
@@ -31,13 +31,7 @@ cd ./mcloud
 * User ./start.sh to start all containers
 
 ## Usage
-* Open in your browser http://<PUBLIC_IP>, authenticate yourself based on preconfigured auth system and enjoy.
-
-## F.A.Q.
-1. Any steps to make screenshots and upload apk to device features workable?
-```
-sudo chmod -R a+rwx stf-storage-temp
-```
+* Open in your browser http://<PUBLIC_IP>/stf, authenticate yourself based on preconfigured auth system and enjoy.
 
 ## License
 Code - [Apache Software License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
