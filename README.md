@@ -32,7 +32,7 @@ cd ./mcloud
 
 ## Usage
 * SmartTestFarm url to manage connected Android and iOS devices: http://<PUBLIC_IP>/stf 
-> authenticate yourself based on preconfigured auth system and enjoy.
+  > authenticate yourself based on preconfigured auth system and enjoy.
 * Selenium Grid Console url: http://<PUBLIC_IP>:4444/grid/console
 
 ## License
