@@ -16,7 +16,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * Installed [docker-composer](https://docs.docker.com/compose/install/#install-compose)
 
 ## Initial setup
-* Clone repo and execute ./setup.sh shell script providing public and private addresses of the iSTF farm
+* Clone repo and execute ./setup.sh shell script providing public ip address or fully qualified domain name of the MCloud server
 ```
 git clone https://github.com/qaprosoft/mcloud
 cd ./mcloud
