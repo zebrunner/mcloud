@@ -44,10 +44,6 @@
       docker-compose --env-file ${BASEDIR}/.env -f ${BASEDIR}/docker-compose.yml down -v
     fi
 
-    if [[ -f ${BASEDIR}/docker-compose.yml.original ]]; then
-      mv ${BASEDIR}/docker-compose.yml.original ${BASEDIR}/docker-compose.yml
-    fi
-
     if [[ -f ${BASEDIR}/.env.original ]]; then
       mv ${BASEDIR}/.env.original ${BASEDIR}/.env
     fi
