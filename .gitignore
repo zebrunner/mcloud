@@ -1,2 +1,6 @@
-.env
-variables.env
+.env.bak
+variables.env.bak
+docker-compose.yml.bak
+.env.original
+variables.env.original
+docker-compose.yml.original

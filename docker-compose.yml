@@ -33,7 +33,7 @@ services:
 #    environment:
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
-     - "4444:4444"
+     - "4446:4444"
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
