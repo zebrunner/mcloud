@@ -15,7 +15,7 @@
       #make a backup of the original file
       cp ${BASEDIR}/variables.env ${BASEDIR}/variables.env.original
     fi
-    sed -i "s#http://localhost:80#${url}#g" ${BASEDIR}/variables.env
+    sed -i "s#http://localhost:8080#${url}#g" ${BASEDIR}/variables.env
     sed -i "s#localhost#${ZBR_HOSTNAME}#g" ${BASEDIR}/variables.env
   }
 
@@ -93,7 +93,7 @@
     local is_confirmed=0
     ZBR_PROTOCOL=http
     ZBR_HOSTNAME=$HOSTNAME
-    ZBR_PORT=80
+    ZBR_PORT=8080
 
     while [[ $is_confirmed -eq 0 ]]; do
       read -p "PROTOCOL [$ZBR_PROTOCOL]: " local_protocol
@@ -151,10 +151,6 @@ case "$1" in
 
         if [[ -z $ZBR_PROTOCOL || -z $ZBR_HOSTNAME || -z $ZBR_PORT ]]; then
           set_global_settings
-        else 
-          # use-case when reporting is configured from zebrunner server (community edition).
-          echo "TODO: we have to disable 80 port sharing for stf-proxy!"
-          sed -i 's/- "80:80"/#- "80:80"/g' ${BASEDIR}/docker-compose.yml
         fi
 
 	setup
