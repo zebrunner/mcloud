@@ -3,7 +3,6 @@
   setup() {
     # PREREQUISITES: valid values inside ZBR_PROTOCOL, ZBR_HOSTNAME and ZBR_PORT env vars!
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
-    echo url: $url
 
     if [[ ! -f ${BASEDIR}/.env.original ]]; then
       #make a backup of the original file
@@ -15,7 +14,7 @@
       #make a backup of the original file
       cp ${BASEDIR}/variables.env ${BASEDIR}/variables.env.original
     fi
-    sed -i "s#http://localhost:8080#${url}#g" ${BASEDIR}/variables.env
+    sed -i "s#http://localhost:8082#${url}#g" ${BASEDIR}/variables.env
     sed -i "s#localhost#${ZBR_HOSTNAME}#g" ${BASEDIR}/variables.env
   }
 

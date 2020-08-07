@@ -10,7 +10,7 @@ services:
     volumes:
     - "./configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro"
     ports:
-    - "8080:80"     # primary HTTP port
+    - "8082:80"     # primary HTTP port
     depends_on:
       - stf-app
     restart: always
