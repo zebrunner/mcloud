@@ -4,52 +4,52 @@
     # PREREQUISITES: valid values inside ZBR_PROTOCOL, ZBR_HOSTNAME and ZBR_PORT env vars!
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
 
-    if [[ ! -f ${BASEDIR}/.env.original ]]; then
+    if [[ ! -f .env.original ]]; then
       #make a backup of the original file
-      cp ${BASEDIR}/.env ${BASEDIR}/.env.original
+      cp .env .env.original
     fi
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" ${BASEDIR}/.env
+    sed -i "s#localhost#${ZBR_HOSTNAME}#g" .env
 
-    if [[ ! -f ${BASEDIR}/variables.env.original ]]; then
+    if [[ ! -f variables.env.original ]]; then
       #make a backup of the original file
-      cp ${BASEDIR}/variables.env ${BASEDIR}/variables.env.original
+      cp variables.env variables.env.original
     fi
-    sed -i "s#http://localhost:8082#${url}#g" ${BASEDIR}/variables.env
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" ${BASEDIR}/variables.env
+    sed -i "s#http://localhost:8082#${url}#g" variables.env
+    sed -i "s#localhost#${ZBR_HOSTNAME}#g" variables.env
   }
 
   start() {
     # create infra network only if not exist
     docker network inspect infra >/dev/null 2>&1 || docker network create infra
 
-    if [[ ! -f ${BASEDIR}/.disabled ]]; then
-      docker-compose --env-file ${BASEDIR}/.env -f ${BASEDIR}/docker-compose.yml up -d
+    if [[ ! -f .disabled ]]; then
+      docker-compose --env-file .env -f docker-compose.yml up -d
     fi
   }
 
   stop() {
-    if [[ ! -f ${BASEDIR}/.disabled ]]; then
-      docker-compose --env-file ${BASEDIR}/.env -f ${BASEDIR}/docker-compose.yml stop
+    if [[ ! -f .disabled ]]; then
+      docker-compose --env-file .env -f docker-compose.yml stop
     fi
   }
 
   down() {
-    if [[ ! -f ${BASEDIR}/.disabled ]]; then
-      docker-compose --env-file ${BASEDIR}/.env -f ${BASEDIR}/docker-compose.yml down
+    if [[ ! -f .disabled ]]; then
+      docker-compose --env-file .env -f docker-compose.yml down
     fi
   }
 
   shutdown() {
-    if [[ ! -f ${BASEDIR}/.disabled ]]; then
-      docker-compose --env-file ${BASEDIR}/.env -f ${BASEDIR}/docker-compose.yml down -v
+    if [[ ! -f .disabled ]]; then
+      docker-compose --env-file .env -f docker-compose.yml down -v
     fi
 
-    if [[ -f ${BASEDIR}/.env.original ]]; then
-      mv ${BASEDIR}/.env.original ${BASEDIR}/.env
+    if [[ -f .env.original ]]; then
+      mv .env.original .env
     fi
 
-    if [[ -f ${BASEDIR}/variables.env.original ]]; then
-      mv ${BASEDIR}/variables.env.original ${BASEDIR}/variables.env
+    if [[ -f variables.env.original ]]; then
+      mv variables.env.original variables.env
     fi
 
     echo "TODO: think about backup generation during shutdown."
