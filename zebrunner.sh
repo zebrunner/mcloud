@@ -68,11 +68,13 @@
   }
 
   restore() {
+    stop
     cp variables.env.bak variables.env
     cp .env.bak .env
 
     docker run --rm --volumes-from ftp -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/ftp.tar.gz"
     docker run --rm --volumes-from rethinkdb -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
+    down
   }
 
   echo_warning() {
