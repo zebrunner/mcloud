@@ -1,4 +1,5 @@
 .disabled
 *.bak
+*.tar.gz
 .env
 variables.env
