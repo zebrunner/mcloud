@@ -11,7 +11,7 @@ MCloud is dockerized QA infrastructure for remote web access to physical devices
 * Start everything using _./zebrunner.sh start_
 * SmartTestFarm Url: http://hostname/stf
 * Selenium Hub Url: http://demo:demo@hostname/mcloud/grid/console
-   > public ip and 80 http port should be accessible from user's browsers. Also to be able to connect to devices remotely range of ports should be opened (7400-7700).
+   > WebServer port (80) should be accessible from user's browsers. Also to be able to connect to devices remotely such range of ports should be opened (7400-7700).
 * Setup Android provider using steps from [android-slave](https://github.com/qaprosoft/mcloud/tree/android-slave) branch
 * Setup iOS provider using steps from [ios-slave](https://github.com/qaprosoft/mcloud/tree/ios-slave) branch
 
