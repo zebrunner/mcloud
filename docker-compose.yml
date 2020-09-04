@@ -57,7 +57,7 @@ services:
     restart: always
   stf-auth-mock:
     image: qaprosoft/stf:${TAG_STF}
-    container_name: stf-auth-mock
+    container_name: stf-auth
     env_file:
      - variables.env
     # http://${STF_HOST}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
