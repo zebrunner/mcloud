@@ -55,7 +55,7 @@ services:
     depends_on:
      - "rethinkdb"
     restart: always
-  stf-auth-mock:
+  stf-auth:
     image: qaprosoft/stf:${TAG_STF}
     container_name: stf-auth
     env_file:
