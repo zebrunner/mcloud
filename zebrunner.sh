@@ -78,8 +78,12 @@
   }
 
   version() {
-      source .env.original
-      echo "${TAG_STF}"
+    if [[ -f .disabled ]]; then
+      exit 0
+    fi
+
+    source .env.original
+    echo "${TAG_STF}"
   }
 
   echo_warning() {
