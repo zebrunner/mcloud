@@ -83,7 +83,7 @@
     fi
 
     source .env.original
-    echo "${TAG_STF}"
+    echo "MCloud - ${TAG_STF}"
   }
 
   echo_warning() {
