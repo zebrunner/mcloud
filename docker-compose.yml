@@ -34,6 +34,8 @@ services:
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
      - "4446:4444"
+    depends_on:
+     - stf-app
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
