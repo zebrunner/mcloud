@@ -57,9 +57,9 @@ services:
     depends_on:
      - "rethinkdb"
     restart: always
-  stf-auth-mock:
+  stf-auth:
     image: qaprosoft/stf:${TAG_STF}
-    container_name: stf-auth-mock
+    container_name: stf-auth
     env_file:
      - variables.env
     # http://${STF_HOST}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
