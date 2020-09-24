@@ -82,7 +82,7 @@
       exit 0
     fi
 
-    source .env.original
+    source .env
     echo "mcloud: ${TAG_STF}"
   }
 
@@ -110,7 +110,7 @@
       	  shutdown       Stop and remove container, clear volumes
       	  backup         Backup container
       	  restore        Restore container
-          version        Version of container"
+      	  version        Version of container"
       echo_telegram
       exit 0
   }
