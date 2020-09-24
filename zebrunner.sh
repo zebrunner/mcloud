@@ -77,6 +77,15 @@
     down
   }
 
+  version() {
+    if [[ -f .disabled ]]; then
+      exit 0
+    fi
+
+    source .env
+    echo "mcloud: ${TAG_STF}"
+  }
+
   echo_warning() {
     echo "
       WARNING! $1"
@@ -100,7 +109,8 @@
       	  down           Stop and remove container
       	  shutdown       Stop and remove container, clear volumes
       	  backup         Backup container
-      	  restore        Restore container"
+      	  restore        Restore container
+      	  version        Version of container"
       echo_telegram
       exit 0
   }
@@ -138,6 +148,9 @@ case "$1" in
         ;;
     restore)
         restore
+        ;;
+    version)
+        version
         ;;
     --help | -h)
         echo_help
