@@ -60,6 +60,10 @@
   }
 
   backup() {
+    if [[ -f .disabled ]]; then
+      exit 0
+    fi
+
     cp variables.env variables.env.bak
     cp .env .env.bak
 
@@ -68,6 +72,10 @@
   }
 
   restore() {
+    if [[ -f .disabled ]]; then
+      exit 0
+    fi
+
     stop
     cp variables.env.bak variables.env
     cp .env.bak .env
