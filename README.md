@@ -12,7 +12,7 @@ Zebrunner Device Farm is dockerized QA infrastructure for remote web access to p
 * SmartTestFarm Url: http://hostname/stf
 * Selenium Hub Url: http://demo:demo@hostname/mcloud/grid/console
    > WebServer port (80) should be accessible from user's browsers. Also to be able to connect to devices remotely such range of ports should be opened (7400-7700).
-* Setup Android provider using steps from [android-slave](https://github.com/qaprosoft/mcloud/tree/android-slave) branch
+* Setup Android provider using steps from [mcloud-android](https://github.com/zebrunner/mcloud-android/blob/master/README.md)
 * Setup iOS provider using steps from [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md)
 
 ## License
