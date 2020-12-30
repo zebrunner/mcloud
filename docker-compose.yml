@@ -14,17 +14,6 @@ services:
     depends_on:
       - stf-app
     restart: always
-  ftp:
-    image: "qaprosoft/pure-ftpd:${TAG_FTP}"
-    container_name: ftp
-    env_file:
-     - variables.env
-    volumes:
-     - "data-volume:/share/ftp:rw"
-    ports:
-     - "21:21"
-     - "30000-30009:30000-30009"
-    restart: always
   selenium-hub:
     image: "zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
@@ -180,6 +169,5 @@ services:
      - "rethinkdb"
     restart: always
 volumes:
-  data-volume:
   stf-db-volume:
   stf-temp-volume:

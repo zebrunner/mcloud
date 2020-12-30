@@ -67,7 +67,6 @@
     cp variables.env variables.env.bak
     cp .env .env.bak
 
-    docker run --rm --volumes-from ftp -v $(pwd)/backup:/var/backup "ubuntu" tar -czvf /var/backup/ftp.tar.gz /share/ftp
     docker run --rm --volumes-from rethinkdb -v $(pwd)/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
 
@@ -80,7 +79,6 @@
     cp variables.env.bak variables.env
     cp .env.bak .env
 
-    docker run --rm --volumes-from ftp -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/ftp.tar.gz"
     docker run --rm --volumes-from rethinkdb -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
   }
