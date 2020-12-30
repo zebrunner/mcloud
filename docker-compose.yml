@@ -26,8 +26,8 @@ services:
      - "30000-30009:30000-30009"
     restart: always
   selenium-hub:
-    image: "qaprosoft/selenium-hub:${TAG_SELENIUM_HUB}"
-    container_name: selenium-hub
+    image: "zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
+    container_name: mcloud-grid
     env_file:
      - variables.env
     environment:
@@ -38,8 +38,6 @@ services:
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
      - "4446:4444"
-    depends_on:
-     - stf-app
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
