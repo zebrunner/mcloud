@@ -14,7 +14,7 @@ services:
     depends_on:
       - stf-app
     restart: always
-  selenium-hub:
+  mcloud-grid:
     image: "zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
     env_file:
