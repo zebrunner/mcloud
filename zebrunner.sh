@@ -5,18 +5,18 @@
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
 
     cp .env.original .env
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" .env
+    replace .env "localhost" "${ZBR_HOSTNAME}"
 
     cp variables.env.original variables.env
-    sed -i "s#http://localhost:8082#${url}#g" variables.env
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" variables.env
+    replace variables.env "http://localhost:8082" "${url}"
+    replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
     if [[ $ZBR_MINIO_ENABLED -eq 0 ]]; then
       # use case with AWS S3
-      sed -i "s#S3_REGION=us-east-1#S3_REGION=${ZBR_STORAGE_REGION}#g" variables.env
-      sed -i "s#S3_ENDPOINT=http://minio:9000#S3_ENDPOINT=${ZBR_STORAGE_ENDPOINT_PROTOCOL}://${ZBR_STORAGE_ENDPOINT_HOST}#g" variables.env
-      sed -i "s#S3_BUCKET=zebrunner#S3_BUCKET=${ZBR_STORAGE_BUCKET}#g" variables.env
-      sed -i "s#S3_ACCESS_KEY_ID=zebrunner#S3_ACCESS_KEY_ID=${ZBR_STORAGE_ACCESS_KEY}#g" variables.env
+      replace variables.env "S3_REGION=us-east-1" "S3_REGION=${ZBR_STORAGE_REGION}"
+      replace variables.env "S3_ENDPOINT=http://minio:9000" "S3_ENDPOINT=${ZBR_STORAGE_ENDPOINT_PROTOCOL}://${ZBR_STORAGE_ENDPOINT_HOST}"
+      replace variables.env "S3_BUCKET=zebrunner" "S3_BUCKET=${ZBR_STORAGE_BUCKET}"
+      replace variables.env "S3_ACCESS_KEY_ID=zebrunner" "S3_ACCESS_KEY_ID=${ZBR_STORAGE_ACCESS_KEY}"
       replace variables.env "S3_SECRET=J33dNyeTDj" "S3_SECRET=${ZBR_STORAGE_SECRET_KEY}"
     fi
 
