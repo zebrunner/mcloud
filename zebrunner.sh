@@ -5,11 +5,22 @@
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
 
     cp .env.original .env
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" .env
+    replace .env "localhost" "${ZBR_HOSTNAME}"
 
     cp variables.env.original variables.env
-    sed -i "s#http://localhost:8082#${url}#g" variables.env
-    sed -i "s#localhost#${ZBR_HOSTNAME}#g" variables.env
+    replace variables.env "http://localhost:8082" "${url}"
+    replace variables.env "localhost" "${ZBR_HOSTNAME}"
+
+    if [[ $ZBR_MINIO_ENABLED -eq 0 ]]; then
+      # use case with AWS S3
+      replace variables.env "S3_REGION=us-east-1" "S3_REGION=${ZBR_STORAGE_REGION}"
+      replace variables.env "S3_ENDPOINT=http://minio:9000" "S3_ENDPOINT=${ZBR_STORAGE_ENDPOINT_PROTOCOL}://${ZBR_STORAGE_ENDPOINT_HOST}"
+      replace variables.env "S3_BUCKET=zebrunner" "S3_BUCKET=${ZBR_STORAGE_BUCKET}"
+      replace variables.env "S3_ACCESS_KEY_ID=zebrunner" "S3_ACCESS_KEY_ID=${ZBR_STORAGE_ACCESS_KEY}"
+      replace variables.env "S3_SECRET=J33dNyeTDj" "S3_SECRET=${ZBR_STORAGE_SECRET_KEY}"
+      replace variables.env "S3_TENANT=" "S3_TENANT=${ZBR_STORAGE_TENANT}"
+    fi
+
   }
 
   shutdown() {
@@ -67,7 +78,6 @@
     cp variables.env variables.env.bak
     cp .env .env.bak
 
-    docker run --rm --volumes-from ftp -v $(pwd)/backup:/var/backup "ubuntu" tar -czvf /var/backup/ftp.tar.gz /share/ftp
     docker run --rm --volumes-from rethinkdb -v $(pwd)/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
 
@@ -80,7 +90,6 @@
     cp variables.env.bak variables.env
     cp .env.bak .env
 
-    docker run --rm --volumes-from ftp -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/ftp.tar.gz"
     docker run --rm --volumes-from rethinkdb -v $(pwd)/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
   }
@@ -122,6 +131,26 @@
       echo_telegram
       exit 0
   }
+
+  replace() {
+    #TODO: https://github.com/zebrunner/zebrunner/issues/328 organize debug logging for setup/replace
+    file=$1
+    #echo "file: $file"
+    content=$(<$file) # read the file's content into
+    #echo "content: $content"
+
+    old=$2
+    #echo "old: $old"
+
+    new=$3
+    #echo "new: $new"
+    content=${content//"$old"/$new}
+
+    #echo "content: $content"
+
+    printf '%s' "$content" >$file    # write new content to disk
+  }
+
 
 BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd ${BASEDIR}

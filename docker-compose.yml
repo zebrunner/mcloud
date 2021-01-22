@@ -14,20 +14,9 @@ services:
     depends_on:
       - stf-app
     restart: always
-  ftp:
-    image: "qaprosoft/pure-ftpd:${TAG_FTP}"
-    container_name: ftp
-    env_file:
-     - variables.env
-    volumes:
-     - "data-volume:/share/ftp:rw"
-    ports:
-     - "21:21"
-     - "30000-30009:30000-30009"
-    restart: always
-  selenium-hub:
-    image: "qaprosoft/selenium-hub:${TAG_SELENIUM_HUB}"
-    container_name: selenium-hub
+  mcloud-grid:
+    image: "zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
+    container_name: mcloud-grid
     env_file:
      - variables.env
     environment:
@@ -38,8 +27,6 @@ services:
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
      - "4446:4444"
-    depends_on:
-     - stf-app
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
@@ -53,7 +40,7 @@ services:
     command: rethinkdb --bind all --cache-size 8192 --no-update-check
     restart: always
   stf-app:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-app
     env_file:
      - variables.env
@@ -62,7 +49,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-auth:
-    image: qaprosoft/stf:${TAG_STF}
+    image: zebrunner/stf:${TAG_STF}
     container_name: stf-auth
     env_file:
      - variables.env
@@ -72,7 +59,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-migrate:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-migrate
     env_file:
      - variables.env
@@ -80,7 +67,7 @@ services:
     depends_on:
      - "rethinkdb"
   stf-processor001:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-processor001
     env_file:
      - variables.env
@@ -89,7 +76,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-reaper:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-reaper
     env_file:
      - variables.env
@@ -98,7 +85,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-plugin-apk:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-plugin-apk
     env_file:
      - variables.env
@@ -107,7 +94,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-plugin-image:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-plugin-image
     env_file:
      - variables.env
@@ -118,7 +105,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-temp:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-temp
     env_file:
      - variables.env
@@ -129,7 +116,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-triproxy-app:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-triproxy-app
     env_file:
      - variables.env
@@ -142,7 +129,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-triproxy-dev:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-triproxy-dev
     env_file:
      - variables.env
@@ -155,7 +142,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-websocket:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-websocket
     env_file:
      - variables.env
@@ -164,7 +151,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-api:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-api
     env_file:
      - variables.env
@@ -173,7 +160,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-api-groups-engine:
-    image: "qaprosoft/stf:${TAG_STF}"
+    image: "zebrunner/stf:${TAG_STF}"
     container_name: stf-api-groups-engine
     env_file:
      - variables.env
@@ -182,6 +169,5 @@ services:
      - "rethinkdb"
     restart: always
 volumes:
-  data-volume:
   stf-db-volume:
   stf-temp-volume:
