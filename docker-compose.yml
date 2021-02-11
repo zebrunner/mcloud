@@ -33,8 +33,6 @@ services:
     container_name: rethinkdb
     ports:
      - "28015:28015"
-    env_file:
-     - variables.env
     volumes:
      - "stf-db-volume:/data"
     command: rethinkdb --bind all --cache-size 8192 --no-update-check
