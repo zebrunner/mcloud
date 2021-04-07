@@ -1,7 +1,7 @@
 Zebrunner Device Farm
 ==================
 
-Zebrunner Device Farm is dockerized QA infrastructure for remote web access to physical devices (Android and iOS) including phones, tablets and TV. Is is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/zebrunner) ecosystem and can be used as for manual so for automation.
+Zebrunner Device Farm is dockerized QA infrastructure for remote web access to physical devices (Android and iOS) including phones, tablets and TV. It is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/zebrunner) ecosystem and can be used as for manual so for automation.
 
 * It is built on the top of [OpenSTF](https://github.com/openstf) with supporting iOS devices remote control.
 
