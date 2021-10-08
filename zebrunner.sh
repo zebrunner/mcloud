@@ -1,11 +1,23 @@
 #!/bin/bash
 
+# shellcheck disable=SC1091
+source patch/utility.sh
+
   setup() {
+    if [[ ! $ZBR_INSTALLER -eq 1 ]]; then
+      set_global_settings
+      ZBR_MINIO_ENABLED=1
+    fi
+
     # PREREQUISITES: valid values inside ZBR_PROTOCOL, ZBR_HOSTNAME and ZBR_PORT env vars!
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
 
     cp .env.original .env
     replace .env "localhost" "${ZBR_HOSTNAME}"
+    if [[ ! $ZBR_INSTALLER -eq 1 ]]; then
+      #replace default 8082 port only for independent setup
+      replace .env "8082" "${ZBR_PORT}"
+    fi
 
     cp variables.env.original variables.env
     replace variables.env "http://localhost:8082" "${url}"
@@ -104,6 +116,40 @@
     echo "mcloud: ${TAG_STF}"
   }
 
+  set_global_settings() {
+    # Setup global settings: protocol, hostname and port
+    echo "Zebrunner MCloud General Settings"
+    local is_confirmed=0
+    if [[ -z $ZBR_HOSTNAME ]]; then
+      ZBR_HOSTNAME=$HOSTNAME
+    fi
+
+    while [[ $is_confirmed -eq 0 ]]; do
+      read -r -p "Protocol [$ZBR_PROTOCOL]: " local_protocol
+      if [[ ! -z $local_protocol ]]; then
+        ZBR_PROTOCOL=$local_protocol
+      fi
+
+      read -r -p "Fully qualified domain name (ip) [$ZBR_HOSTNAME]: " local_hostname
+      if [[ ! -z $local_hostname ]]; then
+        ZBR_HOSTNAME=$local_hostname
+      fi
+
+      read -r -p "Port [$ZBR_PORT]: " local_port
+      if [[ ! -z $local_port ]]; then
+        ZBR_PORT=$local_port
+      fi
+
+      confirm "Zebrunner MCloud URL: $ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT/stf" "Continue?" "y"
+      is_confirmed=$?
+    done
+
+    export ZBR_PROTOCOL=$ZBR_PROTOCOL
+    export ZBR_HOSTNAME=$ZBR_HOSTNAME
+    export ZBR_PORT=$ZBR_PORT
+
+  }
+
   echo_warning() {
     echo "
       WARNING! $1"
@@ -157,12 +203,7 @@ cd "${BASEDIR}" || exit
 
 case "$1" in
     setup)
-        if [[ $ZBR_INSTALLER -eq 1 ]]; then
-          setup
-        else
-          echo_warning "Setup procedure is supported only as part of Zebrunner Server (Community Edition)!"
-          echo_telegram
-        fi
+        setup
         ;;
     start)
 	start
