@@ -5,7 +5,7 @@
     local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
 
     cp .env.original .env
-    replace .env "localhost" "${ZBR_HOSTNAME}"
+    replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
 
     cp variables.env.original variables.env
     replace variables.env "http://localhost:8082" "${url}"
