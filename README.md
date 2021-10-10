@@ -1,7 +1,7 @@
 Zebrunner Device Farm
 ==================
 
-Zebrunner Device Farm is a dockerized QA infrastructure for remote web access to physical devices (Android and iOS) including phones, tablets and TV. It is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/zebrunner) ecosystem and can be used both for manual and automation testing.
+Zebrunner Device Farm is a dockerized QA infrastructure for remote web access to physical devices (Android and iOS) including phones, tablets and TV. It is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/community-edition) ecosystem and can be used both for manual and automation testing.
 
 * It is built on top of [OpenSTF](https://github.com/openstf) and supports iOS devices remote control.
 
@@ -11,7 +11,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 </p>
 
 ## Usage
-* Follow [installation guide](https://zebrunner.github.io/zebrunner/install-guide/) to set up the Zebrunner Community Edition
+* Follow [installation guide](https://zebrunner.github.io/community-edition/install-guide/) to set up the Zebrunner Community Edition
   > Make sure to provide the valid protocol, hostname, port, and enable MCloud sub-component
 * Start everything using _./zebrunner.sh start_
 * SmartTestFarm URL: http://hostname/stf
@@ -21,7 +21,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 * Setup iOS provider using the steps from [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md)
 
 ## Documentation and free support
-* [Zebrunner CE](https://zebrunner.github.io/zebrunner) 
+* [Zebrunner CE](https://zebrunner.github.io/community-edition) 
 * [Zebrunner Reporting](https://zebrunner.com/documentation) 
 * [Telegram Channel](https://t.me/zebrunner)
  
