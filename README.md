@@ -15,11 +15,11 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
    ```
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
    ```
-> Provide valid protocol, hostname and port
+   > Provide valid protocol, hostname and port
 2. Start services `./zebrunner.sh start`
 3. Open `http://hostname:80/stf`
 4. Login using any name/email values as auth-mock is configured by default
-> Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
+   > Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
 
 ## Documentation and free support
