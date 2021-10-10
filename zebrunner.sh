@@ -1,11 +1,29 @@
 #!/bin/bash
 
+# shellcheck disable=SC1091
+source patch/utility.sh
+
   setup() {
-    # PREREQUISITES: valid values inside ZBR_PROTOCOL, ZBR_HOSTNAME and ZBR_PORT env vars!
-    local url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
+    # load default interactive installer settings
+    source backup/settings.env.original
+
+    # load ./backup/settings.env if exist to declare ZBR* vars from previous run!
+    if [[ -f backup/settings.env ]]; then
+      source backup/settings.env
+    fi
+
+    if [[ $ZBR_INSTALLER -eq 1 ]]; then
+      # Zebrunner CE installer
+      url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
+      ZBR_MCLOUD_PORT=8082
+    else
+      set_mcloud_settings
+      url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_MCLOUD_PORT"
+    fi
 
     cp .env.original .env
     replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
+    replace .env "STF_PORT=8082" "STF_PORT=$ZBR_MCLOUD_PORT"
 
     cp variables.env.original variables.env
     replace variables.env "http://localhost:8082" "${url}"
@@ -21,6 +39,8 @@
       replace variables.env "S3_TENANT=" "S3_TENANT=${ZBR_STORAGE_TENANT}"
     fi
 
+    # export all ZBR* variables to save user input
+    export_settings
   }
 
   shutdown() {
@@ -31,6 +51,7 @@
 
     docker-compose --env-file .env -f docker-compose.yml down -v
 
+    rm -f backup/settings.env
     rm -f .env
     rm -f variables.env
   }
@@ -78,6 +99,7 @@
 
     cp variables.env variables.env.bak
     cp .env .env.bak
+    cp backup/settings.env backup/settings.env.bak
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
@@ -90,6 +112,7 @@
     stop
     cp variables.env.bak variables.env
     cp .env.bak .env
+    cp backup/settings.env.bak backup/settings.env
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
@@ -102,6 +125,39 @@
 
     source .env
     echo "mcloud: ${TAG_STF}"
+  }
+
+  set_mcloud_settings() {
+    echo "Zebrunner MCloud Settings"
+    local is_confirmed=0
+    if [[ -z $ZBR_HOSTNAME ]]; then
+      ZBR_HOSTNAME=`curl -s ifconfig.me`
+    fi
+
+    while [[ $is_confirmed -eq 0 ]]; do
+      read -r -p "Protocol [$ZBR_PROTOCOL]: " local_protocol
+      if [[ ! -z $local_protocol ]]; then
+        ZBR_PROTOCOL=$local_protocol
+      fi
+
+      read -r -p "Fully qualified domain name (ip) [$ZBR_HOSTNAME]: " local_hostname
+      if [[ ! -z $local_hostname ]]; then
+        ZBR_HOSTNAME=$local_hostname
+      fi
+
+      read -r -p "Port [$ZBR_MCLOUD_PORT]: " local_port
+      if [[ ! -z $local_port ]]; then
+        ZBR_MCLOUD_PORT=$local_port
+      fi
+
+      confirm "Zebrunner MCloud STF URL: $ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_MCLOUD_PORT/stf" "Continue?" "y"
+      is_confirmed=$?
+    done
+
+    export ZBR_PROTOCOL=$ZBR_PROTOCOL
+    export ZBR_HOSTNAME=$ZBR_HOSTNAME
+    export ZBR_MCLOUD_PORT=$ZBR_MCLOUD_PORT
+
   }
 
   echo_warning() {
@@ -157,12 +213,7 @@ cd "${BASEDIR}" || exit
 
 case "$1" in
     setup)
-        if [[ $ZBR_INSTALLER -eq 1 ]]; then
-          setup
-        else
-          echo_warning "Setup procedure is supported only as part of Zebrunner Server (Community Edition)!"
-          echo_telegram
-        fi
+        setup
         ;;
     start)
 	start
