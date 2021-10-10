@@ -15,7 +15,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
   > Make sure to provide the valid protocol, hostname, port, and enable MCloud sub-component
 * Start everything using _./zebrunner.sh start_
 * SmartTestFarm URL: http://hostname/stf
-* Selenium Hub URL: http://demo:demo@hostname/mcloud/grid/console
+* Selenium Hub URL: http://hostname/mcloud/grid/console
    > WebServer port (80) should be accessible from users' browsers. Moreover, to be able to connect to the devices remotely, the following range of ports should be opened (7400-7700) for users' connect.
 * Setup Android provider using the steps from [mcloud-android](https://github.com/zebrunner/mcloud-android/blob/master/README.md)
 * Setup iOS provider using the steps from [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md)
