@@ -65,12 +65,10 @@ source patch/utility.sh
     # create infra network only if not exist
     docker network inspect infra >/dev/null 2>&1 || docker network create infra
 
-    if [[ ! -f variables.env ]]; then
-      cp variables.env.original variables.env
-    fi
-
     if [[ ! -f .env ]]; then
-      cp .env.original .env
+      # need proceed with setup steps in advance!
+      setup
+      exit -1
     fi
 
     docker-compose --env-file .env -f docker-compose.yml up -d
