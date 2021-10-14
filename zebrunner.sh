@@ -4,19 +4,19 @@
 source patch/utility.sh
 
   setup() {
-    # load default interactive installer settings
-    source backup/settings.env.original
-
-    # load ./backup/settings.env if exist to declare ZBR* vars from previous run!
-    if [[ -f backup/settings.env ]]; then
-      source backup/settings.env
-    fi
-
     if [[ $ZBR_INSTALLER -eq 1 ]]; then
       # Zebrunner CE installer
       url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
       ZBR_MCLOUD_PORT=8082
     else
+      # load default interactive installer settings
+      source backup/settings.env.original
+
+      # load ./backup/settings.env if exist to declare ZBR* vars from previous run!
+      if [[ -f backup/settings.env ]]; then
+        source backup/settings.env
+      fi
+
       set_mcloud_settings
       url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_MCLOUD_PORT"
     fi
