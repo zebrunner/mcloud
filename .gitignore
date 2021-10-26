@@ -1,3 +1,4 @@
+backup/settings.env
 .disabled
 *.bak
 *.tar.gz

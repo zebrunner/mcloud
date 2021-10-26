@@ -8,9 +8,10 @@ services:
     image: "nginx:${TAG_NGINX}"
     container_name: stf-proxy
     volumes:
-    - "./configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro"
+     - ./configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+     - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
     ports:
-    - "8082:80"     # primary HTTP port
+    - "${STF_PORT}:80"     # primary HTTP port
     depends_on:
       - stf-app
     restart: always
@@ -42,7 +43,7 @@ services:
     container_name: stf-app
     env_file:
      - variables.env
-    command: stf app --port 3000 --auth-url http://${STF_HOST}/auth/mock/ --websocket-url http://${STF_HOST}/
+    command: stf app --port 3000 --auth-url ${STF_URL}/auth/mock/ --websocket-url ${STF_URL}/
     depends_on:
      - "rethinkdb"
     restart: always
@@ -51,8 +52,8 @@ services:
     container_name: stf-auth
     env_file:
      - variables.env
-    # http://${STF_HOST}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
-    command: stf auth-mock --port 3000 --app-url http://${STF_HOST}/stf
+    # ${STF_URL}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
+    command: stf auth-mock --port 3000 --app-url ${STF_URL}/stf
     depends_on:
      - "rethinkdb"
     restart: always
@@ -87,7 +88,7 @@ services:
     container_name: stf-storage-plugin-apk
     env_file:
      - variables.env
-    command: stf storage-plugin-apk --port 3000 --storage-url http://${STF_HOST}/
+    command: stf storage-plugin-apk --port 3000 --storage-url ${STF_URL}/
     depends_on:
      - "rethinkdb"
     restart: always
@@ -96,7 +97,7 @@ services:
     container_name: stf-storage-plugin-image
     env_file:
      - variables.env
-    command: stf storage-plugin-image --port 3000 --storage-url http://${STF_HOST}/
+    command: stf storage-plugin-image --port 3000 --storage-url ${STF_URL}/
     env_file:
      - variables.env
     depends_on:
@@ -144,7 +145,7 @@ services:
     container_name: stf-websocket
     env_file:
      - variables.env
-    command: stf websocket --port 3000 --storage-url http://${STF_HOST}/ --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
+    command: stf websocket --port 3000 --storage-url ${STF_URL}/ --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
     depends_on:
      - "rethinkdb"
     restart: always

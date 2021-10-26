@@ -1,7 +1,7 @@
-Zebrunner Device Farm
+Zebrunner MCloud
 ==================
 
-Zebrunner Device Farm is a dockerized QA infrastructure for remote web access to physical devices (Android and iOS) including phones, tablets and TV. It is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/zebrunner) ecosystem and can be used both for manual and automation testing.
+Zebrunner MCloud is a Device Farm for automated tests executions (Appium) and remote web access by humans to physical devices (Android and iOS) including phones, tablets and TV. It is fully integrated into the [Zebrunner (Community Edition)](https://zebrunner.github.io/community-edition) ecosystem and can be used both for manual and automation testing.
 
 * It is built on top of [OpenSTF](https://github.com/openstf) and supports iOS devices remote control.
 
@@ -11,17 +11,20 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 </p>
 
 ## Usage
-* Follow [installation guide](https://zebrunner.github.io/zebrunner/install-guide/) to set up the Zebrunner Community Edition
-  > Make sure to provide the valid protocol, hostname, port, and enable MCloud sub-component
-* Start everything using _./zebrunner.sh start_
-* SmartTestFarm URL: http://hostname/stf
-* Selenium Hub URL: http://demo:demo@hostname/mcloud/grid/console
-   > WebServer port (80) should be accessible from users' browsers. Moreover, to be able to connect to the devices remotely, the following range of ports should be opened (7400-7700) for users' connect.
-* Setup Android provider using the steps from [mcloud-android](https://github.com/zebrunner/mcloud-android/blob/master/README.md)
-* Setup iOS provider using the steps from [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md)
+1. Clone [mcloud](https://github.com/zebrunner/mcloud) and setup:
+   ```
+   git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
+   ```
+   > Provide valid protocol, hostname and port
+2. Start services `./zebrunner.sh start`
+3. Open `http://hostname:80/stf`
+4. Login using any name/email values as auth-mock is configured by default
+
+> Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
+
 
 ## Documentation and free support
-* [Zebrunner CE](https://zebrunner.github.io/zebrunner) 
+* [Zebrunner CE](https://zebrunner.github.io/community-edition) 
 * [Zebrunner Reporting](https://zebrunner.com/documentation) 
 * [Telegram Channel](https://t.me/zebrunner)
  
