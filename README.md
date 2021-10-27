@@ -23,10 +23,12 @@ Zebrunner MCloud is a Device Farm for automated tests executions (Appium) and re
 
 > Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
-
 ## Documentation and free support
-* [Zebrunner CE](https://zebrunner.github.io/community-edition) 
-* [Zebrunner Reporting](https://zebrunner.com/documentation) 
+* [Zebrunner PRO](https://zebrunner.com)
+* [Zebrunner CE](https://zebrunner.github.io/community-edition)
+* [Zebrunner Reporting](https://zebrunner.com/documentation)
+* [Carina Guide](http://zebrunner.github.io/carina)
+* [Demo Project](https://github.com/zebrunner/carina-demo)
 * [Telegram Channel](https://t.me/zebrunner)
  
 ## License
