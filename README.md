@@ -20,6 +20,7 @@ Zebrunner MCloud is a Device Farm for automated tests executions (Appium) and re
 2. Start services `./zebrunner.sh start`
 3. Open `http://hostname:80/stf`
 4. Login using any name/email values as auth-mock is configured by default
+5. Setup servers with Android and iOS devices according to the [mcloud-android](https://github.com/zebrunner/mcloud-android/blob/master/README.md) and [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md) READMEs.
 
 > Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
