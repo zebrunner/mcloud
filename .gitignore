@@ -4,3 +4,4 @@ backup/settings.env
 *.tar.gz
 .env
 variables.env
+configuration/stf-proxy/nginx.conf
