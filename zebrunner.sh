@@ -101,7 +101,7 @@ source patch/utility.sh
     cp variables.env variables.env.bak
     cp .env .env.bak
     cp backup/settings.env backup/settings.env.bak
-    cp configuration/stf-proxy/nginx.conf backup/nginx.conf
+    cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
@@ -115,7 +115,7 @@ source patch/utility.sh
     cp variables.env.bak variables.env
     cp .env.bak .env
     cp backup/settings.env.bak backup/settings.env
-    cp backup/nginx.conf configuration/stf-proxy/nginx.conf
+    cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
