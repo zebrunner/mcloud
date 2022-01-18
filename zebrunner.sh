@@ -29,6 +29,8 @@ source patch/utility.sh
     replace variables.env "http://localhost:8082" "${url}"
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
+    replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
+    replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
 
     cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
     replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '$ZBR_HOSTNAME'"
@@ -164,6 +166,23 @@ source patch/utility.sh
     export ZBR_HOSTNAME=$ZBR_HOSTNAME
     export ZBR_MCLOUD_PORT=$ZBR_MCLOUD_PORT
 
+    is_confirmed=0
+    while [[ $is_confirmed -eq 0 ]]; do
+      read -r -p "Admin username [$ZBR_MCLOUD_ADMIN_NAME]: " local_admin_name
+      if [[ ! -z $local_admin_name ]]; then
+        ZBR_MCLOUD_ADMIN_NAME=$local_admin_name
+      fi
+
+      read -r -p "Admin user email [$ZBR_MCLOUD_ADMIN_EMAIL]: " local_admin_mail
+      if [[ ! -z $local_admin_mail ]]; then
+        ZBR_MCLOUD_ADMIN_EMAIL=$local_admin_mail
+      fi
+      confirm "Zebrunner MCloud admin username: $ZBR_MCLOUD_ADMIN_NAME; email: $ZBR_MCLOUD_ADMIN_EMAIL" "Continue?" "y"
+      is_confirmed=$?
+    done
+
+    export ZBR_MCLOUD_ADMIN_NAME=$ZBR_MCLOUD_ADMIN_NAME
+    export ZBR_MCLOUD_ADMIN_EMAIL=$ZBR_MCLOUD_ADMIN_EMAIL
   }
 
   echo_warning() {
