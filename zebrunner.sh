@@ -57,6 +57,7 @@ source patch/utility.sh
     rm -f .env
     rm -f variables.env
     rm -f configuration/stf-proxy/nginx.conf
+    rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   }
 
 
@@ -102,6 +103,7 @@ source patch/utility.sh
     cp .env .env.bak
     cp backup/settings.env backup/settings.env.bak
     cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
@@ -116,6 +118,7 @@ source patch/utility.sh
     cp .env.bak .env
     cp backup/settings.env.bak backup/settings.env
     cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
