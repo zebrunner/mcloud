@@ -131,6 +131,10 @@ http {
       rewrite /stf /;
     }
 
+    location /grid {
+        root   /usr/share/nginx/html;
+    }
+
     location / {
       proxy_set_header Host stf-proxy;
       set $upstream_app stf-app:3000;
