@@ -33,7 +33,7 @@ http {
     # MCloud
     location  ~ ^/mcloud/wd/(.*)$ {
       #auth_basic "Private MCloud Selenium Hub";
-      #auth_basic_user_file /usr/share/nginx/htpasswd/mcloud.htpasswd;
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
 
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/wd/$1;
@@ -59,7 +59,7 @@ http {
 
     location  ~ ^/mcloud/?(.*)$ {
       #auth_basic "Private MCloud Selenium Hub";
-      #auth_basic_user_file /usr/share/nginx/htpasswd/mcloud.htpasswd;
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
 
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/$1;

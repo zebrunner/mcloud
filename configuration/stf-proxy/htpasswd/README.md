@@ -7,5 +7,5 @@ htpasswd -bc mcloud.htpasswd <user> <password>
 2. Uncomment in `../nginx.conf` basic auth rules for mcloud
 ```
 auth_basic "Private MCloud Selenium Hub";
-auth_basic_user_file /usr/share/nginx/htpasswd/mcloud.htpasswd;
+auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
 ```
