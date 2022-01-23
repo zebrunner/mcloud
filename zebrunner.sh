@@ -26,6 +26,8 @@
     replace variables.env "http://localhost:8082" "${url}"
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
+    replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
+    replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
 
     cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
     replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '$ZBR_HOSTNAME'"
@@ -54,6 +56,7 @@
     rm -f .env
     rm -f variables.env
     rm -f configuration/stf-proxy/nginx.conf
+    rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   }
 
 
@@ -99,6 +102,7 @@
     cp .env .env.bak
     cp backup/settings.env backup/settings.env.bak
     cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
@@ -113,6 +117,7 @@
     cp .env.bak .env
     cp backup/settings.env.bak backup/settings.env
     cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
@@ -158,6 +163,23 @@
     export ZBR_HOSTNAME=$ZBR_HOSTNAME
     export ZBR_MCLOUD_PORT=$ZBR_MCLOUD_PORT
 
+    is_confirmed=0
+    while [[ $is_confirmed -eq 0 ]]; do
+      read -r -p "Admin username [$ZBR_MCLOUD_ADMIN_NAME]: " local_admin_name
+      if [[ ! -z $local_admin_name ]]; then
+        ZBR_MCLOUD_ADMIN_NAME=$local_admin_name
+      fi
+
+      read -r -p "Admin user email [$ZBR_MCLOUD_ADMIN_EMAIL]: " local_admin_mail
+      if [[ ! -z $local_admin_mail ]]; then
+        ZBR_MCLOUD_ADMIN_EMAIL=$local_admin_mail
+      fi
+      confirm "Zebrunner MCloud admin username: $ZBR_MCLOUD_ADMIN_NAME; email: $ZBR_MCLOUD_ADMIN_EMAIL" "Continue?" "y"
+      is_confirmed=$?
+    done
+
+    export ZBR_MCLOUD_ADMIN_NAME=$ZBR_MCLOUD_ADMIN_NAME
+    export ZBR_MCLOUD_ADMIN_EMAIL=$ZBR_MCLOUD_ADMIN_EMAIL
   }
 
   echo_warning() {
@@ -247,7 +269,6 @@ case "$1" in
         echo_help
         ;;
     *)
-        echo "Invalid option detected: $1"
         echo_help
         exit 1
         ;;

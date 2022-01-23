@@ -32,6 +32,9 @@ http {
 
     # MCloud
     location  ~ ^/mcloud/wd/(.*)$ {
+      #auth_basic "Private MCloud Selenium Hub";
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/wd/$1;
       proxy_http_version 1.1;
@@ -55,6 +58,9 @@ http {
     }
 
     location  ~ ^/mcloud/?(.*)$ {
+      #auth_basic "Private MCloud Selenium Hub";
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/$1;
       proxy_http_version 1.1;
@@ -123,6 +129,10 @@ http {
       # single rewrite procedure after first login
       proxy_set_header Host stf-proxy;
       rewrite /stf /;
+    }
+
+    location /grid {
+        root   /usr/share/nginx/html;
     }
 
     location / {
