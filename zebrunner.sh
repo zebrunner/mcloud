@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# shellcheck disable=SC1091
-source patch/utility.sh
-
   setup() {
     if [[ $ZBR_INSTALLER -eq 1 ]]; then
       # Zebrunner CE installer
@@ -213,6 +210,9 @@ source patch/utility.sh
 
 BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${BASEDIR}" || exit
+
+# shellcheck disable=SC1091
+source patch/utility.sh
 
 case "$1" in
     setup)
