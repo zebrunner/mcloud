@@ -28,7 +28,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 ## Components
 * [mcloud-agent](https://github.com/zebrunner/mcloud-agent) - Devices Farm agent for connecting physical Android and iOS devices including phones, tablets and TVs via Linux.
-* [mcloud-ios](https://github.com/zebrunner/mcloud-ios) - Devices Farm agent for connecting physical iOS devices including phones, tablets and TVs via Mac OS.
+* [mcloud-ios](https://github.com/zebrunner/mcloud-ios) - Devices Farm agent for connecting physical iOS devices including phones, tablets and TVs via Mac.
   > Support of simulators [coming soon](https://github.com/zebrunner/mcloud-ios/issues/87)
 * [mcloud-device](https://github.com/zebrunner/mcloud-device) Dockerized STF provider image for Android and iOS devices.
 * [mcloud-grid](https://github.com/zebrunner/mcloud-grid) Enhanced Selenium Grid for automating physical devices and emulators/simulators via Appium.
