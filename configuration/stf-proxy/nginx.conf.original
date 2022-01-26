@@ -14,6 +14,16 @@ http {
     listen 80;
     server_name stf-proxy;
 
+    # Uncomment below block to setup SSL on this NGiNX instance. make sure to put ssl.crt and ssl.key to nginx/ssl shared folder
+#    ssl_certificate /etc/nginx/ssl/ssl.crt;
+#    ssl_certificate_key /etc/nginx/ssl/ssl.key;
+#    ssl_session_timeout 5m;
+#    ssl_session_cache shared:SSL:10m;
+#    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+#    ssl_ciphers 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA';
+#    ssl_prefer_server_ciphers on;
+
+
     #to resolve issue with uploading huge files (Error 413)
     client_max_body_size 1024M;
 
@@ -22,6 +32,9 @@ http {
 
     # MCloud
     location  ~ ^/mcloud/wd/(.*)$ {
+      #auth_basic "Private MCloud Selenium Hub";
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/wd/$1;
       proxy_http_version 1.1;
@@ -45,6 +58,9 @@ http {
     }
 
     location  ~ ^/mcloud/?(.*)$ {
+      #auth_basic "Private MCloud Selenium Hub";
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/$1;
       proxy_http_version 1.1;
@@ -113,6 +129,10 @@ http {
       # single rewrite procedure after first login
       proxy_set_header Host stf-proxy;
       rewrite /stf /;
+    }
+
+    location /grid {
+        root   /usr/share/nginx/html;
     }
 
     location / {

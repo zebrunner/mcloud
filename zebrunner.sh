@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# shellcheck disable=SC1091
-source patch/utility.sh
-
   setup() {
     if [[ $ZBR_INSTALLER -eq 1 ]]; then
       # Zebrunner CE installer
@@ -29,15 +26,19 @@ source patch/utility.sh
     replace variables.env "http://localhost:8082" "${url}"
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
-    if [[ $ZBR_MINIO_ENABLED -eq 0 ]]; then
-      # use case with AWS S3
-      replace variables.env "S3_REGION=us-east-1" "S3_REGION=${ZBR_STORAGE_REGION}"
-      replace variables.env "S3_ENDPOINT=http://minio:9000" "S3_ENDPOINT=${ZBR_STORAGE_ENDPOINT_PROTOCOL}://${ZBR_STORAGE_ENDPOINT_HOST}"
-      replace variables.env "S3_BUCKET=zebrunner" "S3_BUCKET=${ZBR_STORAGE_BUCKET}"
-      replace variables.env "S3_ACCESS_KEY_ID=zebrunner" "S3_ACCESS_KEY_ID=${ZBR_STORAGE_ACCESS_KEY}"
-      replace variables.env "S3_SECRET=J33dNyeTDj" "S3_SECRET=${ZBR_STORAGE_SECRET_KEY}"
-      replace variables.env "S3_TENANT=" "S3_TENANT=${ZBR_STORAGE_TENANT}"
+    replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
+    replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
+
+    cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
+    replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '$ZBR_HOSTNAME'"
+    # declare ssl protocol for NGiNX default config
+    if [[ "$ZBR_PROTOCOL" == "https" ]]; then
+      replace configuration/stf-proxy/nginx.conf "listen 80" "listen 80 ssl"
+
+      # uncomment default ssl settings
+      replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
     fi
+
 
     # export all ZBR* variables to save user input
     export_settings
@@ -54,6 +55,8 @@ source patch/utility.sh
     rm -f backup/settings.env
     rm -f .env
     rm -f variables.env
+    rm -f configuration/stf-proxy/nginx.conf
+    rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   }
 
 
@@ -98,6 +101,8 @@ source patch/utility.sh
     cp variables.env variables.env.bak
     cp .env .env.bak
     cp backup/settings.env backup/settings.env.bak
+    cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
@@ -111,6 +116,8 @@ source patch/utility.sh
     cp variables.env.bak variables.env
     cp .env.bak .env
     cp backup/settings.env.bak backup/settings.env
+    cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
+    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
@@ -156,6 +163,23 @@ source patch/utility.sh
     export ZBR_HOSTNAME=$ZBR_HOSTNAME
     export ZBR_MCLOUD_PORT=$ZBR_MCLOUD_PORT
 
+    is_confirmed=0
+    while [[ $is_confirmed -eq 0 ]]; do
+      read -r -p "Admin username [$ZBR_MCLOUD_ADMIN_NAME]: " local_admin_name
+      if [[ ! -z $local_admin_name ]]; then
+        ZBR_MCLOUD_ADMIN_NAME=$local_admin_name
+      fi
+
+      read -r -p "Admin user email [$ZBR_MCLOUD_ADMIN_EMAIL]: " local_admin_mail
+      if [[ ! -z $local_admin_mail ]]; then
+        ZBR_MCLOUD_ADMIN_EMAIL=$local_admin_mail
+      fi
+      confirm "Zebrunner MCloud admin username: $ZBR_MCLOUD_ADMIN_NAME; email: $ZBR_MCLOUD_ADMIN_EMAIL" "Continue?" "y"
+      is_confirmed=$?
+    done
+
+    export ZBR_MCLOUD_ADMIN_NAME=$ZBR_MCLOUD_ADMIN_NAME
+    export ZBR_MCLOUD_ADMIN_EMAIL=$ZBR_MCLOUD_ADMIN_EMAIL
   }
 
   echo_warning() {
@@ -209,6 +233,9 @@ source patch/utility.sh
 BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${BASEDIR}" || exit
 
+# shellcheck disable=SC1091
+source patch/utility.sh
+
 case "$1" in
     setup)
         setup
@@ -242,7 +269,6 @@ case "$1" in
         echo_help
         ;;
     *)
-        echo "Invalid option detected: $1"
         echo_help
         exit 1
         ;;
