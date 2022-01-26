@@ -26,6 +26,14 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 > Follow installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
+## Components
+* [mcloud-agent](https://github.com/zebrunner/mcloud-agent) - Devices Farm agent for connecting physical Android and iOS devices including phones, tablets and TVs via Linux.
+* [mcloud-ios](https://github.com/zebrunner/mcloud-ios) - Devices Farm agent for connecting physical iOS devices including phones, tablets and TVs via Mac OS.
+  > Support of simulators [coming soon](https://github.com/zebrunner/mcloud-ios/issues/87)
+* [mcloud-device](https://github.com/zebrunner/mcloud-device) Dockerized STF provider image for Android and iOS devices.
+* [mcloud-grid](https://github.com/zebrunner/mcloud-grid) Enhanced Selenium Grid for automating physical devices and emulators/simulators via Appium.
+* [appium](https://github.com/zebrunner/appium) Enhanced Appium image with low-level video recording and local storage for ipa/apk artifacts.
+
 ## Documentation and free support
 * [Zebrunner PRO](https://zebrunner.com)
 * [Zebrunner CE](https://zebrunner.github.io/community-edition)
