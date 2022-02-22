@@ -21,8 +21,8 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 2. Start services `./zebrunner.sh start`
 3. Open `http://hostname:80/stf`
 4. Log in using any name/email values as auth-mock is configured by default
-5. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent/blob/master/README.md)
-   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios/blob/master/README.md) can be used to connect iOS devices via MacOS
+5. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
+   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) can be used to connect iOS devices via MacOS
 
 > Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
