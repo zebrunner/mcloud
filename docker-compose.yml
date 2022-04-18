@@ -27,6 +27,7 @@ services:
      - GRID_NEW_SESSION_WAIT_TIMEOUT=240000
      - GRID_TIMEOUT=60000
      - GRID_BROWSER_TIMEOUT=60000
+     - CHECK_APPIUM_STATUS=true
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
      - "4446:4444"
