@@ -125,7 +125,9 @@
     cp .env .env.bak
     cp backup/settings.env backup/settings.env.bak
     cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
-    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
+    if [[ -f configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
+      cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
+    fi
 
     if [[ -f configuration/stf-proxy/ssl/ssl.crt ]]; then
       cp configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak
@@ -147,7 +149,9 @@
     cp .env.bak .env
     cp backup/settings.env.bak backup/settings.env
     cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
-    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
+    if [[ -f configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak ]]; then
+      cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
+    fi
 
     if [[ -f configuration/stf-proxy/ssl/ssl.crt.bak ]]; then
       cp configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.crt
