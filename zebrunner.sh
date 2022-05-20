@@ -80,10 +80,10 @@
     rm -f configuration/stf-proxy/nginx.conf
     rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
 
-    if [[ ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+    if [[ -f configuration/stf-proxy/ssl/ssl.crt ]]; then
       rm -f configuration/stf-proxy/ssl/ssl.crt
     fi
-    if [[ ! -f configuration/stf-proxy/ssl/ssl.key ]]; then
+    if [[ -f configuration/stf-proxy/ssl/ssl.key ]]; then
       rm -f configuration/stf-proxy/ssl/ssl.key
     fi
 
