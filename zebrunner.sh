@@ -37,8 +37,17 @@
 
       # uncomment default ssl settings
       replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
-    fi
 
+      #136 made ssl.crt and ssl.key not under source control
+      if [[ ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+        echo "using self-signed certificate..."
+        cp configuration/stf-proxy/ssl/ssl.crt.original configuration/stf-proxy/ssl/ssl.crt
+      fi
+      if [[ ! -f configuration/stf-proxy/ssl/ssl.key ]]; then
+        echo "using self-signed key..."
+        cp configuration/stf-proxy/ssl/ssl.key.original configuration/stf-proxy/ssl/ssl.key
+      fi
+    fi
 
     # export all ZBR* variables to save user input
     export_settings
@@ -104,6 +113,13 @@
     cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
     cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
 
+    if [[ -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+      cp configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak
+    fi
+    if [[ -f configuration/stf-proxy/ssl/ssl.key ]]; then
+      cp configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak
+    fi
+
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
   }
 
@@ -118,6 +134,13 @@
     cp backup/settings.env.bak backup/settings.env
     cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
     cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
+
+    if [[ -f configuration/stf-proxy/ssl/ssl.crt.bak ]]; then
+      cp configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.crt
+    fi
+    if [[ -f configuration/stf-proxy/ssl/ssl.key.bak ]]; then
+      cp configuration/stf-proxy/ssl/ssl.key.bak configuration/stf-proxy/ssl/ssl.key
+    fi
 
     docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
     down
