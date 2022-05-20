@@ -27,10 +27,6 @@
     replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
     replace .env "STF_PORT=8082" "STF_PORT=$ZBR_MCLOUD_PORT"
 
-    #115 pregenerate secured data for tokens and secrets
-    ZBR_MCLOUD_AUTHKEY=$(random_string)
-    ZBR_MCLOUD_SECRET=$(random_string)
-
     cp variables.env.original variables.env
     replace variables.env "http://localhost:8082" "${url}"
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
@@ -38,9 +34,6 @@
     replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
     replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
     replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
-
-    replace variables.env "AUTHKEY=" "AUTHKEY=${ZBR_MCLOUD_AUTHKEY}"
-    replace variables.env "SECRET=password" "SECRET=${ZBR_MCLOUD_SECRET}"
 
     cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
     replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '$ZBR_HOSTNAME'"
