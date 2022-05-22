@@ -6,3 +6,5 @@ backup/settings.env
 variables.env
 configuration/stf-proxy/nginx.conf
 configuration/stf-proxy/htpasswd/mcloud.htpasswd
+configuration/stf-proxy/ssl/ssl.crt
+configuration/stf-proxy/ssl/ssl.key
