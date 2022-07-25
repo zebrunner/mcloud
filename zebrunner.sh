@@ -1,6 +1,12 @@
 #!/bin/bash
 
   setup() {
+    source variables.env.original
+    # load current variables.env if exist to read actual vars even manually updated!
+    if [[ -f variables.env ]]; then
+      source variables.env
+    fi
+
     if [[ $ZBR_INSTALLER -eq 1 ]]; then
       # Zebrunner CE installer
       url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
@@ -16,12 +22,6 @@
 
       set_mcloud_settings
       url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_MCLOUD_PORT"
-    fi
-
-    source variables.env.original
-    # load current variables.env if exist to read actual vars even manually updated!
-    if [[ -f variables.env ]]; then
-      source variables.env
     fi
 
     cp .env.original .env
