@@ -1,6 +1,12 @@
 #!/bin/bash
 
   setup() {
+    source variables.env.original
+    # load current variables.env if exist to read actual vars even manually updated!
+    if [[ -f variables.env ]]; then
+      source variables.env
+    fi
+
     if [[ $ZBR_INSTALLER -eq 1 ]]; then
       # Zebrunner CE installer
       url="$ZBR_PROTOCOL://$ZBR_HOSTNAME:$ZBR_PORT"
@@ -12,11 +18,6 @@
       # load ./backup/settings.env if exist to declare ZBR* vars from previous run!
       if [[ -f backup/settings.env ]]; then
         source backup/settings.env
-      fi
-
-      # load current variables.env if exist to read actual vars even manually updated!
-      if [[ -f variables.env ]]; then
-        source variables.env
       fi
 
       set_mcloud_settings
@@ -32,6 +33,15 @@
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
     replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
+    replace variables.env "SECRET=password" "SECRET=${SECRET}"
+    replace variables.env "AUTHKEY=" "AUTHKEY=${AUTHKEY}"
+    if [[ -z $ZBR_MCLOUD_ADMIN_NAME ]] && [[ ! -z $STF_ADMIN_NAME ]]; then
+      ZBR_MCLOUD_ADMIN_NAME=$STF_ADMIN_NAME
+    fi
+    if [[ -z $ZBR_MCLOUD_ADMIN_EMAIL ]] && [[ ! -z $STF_ADMIN_EMAIL ]]; then
+      ZBR_MCLOUD_ADMIN_EMAIL=$STF_ADMIN_EMAIL
+    fi
+    replace variables.env "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME=${STF_ROOT_GROUP_NAME}"
     replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
     replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
 
