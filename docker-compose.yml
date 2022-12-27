@@ -42,7 +42,7 @@ services:
     command: rethinkdb --bind all --cache-size 8192 --no-update-check
     restart: always
   stf-app:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-app
     env_file:
      - variables.env
@@ -51,7 +51,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-auth:
-    image: zebrunner/stf:${TAG_STF}
+    image: public.ecr.aws/zebrunner/stf:${TAG_STF}
     container_name: stf-auth
     env_file:
      - variables.env
@@ -61,7 +61,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-migrate:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-migrate
     env_file:
      - variables.env
@@ -69,7 +69,7 @@ services:
     depends_on:
      - "rethinkdb"
   stf-processor001:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-processor001
     env_file:
      - variables.env
@@ -78,7 +78,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-reaper:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-reaper
     env_file:
      - variables.env
@@ -87,7 +87,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-plugin-apk:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-plugin-apk
     env_file:
      - variables.env
@@ -96,7 +96,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-plugin-image:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-plugin-image
     env_file:
      - variables.env
@@ -107,7 +107,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-storage-temp:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-storage-temp
     env_file:
      - variables.env
@@ -118,7 +118,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-triproxy-app:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-triproxy-app
     env_file:
      - variables.env
@@ -131,7 +131,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-triproxy-dev:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-triproxy-dev
     env_file:
      - variables.env
@@ -144,7 +144,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-websocket:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-websocket
     env_file:
      - variables.env
@@ -153,7 +153,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-api:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-api
     env_file:
      - variables.env
@@ -162,7 +162,7 @@ services:
      - "rethinkdb"
     restart: always
   stf-api-groups-engine:
-    image: "zebrunner/stf:${TAG_STF}"
+    image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
     container_name: stf-api-groups-engine
     env_file:
      - variables.env
