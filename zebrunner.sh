@@ -70,6 +70,13 @@
   }
 
   shutdown() {
+
+    echo_warning "Shutdown will erase all settings and data for \"${BASEDIR}\"!"
+    confirm "" "      Do you want to continue?" "n"
+    if [[ $? -eq 0 ]]; then
+      exit
+    fi
+
     if [[ -f .disabled ]]; then
       rm -f .disabled
       exit 0 #no need to proceed as nothing was configured
