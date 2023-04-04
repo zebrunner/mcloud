@@ -71,10 +71,13 @@
 
   shutdown() {
 
-    echo_warning "Shutdown will erase all settings and data for \"${BASEDIR}\"!"
-    confirm "" "      Do you want to continue?" "n"
-    if [[ $? -eq 0 ]]; then
-      exit
+    if [ ! $SHUTDOWN_CONFIRMED -eq 1 ];then
+      # ask about confirmation if it is not confirmed in scope of CE
+      echo_warning "Shutdown will erase all settings and data for \"${BASEDIR}\"!"
+      confirm "" "      Do you want to continue?" "n"
+      if [[ $? -eq 0 ]]; then
+        exit
+      fi
     fi
 
     if [[ -f .disabled ]]; then
