@@ -71,7 +71,7 @@
 
   shutdown() {
 
-    if [ ! $SHUTDOWN_CONFIRMED -eq 1 ];then
+    if [ ! -z $SHUTDOWN_CONFIRMED ] && [ ! $SHUTDOWN_CONFIRMED -eq 1 ];then
       # ask about confirmation if it is not confirmed in scope of CE
       echo_warning "Shutdown will erase all settings and data for \"${BASEDIR}\"!"
       confirm "" "      Do you want to continue?" "n"
