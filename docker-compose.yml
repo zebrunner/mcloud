@@ -23,7 +23,7 @@ services:
     env_file:
      - variables.env
     environment:
-     - STF_URL=http://stf-api:3000/
+     - STF_URL=http://stf-api:3000
 #     4min session wait timeout as 5 min is configured on NGiNX
      - GRID_NEW_SESSION_WAIT_TIMEOUT=240000
      - GRID_TIMEOUT=60000
