@@ -47,7 +47,7 @@ services:
     container_name: stf-app
     env_file:
      - variables.env
-    command: stf app --port 3000 --auth-url ${STF_URL}/auth/mock/ --websocket-url ${STF_URL}/
+    command: stf app --port 3000 --auth-url ${STF_URL}/${AUTH_URL} --websocket-url ${STF_URL}/
     depends_on:
      - "rethinkdb"
     restart: always
@@ -57,7 +57,7 @@ services:
     env_file:
      - variables.env
     # ${STF_URL}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
-    command: stf auth-mock --port 3000 --app-url ${STF_URL}/stf
+    command: stf ${AUTH_SYSTEM} --port 3000 --app-url ${STF_URL}/stf
     depends_on:
      - "rethinkdb"
     restart: always

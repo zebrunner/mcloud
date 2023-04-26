@@ -28,6 +28,11 @@
     replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
     replace .env "STF_PORT=8082" "STF_PORT=$ZBR_MCLOUD_PORT"
 
+    if [[ $ZBR_INSTALLER -eq 1 ]]; then
+      replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-zebrunner"
+      replace .env "AUTH_URL=auth/mock/" "AUTH_URL=auth/zebrunner/"
+    fi
+
     cp variables.env.original variables.env
     replace variables.env "http://localhost:8082" "${url}"
     replace variables.env "localhost" "${ZBR_HOSTNAME}"
@@ -44,6 +49,12 @@
     replace variables.env "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME=${STF_ROOT_GROUP_NAME}"
     replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
     replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
+
+    if [[ $ZBR_INSTALLER -eq 1 ]]; then
+      #configure auth-zebrunner for mcloud
+      replace variables.env "ZEBRUNNER_LOGIN_URL=" "ZEBRUNNER_LOGIN_URL=${url}/api/iam/v1/auth/login"
+      replace variables.env "ZEBRUNNER_USERINFO_URL=" "ZEBRUNNER_USERINFO_URL=${url}/api/iam/v1/users"
+    fi
 
     cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
     replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '$ZBR_HOSTNAME'"
