@@ -102,8 +102,6 @@ services:
     env_file:
      - variables.env
     command: stf storage-plugin-image --port 3000 --storage-url ${STF_URL}/
-    env_file:
-     - variables.env
     depends_on:
      - "rethinkdb"
     restart: always
