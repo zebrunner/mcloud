@@ -18,7 +18,7 @@ services:
       - stf-app
     restart: always
   mcloud-grid:
-    image: "zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
+    image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
     env_file:
      - variables.env
