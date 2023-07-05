@@ -1,6 +1,28 @@
 #!/bin/bash
 
+  install_packages() {
+    local package_manager
+
+    # Check package manager 
+    if [[ -x "$(command -v apt-get)" ]]; then
+      package_manager="apt-get"
+    elif [[ -x "$(command -v yum)" ]]; then
+      package_manager="yum"
+    else
+      echo "Unsupported package manager. Please install Telnet, Ping, and nc manually."
+      exit 1
+    fi
+
+    # Install telnet, ping, and nc
+    echo "Installing Telnet, Ping, and nc..."
+    sudo "$package_manager" -y install telnet ping netcat
+
+  }
+
   setup() {
+
+    install_packages
+
     source variables.env.original
     # load current variables.env if exist to read actual vars even manually updated!
     if [[ -f variables.env ]]; then
