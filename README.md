@@ -43,7 +43,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 6. Paste generated token into the variables.env for `STF_TOKEN` var
 7. Restart services using `./zebrunner.sh restart`
 8. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
-   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) can be used to connect iOS devices via MacOS
+   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) is deprecated. Use the same can be [mcloud-agent](https://github.com/zebrunner/mcloud-agent) to setup on MacOS too!
 9. Use `http://hostname:80/mcloud/grid/console` to see connected devices and `http://hostname:80/mcloud/wd/hub` as Selenium/Appium hub url for test automation.
 
 > Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
