@@ -53,6 +53,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 * [mcloud-device](https://github.com/zebrunner/mcloud-device) - Dockerized STF provider image for Android and iOS devices.
 * [mcloud-grid](https://github.com/zebrunner/mcloud-grid) - Enhanced Selenium Grid for automating physical devices and emulators/simulators via Appium.
 * [appium](https://github.com/zebrunner/appium) - Enhanced Appium image with low-level video recording and local storage for ipa/apk artifacts.
+* [mcloud-redroid](https://github.com/zebrunner/mcloud-redroid) -  GPU accelerated Android In Cloud solution
 
 ## Documentation and free support
 * [Zebrunner PRO](https://zebrunner.com)
