@@ -26,8 +26,6 @@ services:
      - STF_URL=http://stf-api:3000
 #     10 min session wait timeout as 20 min is configured on NGiNX
      - GRID_NEW_SESSION_WAIT_TIMEOUT=600000
-     - GRID_TIMEOUT=60000
-     - GRID_BROWSER_TIMEOUT=60000
      - CHECK_APPIUM_STATUS=true
 #     - JAVA_OPTS=-Dselenium.LOGGER.level=FINEST
     ports:
