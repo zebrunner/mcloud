@@ -101,7 +101,7 @@
       fi
     fi
 
-    docker-compose --env-file .env -f docker-compose.yml down -v
+    docker compose down -v
 
     rm -f backup/settings.env
     rm -f .env
@@ -133,7 +133,7 @@
       exit -1
     fi
 
-    docker-compose --env-file .env -f docker-compose.yml up -d
+    docker compose up -d
   }
 
   stop() {
@@ -141,7 +141,7 @@
       exit 0
     fi
 
-    docker-compose --env-file .env -f docker-compose.yml stop
+    docker compose stop
   }
 
   down() {
@@ -149,7 +149,7 @@
       exit 0
     fi
 
-    docker-compose --env-file .env -f docker-compose.yml down
+    docker compose down
   }
 
   backup() {

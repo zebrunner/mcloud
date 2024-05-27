@@ -24,11 +24,11 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 ### Software requirements
 
-* Install docker ([Ubuntu 16.04](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-16-04), [Ubuntu 18.04](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-18-04), [Ubuntu 20.04](https://www.digitalocean.com/community/tutorials/how-to-install-and-use-docker-on-ubuntu-20-04), [Amazon Linux 2](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/docker-basics.html), [Redhat/Cent OS](https://www.cyberciti.biz/faq/install-use-setup-docker-on-rhel7-centos7-linux/))
-  
-* Install [docker-composer](https://docs.docker.com/compose/install/#install-compose) 1.25.5+
+* Installed Docker v19+
 
-* Install git 2.20.0+
+* Installed Docker compose plugin v2.20.3+
+
+* Installed git 2.20.0+
 
 ## Usage
 1. Clone [mcloud](https://github.com/zebrunner/mcloud) and set up:
@@ -43,7 +43,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 6. Paste generated token into the variables.env for `STF_TOKEN` var
 7. Restart services using `./zebrunner.sh restart`
 8. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
-   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) is deprecated. Use the same can be [mcloud-agent](https://github.com/zebrunner/mcloud-agent) to setup on MacOS too!
+   > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) is deprecated. Use the same [mcloud-agent](https://github.com/zebrunner/mcloud-agent) to setup on MacOS too!
 9. Use `http://hostname:80/mcloud/grid/console` to see connected devices and `http://hostname:80/mcloud/wd/hub` as Selenium/Appium hub url for test automation.
 
 > Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
