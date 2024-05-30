@@ -26,7 +26,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 * Installed Docker v19+
 
-* Installed Docker compose plugin v2.20.3+
+* Installed Docker compose as a plugin
 
 * Installed git 2.20.0+
 
