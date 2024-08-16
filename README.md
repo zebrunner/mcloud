@@ -5,7 +5,7 @@ Zebrunner MCloud is a Device Farm for automated test execution (Appium) and remo
 
 * It is built on top of [OpenSTF](https://github.com/openstf) and supports iOS devices remote control.
 
-Feel free to support the development with a [**donation**](https://www.paypal.com/donate?hosted_button_id=JLQ4U468TWQPS) for the next improvements.
+Feel free to support the development with a [**donation**](https://www.paypal.com/donate/?hosted_button_id=MNHYYCYHAKUVA) for the next improvements.
 
 <p align="center">
   <a href="https://zebrunner.com/"><img alt="Zebrunner" src="https://github.com/zebrunner/zebrunner/raw/master/docs/img/zebrunner_intro.png"></a>
