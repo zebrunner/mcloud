@@ -5,7 +5,7 @@ Zebrunner MCloud is a Device Farm for automated test execution (Appium) and remo
 
 * It is built on top of [OpenSTF](https://github.com/openstf) and supports iOS devices remote control.
 
-Feel free to support the development with a [**donation**](https://www.paypal.com/donate?hosted_button_id=JLQ4U468TWQPS) for the next improvements.
+Feel free to support the development with a [**donation**](https://www.paypal.com/donate/?hosted_button_id=MNHYYCYHAKUVA) for the next improvements.
 
 <p align="center">
   <a href="https://zebrunner.com/"><img alt="Zebrunner" src="https://github.com/zebrunner/zebrunner/raw/master/docs/img/zebrunner_intro.png"></a>
@@ -17,16 +17,16 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 |                         	| Requirements                                                     	|
 |:-----------------------:	|------------------------------------------------------------------	|
-| <b>Operating System</b> 	| Ubuntu 16.04 - 21.10<br>Linux CentOS 7+<br>Amazon Linux 2<br>MacOS|
+| <b>Operating System</b> 	| Ubuntu 24.04<br>Linux CentOS 7+<br>Amazon Linux 2<br>MacOS        |
 | <b>       CPU      </b> 	| 4+ Cores                                                         	|
 | <b>      Memory    </b> 	| 16 Gb RAM                                                        	|
 | <b>    Free space  </b> 	| SSD 32Gb+ of free space                                         	|
 
 ### Software requirements
 
-* Installed Docker v19+
+* Installed Docker v27+
 
-* Installed Docker compose plugin v2.20.3+
+* Installed Docker compose as a plugin
 
 * Installed git 2.20.0+
 
