@@ -17,14 +17,14 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 |                         	| Requirements                                                     	|
 |:-----------------------:	|------------------------------------------------------------------	|
-| <b>Operating System</b> 	| Ubuntu 16.04 - 21.10<br>Linux CentOS 7+<br>Amazon Linux 2<br>MacOS|
+| <b>Operating System</b> 	| Ubuntu 24.04<br>Linux CentOS 7+<br>Amazon Linux 2<br>MacOS        |
 | <b>       CPU      </b> 	| 4+ Cores                                                         	|
 | <b>      Memory    </b> 	| 16 Gb RAM                                                        	|
 | <b>    Free space  </b> 	| SSD 32Gb+ of free space                                         	|
 
 ### Software requirements
 
-* Installed Docker v19+
+* Installed Docker v27+
 
 * Installed Docker compose as a plugin
 
