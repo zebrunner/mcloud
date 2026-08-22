@@ -10,6 +10,11 @@ events {
 
 http {
 
+  # Hide the nginx version from the "Server" response header (SLV-009).
+  # This turns "Server: nginx/1.25.3" into "Server: nginx". To drop the header
+  # entirely you need the third-party headers-more module (more_clear_headers).
+  server_tokens off;
+
   server {
     listen 80;
     server_name stf-proxy;
@@ -87,30 +92,37 @@ http {
 
     location /auth/ {
       proxy_set_header Host stf-proxy;
+      # Tell STF the original scheme so the login sets a Secure ssid cookie over
+      # TLS (SLV-003). $scheme is "https" once setup switches to "listen 80 ssl".
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_auth stf-auth:3000;
       proxy_pass http://$upstream_auth;
     }
 
     location /api/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_api stf-api:3000;
       proxy_pass http://$upstream_api;
     }
 
     location /s/image/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_storage_plugin_image stf-storage-plugin-image:3000;
       proxy_pass http://$upstream_storage_plugin_image;
     }
 
     location /s/apk/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_storage_plugin_apk stf-storage-plugin-apk:3000;
       proxy_pass http://$upstream_storage_plugin_apk;
     }
 
     location /s/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       client_max_body_size 2048m;
       client_body_buffer_size 128k;
 
@@ -120,6 +132,7 @@ http {
 
     location /socket.io/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_websocket stf-websocket:3000;
       proxy_pass http://$upstream_websocket;
       proxy_http_version 1.1;
@@ -132,6 +145,7 @@ http {
     location /stf {
       # single rewrite procedure after first login
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       rewrite /stf /;
     }
 
@@ -141,6 +155,7 @@ http {
 
     location / {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_app stf-app:3000;
       proxy_pass http://$upstream_app;
     }
