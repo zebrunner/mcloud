@@ -10,6 +10,8 @@ events {
 
 http {
 
+  server_tokens off;
+
   server {
     listen 80;
     server_name stf-proxy;
@@ -87,30 +89,35 @@ http {
 
     location /auth/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_auth stf-auth:3000;
       proxy_pass http://$upstream_auth;
     }
 
     location /api/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_api stf-api:3000;
       proxy_pass http://$upstream_api;
     }
 
     location /s/image/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_storage_plugin_image stf-storage-plugin-image:3000;
       proxy_pass http://$upstream_storage_plugin_image;
     }
 
     location /s/apk/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_storage_plugin_apk stf-storage-plugin-apk:3000;
       proxy_pass http://$upstream_storage_plugin_apk;
     }
 
     location /s/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       client_max_body_size 2048m;
       client_body_buffer_size 128k;
 
@@ -120,6 +127,7 @@ http {
 
     location /socket.io/ {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_websocket stf-websocket:3000;
       proxy_pass http://$upstream_websocket;
       proxy_http_version 1.1;
@@ -132,6 +140,7 @@ http {
     location /stf {
       # single rewrite procedure after first login
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       rewrite /stf /;
     }
 
@@ -141,6 +150,7 @@ http {
 
     location / {
       proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $scheme;
       set $upstream_app stf-app:3000;
       proxy_pass http://$upstream_app;
     }
