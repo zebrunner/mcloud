@@ -39,6 +39,11 @@
 
     replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
     replace variables.env "SECRET=password" "SECRET=${SECRET}"
+    if [[ -z $STF_STORAGE_TOKEN ]]; then
+      # the token the STF units send to the storage, kept by the next setup runs
+      STF_STORAGE_TOKEN=$(LC_ALL=C tr -dc 'a-f0-9' < /dev/urandom | head -c 64)
+    fi
+    replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
     replace variables.env "AUTHKEY=" "AUTHKEY=${AUTHKEY}"
     if [[ -z $ZBR_MCLOUD_ADMIN_NAME ]] && [[ ! -z $STF_ADMIN_NAME ]]; then
       ZBR_MCLOUD_ADMIN_NAME=$STF_ADMIN_NAME

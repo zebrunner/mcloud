@@ -43,6 +43,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 6. Paste generated token into the variables.env for `STF_TOKEN` var
 7. Restart services using `./zebrunner.sh restart`
 8. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
+   > Use the `STF_STORAGE_TOKEN` value of variables.env as `STF_STORAGE_TOKEN` of mcloud-agent: the STF storage accepts uploads of the devices with this token only
    > [mcloud-ios](https://github.com/zebrunner/mcloud-ios) is deprecated. Use the same [mcloud-agent](https://github.com/zebrunner/mcloud-agent) to setup on MacOS too!
 9. Use `http://hostname:80/mcloud/grid/console` to see connected devices and `http://hostname:80/mcloud/wd/hub` as Selenium/Appium hub url for test automation.
 
