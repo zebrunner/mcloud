@@ -328,6 +328,13 @@ source patch/utility.sh
 case "$1" in
 setup)
   setup
+  # Zebrunner CE starts the services itself
+  if [[ "$ZBR_INSTALLER" -ne 1 ]]; then
+    echo_warning "Your services need to be started after setup."
+    if confirm "" "      Start now?" "y"; then
+      start
+    fi
+  fi
   ;;
 start)
   start
