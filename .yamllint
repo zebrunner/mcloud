@@ -1,0 +1,14 @@
+---
+extends: default
+
+ignore-from-file: .gitignore
+
+rules:
+  line-length:
+    max: 160
+  truthy:
+    allowed-values: ["true", "false"]
+    # the `on:` key of GitHub workflows
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1

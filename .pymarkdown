@@ -1,0 +1,10 @@
+{
+  "plugins": {
+    "md013": {
+      "enabled": false
+    },
+    "md033": {
+      "allowed_elements": "p,a,img,b,br"
+    }
+  }
+}
