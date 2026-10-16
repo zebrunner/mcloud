@@ -12,6 +12,13 @@ http {
 
   server_tokens off;
 
+  # the scheme of the client for STF (a Secure session cookie behind https): the one of a proxy in front
+  # of this one (e.g. the nginx of Zebrunner CE), otherwise the one of this server
+  map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    "" $scheme;
+  }
+
   server {
     listen 80;
     server_name stf-proxy;
@@ -89,35 +96,35 @@ http {
 
     location /auth/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_auth stf-auth:3000;
       proxy_pass http://$upstream_auth;
     }
 
     location /api/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_api stf-api:3000;
       proxy_pass http://$upstream_api;
     }
 
     location /s/image/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_storage_plugin_image stf-storage-plugin-image:3000;
       proxy_pass http://$upstream_storage_plugin_image;
     }
 
     location /s/apk/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_storage_plugin_apk stf-storage-plugin-apk:3000;
       proxy_pass http://$upstream_storage_plugin_apk;
     }
 
     location /s/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       client_max_body_size 2048m;
       client_body_buffer_size 128k;
 
@@ -127,7 +134,7 @@ http {
 
     location /socket.io/ {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_websocket stf-websocket:3000;
       proxy_pass http://$upstream_websocket;
       proxy_http_version 1.1;
@@ -140,7 +147,7 @@ http {
     location /stf {
       # single rewrite procedure after first login
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       rewrite /stf /;
     }
 
@@ -150,10 +157,9 @@ http {
 
     location / {
       proxy_set_header Host stf-proxy;
-      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_app stf-app:3000;
       proxy_pass http://$upstream_app;
     }
   }
 }
-
