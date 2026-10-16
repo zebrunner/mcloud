@@ -60,7 +60,7 @@ wait_for() {
 }
 
 # answers: protocol, host, port and the admin of the interactive setup
-answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n"
+answers="http\nlocalhost\n${PORT}\ny\n\n\ny\nn\n"
 
 section "setup and start"
 run_check "setup" zbr "$answers" setup
@@ -85,15 +85,34 @@ check "the storage refuses a request without the token" "401" "$(http_code /s/bl
 check "the storage accepts the token of variables.env" "404" \
   "$(http_code /s/blob/none/none -H "x-stf-internal-token: ${storage_token}")"
 check "the apk plugin forwards the credentials" "401" "$(http_code /s/apk/none/none)"
-check "stf-proxy hides the nginx version" "Server: nginx" \
-  "$(curl -s -o /dev/null -D - --max-time 10 "${URL}/auth/mock/" | tr -d '\r' | grep -i '^server:')"
+headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/auth/mock/" | tr -d '\r')"
+check "stf-proxy hides the nginx version" "Server: nginx" "$(grep -i '^server:' <<< "$headers")"
+check "no X-Powered-By" "" "$(grep -i '^x-powered-by:' <<< "$headers")"
+for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN" \
+  "Content-Security-Policy: frame-ancestors 'self'"; do
+  check_contains "STF: ${header}" "$header" "$headers"
+done
 
 section "grid"
 check_contains "the hub is ready" '"ready"' "$(curl -s --max-time 10 "${URL}/mcloud/wd/hub/status")"
 check "the grid console" "200" "$(http_code /mcloud/grid/console)"
 check "the static files of the grid console" "200" "$(http_code /grid/resources/org/openqa/grid/images/consoleservlet.css)"
+check "the content type of the static files" "text/css" \
+  "$(curl -s -o /dev/null -w '%{content_type}' --max-time 10 "${URL}/grid/resources/org/openqa/grid/images/consoleservlet.css")"
+headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status" | tr -d '\r')"
+for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN"; do
+  check_contains "the hub: ${header}" "$header" "$headers"
+done
 check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
+
+section "https"
+HTTPS="${WORK}/https"
+copy_repo "$HTTPS"
+printf 'https\nlocalhost\n443\ny\n\n\ny\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+run_check "the https configuration of nginx with the self-signed certificate" \
+  docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 
 section "shutdown"
 SHUTDOWN_CONFIRMED=1 zbr "" shutdown > /dev/null

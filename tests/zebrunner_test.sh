@@ -30,9 +30,10 @@ value() {
   sed -n "s/^$2=//p" "${MCLOUD}/$1"
 }
 
-# the answers of the interactive setup: protocol, host, port, confirmation, admin name, admin email, confirmation
+# the answers of the interactive setup: protocol, host, port, confirmation, admin name, admin email, confirmation,
+# no start of the services
 answers() {
-  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y
+  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y n
 }
 
 section "help"
@@ -66,6 +67,7 @@ check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
 check_contains "the settings are saved" 'ZBR_HOSTNAME="mcloud.example.com"' "$(cat "${MCLOUD}/backup/settings.env")"
 check "the setup calls no docker" "" "$(calls docker)"
+check_contains "the start is suggested" "need to be started after setup" "$output"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
@@ -76,7 +78,7 @@ check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
 check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_STORAGE_TOKEN)"
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
-check_not_contains "no warning about SECRET" "WARNING" "$output"
+check_not_contains "no warning about SECRET" "SECRET of variables.env" "$output"
 
 replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
@@ -88,7 +90,7 @@ secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
 
 section "setup questions"
-output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n" setup)"
+output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\nn\n" setup)"
 check "a declined address is asked again" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
 check_contains "https listens with ssl" "listen 80 ssl;" "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/nginx/ssl/ssl.crt;' \
@@ -114,6 +116,7 @@ check "ZEBRUNNER_LOGIN_URL" "https://ce.example.com:443/api/iam/v1/auth/login" "
 check "ZEBRUNNER_USERINFO_URL" "https://ce.example.com:443/api/iam/v1/users" "$(value variables.env ZEBRUNNER_USERINFO_URL)"
 secret="$(value variables.env SECRET)"
 check "a new SECRET is generated" "48" "${#secret}"
+check_not_contains "Zebrunner CE starts the services itself" "need to be started after setup" "$output"
 zbr_env=()
 
 section "compose"
@@ -125,6 +128,10 @@ else
 fi
 
 section "start"
+reset_calls
+zbr "$(answers "" "" "" "" "" | sed '$d')\ny\n" setup > /dev/null
+check "the setup starts the services when confirmed" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
 reset_calls
 zbr "" start > /dev/null
 check "start starts the services in the infra network" "network|inspect|infra
