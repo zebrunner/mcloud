@@ -30,7 +30,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
    ```
 
-2. Start the services: `./zebrunner.sh start`.
+2. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
 3. Open `http://hostname:80/stf`.
 4. Log in using any name/email values as `auth-mock` is configured by default.
 5. Go to Settings, Keys and generate a new Access Token.
@@ -45,7 +45,7 @@ The commands of `./zebrunner.sh`:
 
 | Command | What it does |
 | --- | --- |
-| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files; the values of the previous setup are kept |
+| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept |
 | `start` | starts the services, the first start runs `setup` |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
@@ -89,7 +89,11 @@ More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session,
 
 ### https
 
-`./zebrunner.sh setup` with the `https` protocol turns on the ssl of `stf-proxy` with a self-signed certificate; put your certificate and key into `configuration/stf-proxy/ssl/ssl.crt` and `configuration/stf-proxy/ssl/ssl.key` instead. `stf-proxy` passes the scheme of the client to STF (`X-Forwarded-Proto`, the one of a proxy in front of it when there is one), so the session cookie is `Secure` behind https.
+`./zebrunner.sh setup` with the `https` protocol turns on the ssl of `stf-proxy` with a self-signed certificate; put your certificate and key into `configuration/stf-proxy/ssl/ssl.crt` and `configuration/stf-proxy/ssl/ssl.key` instead. `stf-proxy` passes the scheme of the client to STF (`X-Forwarded-Proto`, the one of a proxy in front of it when there is one), so the session cookie is `Secure` behind https. The ssl settings allow TLS 1.2 and 1.3 only.
+
+### Security headers
+
+`stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`.
 
 ### Basic authentication of the grid
 
