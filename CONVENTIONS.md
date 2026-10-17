@@ -34,7 +34,7 @@ This file is the same in all of them: a change of a convention is made in every 
 | Path | What it is |
 | --- | --- |
 | `Dockerfile` | the image (mcloud-agent and mcloud have none) |
-| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent, `docker-compose.yml` and `configuration/` in mcloud) |
+| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent) |
 | `tests/lib.sh` | the shared helpers of the test scripts; `tests/project_lib.sh` the helpers of the project |
 | `tests/lint.sh` | the static checks of `make lint`; `tests/lint_project.sh` the settings and the checks of the project |
 | `tests/<subject>_test.sh` | a test script; the docker ones are listed in `DOCKER_TESTS` of the `Makefile` |
@@ -145,7 +145,7 @@ wait_for() {
 | --- | --- | --- |
 | env vars of the image, exported vars, constants | `UPPER_SNAKE_CASE` | `DEVICE_UDID`, `MIN_ANDROID` |
 | variables and functions of the scripts of an image | `lowerCamelCase` | `isConfigValid`, `exitIfAdbServerStopped()` |
-| variables and functions of the host scripts of mcloud-agent and mcloud | `snake_case` | `create_containers()` |
+| variables and functions of the [host scripts](#host-scripts) | `snake_case` | `create_containers()` |
 | variables and functions of `tests/`, `scripts/`, `build.sh` | `snake_case` | `check_contains()`, `diff_file` |
 | file names | `kebab-case.sh`; `<subject>_test.sh` for the tests | `build-patch.sh`, `entrypoint_test.sh` |
 
@@ -158,6 +158,14 @@ The env vars of tools keep the names of the tools (e.g. `npm_config_cache`).
 - A script whose stdout is data (e.g. a JSON generator) logs to stderr: `logger "ERROR" "..." >&2`.
 - `echo` is for data only: files, pipes, the output of a generator.
 - `DEBUG=true`, `DEBUG_TIMEOUT` and `VERBOSE=true` of `util/debug.sh` are supported by every shell entrypoint.
+
+### Host scripts
+
+The scripts that run on the hosts, not in an image (`zebrunner.sh` and `patch/*.sh` of mcloud-agent and mcloud, the script templates of mcloud-agent):
+
+- bash 3.2 compatible: macOS runs them too;
+- `snake_case`, see [Naming](#naming);
+- the messages are for a person at the terminal (`echo`), not the log lines of `util/logger.sh`.
 
 ### Exit codes
 
@@ -308,7 +316,7 @@ The rules above are the same for every repository; these ones come from the kind
 | appium, mcloud-android-connector, mcloud-ios-connector, mcloud-device | a docker image of shell scripts | `make test` runs `tests/*_test.sh` but `DOCKER_TESTS`, `make docker` the image tests |
 | mcloud-grid | a docker image of a Java 11 application (Maven, Selenium 3 hub) | see [Java](#java) |
 | mcloud-agent | Ansible playbooks and the scripts of the farm hosts (Linux and macOS), no image | see [Ansible and host scripts](#ansible-and-host-scripts) |
-| mcloud | the docker compose deployment of the STF and grid servers and its `zebrunner.sh`, no image | see [Compose deployment](#compose-deployment) |
+| mcloud | a docker compose deployment and its [host scripts](#host-scripts), no image | the project checks are described in its README |
 
 ### Java
 
@@ -320,17 +328,9 @@ The rules above are the same for every repository; these ones come from the kind
 
 - The playbooks: `ansible-lint --strict` and `ansible-playbook --syntax-check`; `.yamllint` adds the rules ansible-lint needs and the `*.yml.original` files.
 - The templates of the scripts (`zebrunner-farm`, `zebrunner-device-listener`) are rendered with the example settings, then checked like the other scripts (`render`, `render_farm` of `tests/project_lib.sh`).
-- `zebrunner.sh` and the templates run on the farm hosts, also on macOS: bash 3.2 compatible, `snake_case` like the rest of their code, and their messages are for a person at the terminal (`echo`), not log lines of `util/logger.sh`.
+- `zebrunner.sh` and the templates run on the farm hosts: see [Host scripts](#host-scripts).
 - Python (the test fakes): ruff (`ruff.toml`).
 - The tests run on Linux and macOS (the CI matrix); `make docker` runs the checks in the Linux image of `tests/Dockerfile`.
-
-### Compose deployment
-
-- `docker-compose.yml` takes the image tags (`TAG_*`) and the ports from `.env`, the configuration of the services from `variables.env`; `./zebrunner.sh setup` writes them from `.env.original` and `variables.env.original`, which keep the defaults; `make lint` checks `docker compose config` with them.
-- The images are pinned by their tags in `.env.original`, one tag per image.
-- `zebrunner.sh` and `patch/*.sh` are host scripts like the ones of mcloud-agent: bash 3.2 compatible, `snake_case`, messages for a person at the terminal (`echo`), not `util/logger.sh`.
-- The static files of other projects (the Selenium grid console of `configuration/stf-proxy/grid/`) are kept byte for byte: `generated` of `tests/lint_project.sh`.
-- `make test` runs the commands of `zebrunner.sh` on a copy of the repository with a `docker` stub; `make docker` starts the services and checks their endpoints (`DOCKER_TESTS`).
 
 ## New repository checklist
 
