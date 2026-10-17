@@ -59,6 +59,18 @@ wait_for() {
   done
 }
 
+# pull <image>: docker pull, tried 3 times with a pause against the rate limits of the registries
+# run_check runs it
+# shellcheck disable=SC2329
+pull() {
+  local attempt
+  for attempt in 1 2 3; do
+    docker pull --quiet "$1" && return 0
+    [[ "$attempt" -lt 3 ]] && sleep $((attempt * 15))
+  done
+  return 1
+}
+
 # answers: protocol, host, port and the admin of the interactive setup
 answers="http\nlocalhost\n${PORT}\ny\n\n\ny\nn\n"
 
@@ -67,6 +79,15 @@ run_check "setup" zbr "$answers" setup
 # the units reach the storage by STF_URL, localhost is the container itself there: stf-proxy of the network instead
 sed -i.orig "s|^STF_URL=.*|STF_URL=http://stf-proxy|" "${MCLOUD}/.env"
 storage_token="$(sed -n 's/^STF_STORAGE_TOKEN=//p' "${MCLOUD}/variables.env")"
+# every image once and one after another: the parallel pulls of the services of one image exceed the rate limit of
+# public.ecr.aws for anonymous pulls; an image of this machine is not pulled
+while read -r image; do
+  if docker image inspect "$image" > /dev/null 2>&1; then
+    pass "${image} is on this machine"
+  else
+    run_check "pull ${image}" pull "$image"
+  fi
+done < <(cd "$MCLOUD" && docker compose config --images | sort -u)
 run_check "start" zbr "" start
 run_check "the database migration succeeds" \
   bash -c "test \"\$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' stf-migrate)\" == 'exited 0'"
