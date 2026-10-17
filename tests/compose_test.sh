@@ -88,6 +88,8 @@ while read -r image; do
     run_check "pull ${image}" pull "$image"
   fi
 done < <(cd "$MCLOUD" && docker compose config --images | sort -u)
+# without an image the services do not start, the checks below would only wait for them
+[[ "$FAILED" -eq 0 ]] || finish
 run_check "start" zbr "" start
 run_check "the database migration succeeds" \
   bash -c "test \"\$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' stf-migrate)\" == 'exited 0'"
