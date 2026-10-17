@@ -1,0 +1,3 @@
+# tests/*.sh source tests/lib.sh relative to themselves
+source-path=SCRIPTDIR
+external-sources=true

@@ -1,0 +1,10 @@
+---
+version: 2
+# no docker: the tags of .env.original are the releases of the STF and grid images, they are set by hand with the
+# changes of docker-compose.yml they need
+updates:
+  # actions/* and the other actions of .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

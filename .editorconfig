@@ -1,0 +1,36 @@
+# >>> mcloud-conventions: the shared part, changed in https://github.com/zebrunner/mcloud-conventions
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[Makefile]
+indent_style = tab
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.{js,mjs}]
+indent_style = space
+indent_size = 2
+
+# shell scripts, also the style of shfmt
+[*.sh]
+indent_style = space
+indent_size = 2
+shell_variant = bash
+space_redirects = true
+# <<< mcloud-conventions
+
+# the static files of the Selenium grid console, kept byte for byte
+[configuration/stf-proxy/grid/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset

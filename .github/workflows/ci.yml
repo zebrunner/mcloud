@@ -1,0 +1,76 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [develop, main, master]
+  pull_request:
+    branches: [develop, main, master]
+  workflow_dispatch:
+# a new push to a pull request cancels its outdated run, runs of the branches themselves are kept
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # the reusable lint job of mcloud-conventions (CONVENTIONS.md)
+  lint:
+    uses: zebrunner/mcloud-conventions/.github/workflows/lint.yml@v1
+
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        # zebrunner.sh runs on Linux and macOS servers
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tests without docker (make test)
+        run: make test
+        env:
+          JUNIT_DIR: ${{ runner.temp }}/junit
+      - name: Tests report
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@6ef3fdcfcd5f0b5d14df3e659ef19b8c6820f93d # v6.6.1
+        with:
+          report_paths: ${{ runner.temp }}/junit/*.xml
+          check_name: tests report (${{ matrix.os }})
+          annotate_only: true
+          detailed_summary: true
+          require_tests: true
+      - name: Upload tests JUnit XML
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-${{ matrix.os }}
+          path: ${{ runner.temp }}/junit/
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: The services with the images of .env.original (make docker)
+        run: make docker
+        env:
+          JUNIT_DIR: ${{ runner.temp }}/junit
+      - name: Docker report
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@6ef3fdcfcd5f0b5d14df3e659ef19b8c6820f93d # v6.6.1
+        with:
+          report_paths: ${{ runner.temp }}/junit/*.xml
+          check_name: docker report
+          annotate_only: true
+          detailed_summary: true
+          require_tests: true
+      - name: Upload JUnit XML
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-docker
+          path: ${{ runner.temp }}/junit/
