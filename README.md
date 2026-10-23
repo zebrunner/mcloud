@@ -140,7 +140,7 @@ The setup warns when `SECRET` is still the default `password`: replace it in `va
 
 ## Components
 
-- [mcloud-agent](https://github.com/zebrunner/mcloud-agent) - Device Farm agent for connecting physical Android and iOS devices including phones, tablets, and TVs via Linux or macOS.
+- [mcloud-agent](https://github.com/zebrunner/mcloud-agent) - Device Farm agent for connecting Android and iOS devices including phones, tablets, and TVs over USB or Wi-Fi, Android emulators and iOS / tvOS simulators (macOS) via Linux or macOS.
 - [mcloud-device](https://github.com/zebrunner/mcloud-device) - Dockerized STF provider image for Android and iOS devices.
 - [mcloud-grid](https://github.com/zebrunner/mcloud-grid) - Enhanced Selenium Grid for automating physical devices and emulators/simulators via Appium.
 - [stf](https://github.com/zebrunner/stf) - the STF of MCloud with iOS devices and the Zebrunner sign-in.
