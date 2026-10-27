@@ -65,6 +65,7 @@ The commands of `./zebrunner.sh`:
 | `STF_URL` | `http://localhost:8082` | the public URL of MCloud: the protocol, host and port of the setup |
 | `STF_PORT` | `8082` | the port of `stf-proxy` on the host |
 | `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the device hosts connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); the value of the previous setup is kept |
+| `AGENT_HOSTS` | | the device hosts (`STF_PROVIDER_HOST` of mcloud-agent) separated by commas, see [Screens of the devices](#screens-of-the-devices); the setup asks it, the value of the previous setup is kept |
 | `RETHINKDB_ADDRESS` | `127.0.0.1` | the host address of the port of RethinkDB: `127.0.0.1` with the [authentication of the device hosts](#authentication-of-the-device-hosts), `0.0.0.0` for the device hosts of an earlier MCloud, which connect to it; the value of the previous setup is kept |
 | `TAG_NGINX` | `1.25.3` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `develop` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
@@ -124,6 +125,16 @@ A device host makes its own key pair (mcloud-agent prints its public key): add t
 
 The device hosts need the mcloud-device image of the current STF and `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY`; the others cannot connect. So `./zebrunner.sh setup` of a deployment of an earlier MCloud keeps it off and asks to turn it on (Zebrunner CE keeps it off), until then it warns on every setup: turn it on once all the device hosts are updated.
 
+### Screens of the devices
+
+The screen of a device is a WebSocket of its STF provider on the device host, which the browser opens through `stf-proxy`: `/d/<device host>/<serial>/<port>/`. `stf-proxy` serves it only:
+
+- for a device host of `AGENT_HOSTS` of `.env` (the `STF_PROVIDER_HOST` of every mcloud-agent), any other host gets `403`; without `AGENT_HOSTS` no screen is served;
+- on a port 1024-65535;
+- for a signed-in user of STF: `stf-proxy` asks `stf-api` about the session cookie (or an access token) of the request, `401` without one.
+
+The setup asks `AGENT_HOSTS` and writes `configuration/stf-proxy/agent-hosts.conf` from it, so does `./zebrunner.sh start`: change `AGENT_HOSTS` of `.env` and run `./zebrunner.sh restart` for a new device host (also in Zebrunner CE).
+
 ### Firewall
 
 The ports of the host and who needs them; close the others:
@@ -135,7 +146,7 @@ The ports of the host and who needs them; close the others:
 | `4446` (`AGENTS_ADDRESS`) | `mcloud-grid` | the device hosts (Appium registers to the grid); the tests use `/mcloud/wd/hub` of `STF_PORT` |
 | `28015` (`RETHINKDB_ADDRESS`) | `rethinkdb` | the device hosts of an earlier MCloud only, `127.0.0.1` otherwise |
 
-`AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts. A device host publishes the ports of its devices for the server and the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
+`AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts. A device host publishes the ports of its devices for the server (`stf-proxy` serves the screens to the users) and for the remote ADB of the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
 ### Basic authentication of the grid
 
@@ -183,6 +194,8 @@ The ports `7150` and `7170` of the host are no longer published: the device host
 The setup offers the [authentication of the device hosts](#authentication-of-the-device-hosts): turn it on when every device host runs mcloud-agent with the mcloud-device image of the current STF and its key is in `STF_ZMQ_CURVE_CLIENT_KEYS`. Without it RethinkDB stays published (`RETHINKDB_ADDRESS=0.0.0.0`) for the device hosts of the earlier STF.
 
 The mock sign-in is behind a shared user and password now: the setup generates them and prints them (`STF_AUTH_MOCK_BASIC_AUTH_*`), or choose OAuth2 or LDAP, see [Sign-in](#sign-in). https needs the certificate of the host in `configuration/stf-proxy/ssl`: the self-signed pair of the earlier versions is refused.
+
+`stf-proxy` serves the screens of the devices of `AGENT_HOSTS` only, to signed-in users (the setup asks the device hosts, see [Screens of the devices](#screens-of-the-devices)), and no longer proxies `/appium/<host>/<port>/`.
 
 The setup offers a new `SECRET` when it is still the default `password` (Zebrunner CE only warns): then generate the access tokens again (`STF_TOKEN` too), as the old ones are signed with the old secret. The grid logs JSON lines now, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#logs).
 

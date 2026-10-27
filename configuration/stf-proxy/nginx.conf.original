@@ -22,6 +22,13 @@ http {
     "" $scheme;
   }
 
+  # the device hosts whose screens stf-proxy serves (/d/): AGENT_HOSTS of .env, written by ./zebrunner.sh setup and
+  # start into agent-hosts.conf; any other host is refused, none without the file
+  map $stfprovider $agent_host {
+    default 0;
+    include /etc/nginx/agent-hosts.conf;
+  }
+
   server {
     listen 80;
     server_name stf-proxy;
@@ -94,8 +101,13 @@ http {
       proxy_read_timeout      300;
     }
 
-    # Handle stf-providers
-    location ~ "^/d/(?<stfprovider>([^/]+))/(?<udid>([^/]+))/(?<port>[0-9]+)/$" {
+    # the screens of the devices: the WebSocket of the STF provider of a device host of AGENT_HOSTS on a port 1024-65535,
+    # for the signed-in users of STF only
+    location ~ "^/d/(?<stfprovider>[^/]+)/(?<udid>[^/]+)/(?<port>102[4-9]|10[3-9][0-9]|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/$" {
+      if ($agent_host = 0) {
+        return 403;
+      }
+      auth_request /_stf_session;
       proxy_pass http://$stfprovider:$port/;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
@@ -104,9 +116,16 @@ http {
       proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # Handle appium-providers
-    location ~ "^/appium/(?<appiumprovider>([^/]+))/(?<port>[0-9]+)/$" {
-      proxy_pass http://$appiumprovider:$port/;
+    # the session of the user (the cookie of STF) or an access token: 2xx of the API lets the request in, 401 refuses it
+    location = /_stf_session {
+      internal;
+      set $upstream_session stf-api:3000;
+      proxy_pass http://$upstream_session/api/v1/user;
+      proxy_pass_request_body off;
+      proxy_set_header Content-Length "";
+      proxy_set_header Upgrade "";
+      proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     location /auth/ {

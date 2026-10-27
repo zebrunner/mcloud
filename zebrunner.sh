@@ -14,6 +14,7 @@ setup() {
   local sign_in="zebrunner"
   local agents_address=""
   local rethinkdb_address=""
+  AGENT_HOSTS=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
@@ -22,6 +23,7 @@ setup() {
   if [[ -f .env ]]; then
     agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
     rethinkdb_address="$(sed -n 's/^RETHINKDB_ADDRESS=//p' .env)"
+    AGENT_HOSTS="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -49,6 +51,7 @@ setup() {
     set_mcloud_settings
     set_sign_in
     sign_in="$ZBR_MCLOUD_SIGN_IN"
+    set_agent_hosts
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
   fi
 
@@ -91,6 +94,8 @@ setup() {
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
   replace .env "RETHINKDB_ADDRESS=127.0.0.1" "RETHINKDB_ADDRESS=${rethinkdb_address}"
+  replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
+  write_agent_hosts
 
   # the sign-in unit of STF and its path: Zebrunner IAM in Zebrunner CE, the choice of the interactive setup otherwise
   case "$sign_in" in
@@ -225,6 +230,7 @@ shutdown() {
   rm -f .env
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf
+  rm -f configuration/stf-proxy/agent-hosts.conf
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
 }
@@ -244,6 +250,8 @@ start() {
     exit 1
   fi
 
+  # AGENT_HOSTS of .env may have changed since the setup
+  write_agent_hosts
   docker compose up -d
 }
 
@@ -414,6 +422,43 @@ ask_secret() {
     fi
   done
   printf -v "$name" '%s' "$answer"
+}
+
+# set_agent_hosts: asks the device hosts of the interactive setup, AGENT_HOSTS of .env (README.md#screens-of-the-devices)
+set_agent_hosts() {
+  local answer
+  while true; do
+    read -r -p "Device hosts, STF_PROVIDER_HOST of mcloud-agent separated by commas (stf-proxy serves the screens of their devices) [${AGENT_HOSTS}]: " answer
+    answer="${answer:-$AGENT_HOSTS}"
+    answer="${answer// /}"
+    if [[ "$answer" =~ ^[A-Za-z0-9.,-]*$ ]]; then
+      AGENT_HOSTS="$answer"
+      break
+    fi
+    echo "Host names and addresses separated by commas only."
+  done
+}
+
+# write_agent_hosts: configuration/stf-proxy/agent-hosts.conf of nginx from AGENT_HOSTS of .env: the device hosts whose
+# screens stf-proxy serves; warns when there is none
+write_agent_hosts() {
+  local hosts=()
+  local host
+  IFS=',' read -r -a hosts <<< "$(sed -n 's/^AGENT_HOSTS=//p' .env)"
+  : > configuration/stf-proxy/agent-hosts.conf
+  for host in "${hosts[@]}"; do
+    host="${host// /}"
+    if [[ -z "$host" ]]; then
+      continue
+    elif [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]]; then
+      echo "\"${host}\" 1;" >> configuration/stf-proxy/agent-hosts.conf
+    else
+      echo_warning "'${host}' of AGENT_HOSTS of .env is not a host name or address, it is skipped."
+    fi
+  done
+  if [[ ! -s configuration/stf-proxy/agent-hosts.conf ]]; then
+    echo_warning "AGENT_HOSTS of .env is empty: stf-proxy serves no screen of a device, set the device hosts there (README.md#screens-of-the-devices)."
+  fi
 }
 
 # set_sign_in: asks the sign-in of STF of the interactive setup and its settings (README.md#sign-in)
