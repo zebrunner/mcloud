@@ -101,6 +101,9 @@ check "the password of RethinkDB is generated" "48" "${#password}"
 check "RethinkDB is not published for the device hosts" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
 check "the ports of the device hosts are published on every address" "0.0.0.0" "$(value .env AGENTS_ADDRESS)"
 check_contains "the key for mcloud-agent is explained" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent" "$output"
+grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
+check "the registration token of the grid is generated" "48" "${#grid_token}"
+check_contains "the registration token for mcloud-agent is explained" "NODE_REGISTRATION_TOKEN of mcloud-agent" "$output"
 check_not_contains "no warning about the authentication" "have no authentication" "$output"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 
@@ -113,6 +116,7 @@ output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
 check "the password of RethinkDB is kept" "$password" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the CURVE keys are kept" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the registration token of the grid is kept" "$grid_token" "$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
@@ -153,7 +157,7 @@ check "an empty SECRET is generated" "48" "${#secret}"
 
 section "setup of an earlier deployment"
 for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY \
-  STF_ZMQ_CURVE_CLIENT_KEYS; do
+  STF_ZMQ_CURVE_CLIENT_KEYS NODE_REGISTRATION_TOKEN; do
   sed -i.orig "/^${name}=/d" "${MCLOUD}/variables.env"
 done
 sed -i.orig "/^RETHINKDB_ADDRESS=/d" "${MCLOUD}/.env"
@@ -165,6 +169,8 @@ check_contains "the authentication is offered" "RethinkDB and ZeroMQ of STF acce
 check_contains "its absence is reported" "RethinkDB and ZeroMQ of STF have no authentication" "$output"
 check "no password of RethinkDB" "" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "no registration token of the grid" "" "$(value variables.env NODE_REGISTRATION_TOKEN)"
+check_not_contains "no registration token for mcloud-agent is explained" "NODE_REGISTRATION_TOKEN of mcloud-agent" "$output"
 check "RethinkDB stays published for the device hosts" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
 check "no docker without the authentication" "" "$(calls docker)"
 zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup > /dev/null
@@ -175,6 +181,8 @@ check "the password of RethinkDB is generated when the authentication is turned 
 check "the CURVE keys are made when the authentication is turned on" "${keys//0/b}" \
   "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "RethinkDB is not published once the authentication is on" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
+grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
+check "the registration token of the grid is generated when the authentication is turned on" "48" "${#grid_token}"
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check_not_contains "the authentication is not offered again" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 
@@ -298,6 +306,8 @@ zbr_env=(NO_KEYGEN=1)
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 zbr_env=()
 check_contains "the missing keys are reported" "made no CURVE keys" "$output"
+grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
+check "the registration token of the grid does not need the STF image" "48" "${#grid_token}"
 check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated anyway" "48" "${#password}"
