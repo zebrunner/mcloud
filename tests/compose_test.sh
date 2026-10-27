@@ -116,6 +116,30 @@ for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "
   check_contains "STF: ${header}" "$header" "$headers"
 done
 
+section "authentication of the device hosts"
+check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
+check "RethinkDB is published on 127.0.0.1 only" "127.0.0.1:28015" "$(docker port rethinkdb 28015/tcp)"
+check "ZeroMQ of the STF units is published for the device hosts only" "7160/tcp -> 0.0.0.0:7160" \
+  "$(docker port stf-triproxy-app | grep -v '::')"
+stf_image="$(docker inspect --format '{{.Config.Image}}' stf-app)"
+run_check "RethinkDB refuses a connection without its password" docker run --rm --network infra "$stf_image" \
+  node -e "require('rethinkdb').connect({host: 'rethinkdb'}).then(() => process.exit(1), () => process.exit(0))"
+if [[ -n "$(sed -n 's/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=//p' "${MCLOUD}/variables.env")" ]]; then
+  check_contains "the triproxies are CURVE servers" "CURVE server" "$(docker logs stf-triproxy-dev 2>&1)"
+  check_contains "the STF units are CURVE clients" "CURVE client" "$(docker logs stf-processor001 2>&1)"
+  # a client with an unknown key sends a message to the triproxy of the devices, which refuses it
+  server_key="$(sed -n 's/^STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=//p' "${MCLOUD}/variables.env")"
+  docker run --rm --network infra -e STF_ZMQ_CURVE_SERVER_PUBLIC_KEY="$server_key" \
+    -e STF_ZMQ_CURVE_SECRET_KEY="$(docker run --rm "$stf_image" stf curve-keygen | sed -n 's/^secret=//p')" "$stf_image" \
+    node -e "import('/app/lib/util/zmqutil.js').then(({default: zmqutil}) => {
+      const push = zmqutil.socket('push'); push.connect('tcp://stf-triproxy-dev:7270'); push.send('x')
+      setTimeout(() => process.exit(0), 3000) })" > /dev/null 2>&1
+  check_contains "a device host with an unknown key is refused" "Refused the ZeroMQ client" \
+    "$(docker logs stf-triproxy-dev 2>&1)"
+else
+  skip_check "ZeroMQ with CURVE" "the STF image made no CURVE keys (stf curve-keygen)"
+fi
+
 section "grid"
 check_contains "the hub is ready" '"ready"' "$(curl -s --max-time 10 "${URL}/mcloud/wd/hub/status")"
 check "the grid console" "200" "$(http_code /mcloud/grid/console)"

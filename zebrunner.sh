@@ -9,9 +9,17 @@
 setup() {
   local url
   local is_new=1
+  local secure=0
+  local agents_address=""
+  local rethinkdb_address=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
+  fi
+  # the addresses of the published ports of the previous setup (README.md#firewall)
+  if [[ -f .env ]]; then
+    agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
+    rethinkdb_address="$(sed -n 's/^RETHINKDB_ADDRESS=//p' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -40,9 +48,40 @@ setup() {
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
   fi
 
+  # the authentication of RethinkDB and of ZeroMQ: on for a new deployment (its password of RethinkDB tells it later, the
+  # missing keys are made again), a deployment of an earlier MCloud turns it on when its device hosts run the
+  # mcloud-device of the current STF (README.md#authentication-of-the-device-hosts)
+  if [[ "$is_new" -eq 1 || -n "$RETHINKDB_ENV_AUTHKEY" ]]; then
+    secure=1
+  else
+    if [[ "$ZBR_INSTALLER" -ne 1 ]] && confirm "
+      RethinkDB and ZeroMQ of STF accept anyone who reaches their ports. The authentication needs mcloud-agent with
+      the mcloud-device image of the current STF and the keys of the device hosts in STF_ZMQ_CURVE_CLIENT_KEYS,
+      the other device hosts cannot connect." "      Turn the authentication on?" "n"; then
+      secure=1
+    else
+      echo_warning "RethinkDB and ZeroMQ of STF have no authentication, see README.md#authentication-of-the-device-hosts."
+    fi
+  fi
+  if [[ "$secure" -eq 1 ]]; then
+    if [[ -z "$RETHINKDB_ENV_AUTHKEY" ]]; then
+      RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
+    fi
+    if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]]; then
+      set_curve_keys
+    fi
+    # the device units of the current STF have no database
+    rethinkdb_address="127.0.0.1"
+  elif [[ -z "$rethinkdb_address" ]]; then
+    # the device hosts of an earlier MCloud connect to RethinkDB
+    rethinkdb_address="0.0.0.0"
+  fi
+
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
+  replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
+  replace .env "RETHINKDB_ADDRESS=127.0.0.1" "RETHINKDB_ADDRESS=${rethinkdb_address}"
 
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
     replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-zebrunner"
@@ -66,7 +105,11 @@ setup() {
   replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
   replace variables.env "SECRET=password" "SECRET=${SECRET}"
   replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
-  replace variables.env "AUTHKEY=" "AUTHKEY=${AUTHKEY}"
+  replace variables.env "RETHINKDB_ENV_AUTHKEY=" "RETHINKDB_ENV_AUTHKEY=${RETHINKDB_ENV_AUTHKEY}"
+  replace variables.env "STF_ZMQ_CURVE_SERVER_SECRET_KEY=" "STF_ZMQ_CURVE_SERVER_SECRET_KEY=${STF_ZMQ_CURVE_SERVER_SECRET_KEY}"
+  replace variables.env "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=${STF_ZMQ_CURVE_SERVER_PUBLIC_KEY}"
+  replace variables.env "STF_ZMQ_CURVE_SECRET_KEY=" "STF_ZMQ_CURVE_SECRET_KEY=${STF_ZMQ_CURVE_SECRET_KEY}"
+  replace variables.env "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${STF_ZMQ_CURVE_CLIENT_KEYS}"
   if [[ -z "$ZBR_MCLOUD_ADMIN_NAME" && -n "$STF_ADMIN_NAME" ]]; then
     ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
   fi
@@ -108,6 +151,12 @@ setup() {
 
   echo "
       Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only."
+  if [[ -n "$STF_ZMQ_CURVE_SERVER_PUBLIC_KEY" ]]; then
+    echo "
+      Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add the
+      public key mcloud-agent prints to STF_ZMQ_CURVE_CLIENT_KEYS of variables.env (separated by commas), then restart:
+      STF accepts the device hosts with these keys only."
+  fi
 }
 
 # shutdown: removes the services, their data and the settings
@@ -239,6 +288,31 @@ version() {
 }
 
 #### Helpers
+
+# set_curve_keys: the CURVE keys of ZeroMQ of a new deployment by `stf curve-keygen` of the STF image (TAG_STF of the
+# environment overrides the one of .env, as for docker compose): the pair of the triproxies and the one of the STF units;
+# none when the image cannot make them
+set_curve_keys() {
+  local tag="$TAG_STF"
+  local name
+  local key
+  local keys=()
+  if [[ -z "$tag" ]]; then
+    tag="$(sed -n 's/^TAG_STF=//p' .env.original)"
+  fi
+  while IFS='=' read -r name key; do
+    if [[ "$name" =~ ^(public|secret)$ && "$key" =~ ^[0-9a-f]{64}$ ]]; then
+      keys+=("$key")
+    fi
+  done < <(docker run --rm "public.ecr.aws/zebrunner/stf:${tag}" sh -c 'stf curve-keygen && stf curve-keygen' 2> /dev/null)
+  if [[ "${#keys[@]}" -ne 4 ]]; then
+    echo_warning "The STF image ${tag} made no CURVE keys (stf curve-keygen): ZeroMQ of STF has no authentication."
+    return
+  fi
+  STF_ZMQ_CURVE_SERVER_PUBLIC_KEY="${keys[0]}"
+  STF_ZMQ_CURVE_SERVER_SECRET_KEY="${keys[1]}"
+  STF_ZMQ_CURVE_SECRET_KEY="${keys[3]}"
+}
 
 # set_mcloud_settings: asks the protocol, host, port and the admin of the interactive setup
 set_mcloud_settings() {

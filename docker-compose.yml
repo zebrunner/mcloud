@@ -44,16 +44,17 @@ services:
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
     ports:
-      - "4446:4444"
+      - "${AGENTS_ADDRESS}:4446:4444"
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
     container_name: rethinkdb
+    # only the device hosts of an earlier MCloud connect to it (RETHINKDB_ADDRESS)
     ports:
-      - "28015:28015"
+      - "${RETHINKDB_ADDRESS}:28015:28015"
     volumes:
       - "stf-db-volume:/data"
-    command: rethinkdb --bind all --cache-size 8192 --no-update-check
+    command: rethinkdb --bind all --cache-size 8192 --no-update-check --no-http-admin
     healthcheck:
       test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/28015"]
       interval: 2s
@@ -106,18 +107,17 @@ services:
     <<: *stf
     container_name: stf-triproxy-app
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
+    # the device hosts connect to the dealer only
     ports:
-      - "7150:7150"
-      - "7160:7160"
-      - "7170:7170"
+      - "${AGENTS_ADDRESS}:7160:7160"
   stf-triproxy-dev:
     <<: *stf
     container_name: stf-triproxy-dev
     command: stf triproxy dev001 --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
     ports:
-      - "7250:7250"
-      - "7260:7260"
-      - "7270:7270"
+      - "${AGENTS_ADDRESS}:7250:7250"
+      - "${AGENTS_ADDRESS}:7260:7260"
+      - "${AGENTS_ADDRESS}:7270:7270"
   stf-websocket:
     <<: *stf
     container_name: stf-websocket
