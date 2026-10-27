@@ -121,7 +121,7 @@ The device hosts (mcloud-agent) connect to ZeroMQ of STF (the triproxies) and, b
 
 - the triproxies accept only the clients with a known CURVE key ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)): the STF units and the device hosts of `STF_ZMQ_CURVE_CLIENT_KEYS`, the traffic is encrypted. `./zebrunner.sh setup` makes the keys with `stf curve-keygen` of the STF image;
 - RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published (`RETHINKDB_ADDRESS=127.0.0.1`): the device units of the current STF have no database;
-- the grid registers only the Appium nodes with `NODE_REGISTRATION_TOKEN` of `variables.env`, which the setup generates ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)); set it as `NODE_REGISTRATION_TOKEN` of every mcloud-agent.
+- the grid registers only the Appium nodes with `NODE_REGISTRATION_TOKEN` of `variables.env`, which the setup generates ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)), and sends it with its requests to them: the Appium of a device answers the grid only, the devices are used through `/mcloud/wd/hub` and reserved in STF. Set it as `NODE_REGISTRATION_TOKEN` of every mcloud-agent.
 
 A device host makes its own key pair (mcloud-agent prints its public key): add the public key to `STF_ZMQ_CURVE_CLIENT_KEYS` of `variables.env`, separated by commas, and run `./zebrunner.sh restart`. The removal of a key disconnects its device host.
 
