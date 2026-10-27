@@ -32,7 +32,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 2. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
 3. Open `http://hostname:80/stf`.
-4. Log in using any name/email values as `auth-mock` is configured by default.
+4. Sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then any name and email; the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
 5. Go to Settings, Keys and generate a new Access Token.
 6. Paste the generated token into `variables.env` as `STF_TOKEN`.
 7. Restart the services: `./zebrunner.sh restart`.
@@ -70,8 +70,8 @@ The commands of `./zebrunner.sh`:
 | `TAG_SELENIUM_HUB` | `develop` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
 | `TAG_RETHINKDB` | `2.4.2` | the tag of `rethinkdb` |
 | `TAG_STF` | `develop` | the tag of `public.ecr.aws/zebrunner/stf` |
-| `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF, `auth-zebrunner` in Zebrunner CE |
-| `AUTH_URL` | `auth/mock/` | the path of the sign-in, `auth/zebrunner/` in Zebrunner CE |
+| `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in Zebrunner CE |
+| `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
 `variables.env`, the settings of the STF units and of the grid:
 
@@ -84,6 +84,9 @@ The commands of `./zebrunner.sh`:
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
 | `STF_ADMIN_NAME`, `STF_ADMIN_EMAIL` | `admin`, `admin@zebrunner.com` | the administrator of STF, the owner of the root group |
 | `ZEBRUNNER_LOGIN_URL`, `ZEBRUNNER_USERINFO_URL` | | the endpoints of Zebrunner IAM for `auth-zebrunner`, set by the setup of Zebrunner CE |
+| `STF_AUTH_MOCK_USE_BASIC_AUTH`, `STF_AUTH_MOCK_BASIC_AUTH_USERNAME`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD` | `true`, `mcloud`, generated | the shared user and password in front of the mock sign-in |
+| `OAUTH_AUTHORIZATION_URL`, `OAUTH_TOKEN_URL`, `OAUTH_USERINFO_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_SCOPE`, `OAUTH_DOMAIN` | | the OAuth2 sign-in, asked by the setup; `OAUTH_CALLBACK_URL` is `<STF_URL>/auth/oauth/callback` |
+| `LDAP_URL`, `LDAP_BIND_DN`, `LDAP_BIND_CREDENTIALS`, `LDAP_SEARCH_DN`, `LDAP_SEARCH_FIELD` | | the LDAP sign-in, asked by the setup |
 | `RETHINKDB_PORT_28015_TCP` | `tcp://rethinkdb:28015` | the database of STF |
 | `RETHINKDB_ENV_AUTHKEY` | generated | the password of the `admin` of RethinkDB the STF units connect with, `stf-migrate` sets it in the database |
 | `STF_ZMQ_CURVE_SERVER_SECRET_KEY`, `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` | generated | the CURVE key pair of the triproxies of STF, the public key goes to mcloud-agent |
@@ -92,9 +95,19 @@ The commands of `./zebrunner.sh`:
 
 More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session, or `STF_STORAGE_TEMP_DOWNLOAD_ALLOW`, the private networks the apps may be installed from by URL) are described in [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#configuration). The settings of the grid (e.g. `NODE_ALLOWED_NETWORKS`, `MAX_NEW_COMMAND_TIMEOUT`, `MCLOUD_LOG_LEVEL`) are described in [mcloud-grid](https://github.com/zebrunner/mcloud-grid#configuration), they go to `environment` of `mcloud-grid` in `docker-compose.yml`.
 
+### Sign-in
+
+The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zebrunner IAM (`auth-zebrunner`). The values the setup asks are written quoted into `variables.env` (quotes and backslashes are not supported) and are the defaults of the next setup.
+
+| Sign-in | Who is the user | The setup asks |
+| --- | --- | --- |
+| `mock` (default) | anyone who knows the shared user and password (basic authentication) types a name and an email: whoever knows the name and the email of the admin (`STF_ADMIN_*`) signs in as the admin, so share the password with the trusted users only | nothing, the password is generated and printed |
+| `oauth2` | the user of an OpenID Connect / OAuth2 provider (Google, Azure AD, Keycloak, GitLab, ...): an email of `OAUTH_DOMAIN` that the provider does not report as unverified; the admin is the user with the email `STF_ADMIN_EMAIL` | the authorization, token and user info URLs, the client of MCloud at the provider (its redirect URL is `<STF_URL>/auth/oauth/callback`), the scope (`openid email`), the domain |
+| `ldap` | the user of the directory with its password | the URL, the bind DN and password (empty for an anonymous search), the search DN and the attribute of the user name (`uid`) |
+
 ### https
 
-`./zebrunner.sh setup` with the `https` protocol turns on the ssl of `stf-proxy` with a self-signed certificate; put your certificate and key into `configuration/stf-proxy/ssl/ssl.crt` and `configuration/stf-proxy/ssl/ssl.key` instead. `stf-proxy` passes the scheme of the client to STF (`X-Forwarded-Proto`, the one of a proxy in front of it when there is one), so the session cookie is `Secure` behind https. The ssl settings allow TLS 1.2 and 1.3 only.
+`./zebrunner.sh setup` with the `https` protocol turns on the ssl of `stf-proxy` with the certificate of the host: put it into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` before the setup, which fails without them, for a key of another certificate and for the self-signed pair the repository had (its private key is public). Zebrunner CE gives its own certificate (`nginx/ssl` of Zebrunner CE, its nginx is in front of `stf-proxy`): the setup copies it and warns when it is the self-signed one of the repository of Zebrunner CE. `shutdown` keeps the certificate. `stf-proxy` passes the scheme of the client to STF (`X-Forwarded-Proto`, the one of a proxy in front of it when there is one), so the session cookie is `Secure` behind https. The ssl settings allow TLS 1.2 and 1.3 only.
 
 ### Security headers
 
@@ -169,7 +182,9 @@ The ports `7150` and `7170` of the host are no longer published: the device host
 
 The setup offers the [authentication of the device hosts](#authentication-of-the-device-hosts): turn it on when every device host runs mcloud-agent with the mcloud-device image of the current STF and its key is in `STF_ZMQ_CURVE_CLIENT_KEYS`. Without it RethinkDB stays published (`RETHINKDB_ADDRESS=0.0.0.0`) for the device hosts of the earlier STF.
 
-The setup warns when `SECRET` is still the default `password`: replace it in `variables.env` with a random value, then generate the access tokens again (`STF_TOKEN` too), as the old ones are signed with the old secret. The grid logs JSON lines now, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#logs).
+The mock sign-in is behind a shared user and password now: the setup generates them and prints them (`STF_AUTH_MOCK_BASIC_AUTH_*`), or choose OAuth2 or LDAP, see [Sign-in](#sign-in). https needs the certificate of the host in `configuration/stf-proxy/ssl`: the self-signed pair of the earlier versions is refused.
+
+The setup offers a new `SECRET` when it is still the default `password` (Zebrunner CE only warns): then generate the access tokens again (`STF_TOKEN` too), as the old ones are signed with the old secret. The grid logs JSON lines now, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#logs).
 
 ## Components
 

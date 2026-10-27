@@ -38,9 +38,15 @@ value() {
 }
 
 # the answers of the interactive setup: protocol, host, port, confirmation, admin name, admin email, confirmation,
-# no start of the services
+# the sign-in of the previous setup, no start of the services
 answers() {
-  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y n
+  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y "" n
+}
+
+# certificate <directory> <host>: a self-signed certificate and its key as ssl.crt and ssl.key of the directory
+certificate() {
+  mkdir -p "$1"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=$2" -keyout "$1/ssl.key" -out "$1/ssl.crt" > /dev/null 2>&1
 }
 
 section "help"
@@ -70,6 +76,12 @@ check "the admin email" "admin@zebrunner.com" "$(value variables.env STF_ADMIN_E
 check "no Zebrunner sign-in" "" "$(value variables.env ZEBRUNNER_LOGIN_URL)"
 check "variables.env ends with a newline" "" "$(tail -c 1 "${MCLOUD}/variables.env")"
 check_contains "the token for mcloud-agent is explained" "STF_STORAGE_TOKEN of mcloud-agent" "$output"
+check "the mock sign-in by default" "auth-mock:auth/mock/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
+check "the mock sign-in is behind the basic authentication" "true" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
+check "the user of the basic authentication" "'mcloud'" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_USERNAME)"
+mock_password="$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
+check "the password of the basic authentication is generated" "26" "${#mock_password}"
+check_contains "the password of the sign-in is shown" "the password ${mock_password}" "$output"
 check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
 check_contains "the settings are saved" 'ZBR_HOSTNAME="mcloud.example.com"' "$(cat "${MCLOUD}/backup/settings.env")"
@@ -108,10 +120,29 @@ check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
 check_not_contains "no warning about SECRET" "SECRET of variables.env" "$output"
 
+check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
+
 replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
-output="$(zbr "$(answers "" "" "" "" "")" setup)"
-check "the default SECRET of a deployment is kept" "password" "$(value variables.env SECRET)"
-check_contains "the default SECRET is reported" "SECRET of variables.env is the default one" "$output"
+# the answers: no new SECRET, no start
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup)"
+check_contains "a new SECRET is offered" "SECRET of variables.env is the default one: anyone can sign" "$output"
+check "the default SECRET of a deployment is kept when declined" "password" "$(value variables.env SECRET)"
+check_contains "the default SECRET is reported" "WARNING! SECRET of variables.env is the default one" "$output"
+# the answers: a new SECRET by default, no start
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n)" setup)"
+secret="$(value variables.env SECRET)"
+check "the default SECRET is replaced by default" "48" "${#secret}"
+check_contains "STF_TOKEN is to be generated again" "generate STF_TOKEN of the grid again" "$output"
+replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
+# Zebrunner CE saves its settings too (ZBR_INSTALLER), the ones of the interactive setup come back after it
+cp "${MCLOUD}/backup/settings.env" "${WORK}/settings.saved"
+zbr_env=(ZBR_INSTALLER=1 ZBR_PROTOCOL=http ZBR_HOSTNAME=mcloud.example.com ZBR_PORT=80)
+output="$(zbr "" setup)"
+zbr_env=()
+cp "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+check "Zebrunner CE keeps the default SECRET" "password" "$(value variables.env SECRET)"
+check_contains "Zebrunner CE reports the default SECRET" "WARNING! SECRET of variables.env is the default one" "$output"
+replace "${MCLOUD}/variables.env" "SECRET=password" "SECRET=${secret}"
 replace "${MCLOUD}/variables.env" "SECRET=password" "SECRET="
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
@@ -124,18 +155,18 @@ for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_
 done
 sed -i.orig "/^RETHINKDB_ADDRESS=/d" "${MCLOUD}/.env"
 reset_calls
-# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, no authentication,
-# no start of the services
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y n n)" setup)"
+# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, the sign-in, no
+# authentication, no start of the services
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup)"
 check_contains "the authentication is offered" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 check_contains "its absence is reported" "RethinkDB and ZeroMQ of STF have no authentication" "$output"
 check "no password of RethinkDB" "" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "RethinkDB stays published for the device hosts" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
 check "no docker without the authentication" "" "$(calls docker)"
-zbr "$(printf '%s\n' "" "" "" y "" "" y n n)" setup > /dev/null
+zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup > /dev/null
 check "RethinkDB stays published on the next setup" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y y n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" y n)" setup)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated when the authentication is turned on" "48" "${#password}"
 check "the CURVE keys are made when the authentication is turned on" "${keys//0/b}" \
@@ -145,23 +176,78 @@ output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check_not_contains "the authentication is not offered again" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 
 section "setup questions"
-output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\nn\n" setup)"
+SSL="${MCLOUD}/configuration/stf-proxy/ssl"
+cp "${MCLOUD}/.env" "${WORK}/env.saved"
+output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
+check "https without a certificate fails" "1" "$?"
+check_contains "the certificate is asked for" "put it into configuration/stf-proxy/ssl/ssl.crt" "$output"
+check "nothing is written without a certificate" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
+certificate "$SSL" mcloud.example.com
+cp "${SSL}/ssl.crt" "${WORK}/ssl.crt"
+output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
 check "a declined address is asked again" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
 check_contains "https listens with ssl" "listen 80 ssl;" "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/nginx/ssl/ssl.crt;' \
   "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
-check "the self-signed certificate is used" "same" \
-  "$(cmp -s "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt" "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt.original" && echo same)"
-check "the self-signed key is used" "same" \
-  "$(cmp -s "${MCLOUD}/configuration/stf-proxy/ssl/ssl.key" "${MCLOUD}/configuration/stf-proxy/ssl/ssl.key.original" && echo same)"
-echo "custom" > "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt"
-zbr "$(answers "" "" "" "" "")" setup > /dev/null
-check "a custom certificate is kept" "custom" "$(cat "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt")"
+check "the certificate of the user is kept" "same" "$(cmp -s "${SSL}/ssl.crt" "${WORK}/ssl.crt" && echo same)"
+certificate "${WORK}/other" other.example.com
+cp "${WORK}/other/ssl.key" "${SSL}/ssl.key"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check "a key of another certificate fails" "1" "$?"
+check_contains "a key of another certificate is reported" "is not the key of" "$output"
+cp "${REPO}/tests/fixtures/shared-ssl.crt" "${SSL}/ssl.crt"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check "the shared self-signed certificate fails" "1" "$?"
+check_contains "the shared self-signed certificate is reported" "its private key is public" "$output"
+rm -f "${SSL}/ssl.crt" "${SSL}/ssl.key"
+zbr "$(answers http "" "" "" "")" setup > /dev/null
+check "http needs no certificate" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
+
+section "sign-in"
+# the answers: the sign-in, its settings with a secret, a scope, a domain of the users, no start; the secret is literal
+# shellcheck disable=SC2016
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oauth2 https://idp.example.com/authorize https://idp.example.com/token \
+  https://idp.example.com/userinfo mcloud-client "it's" 'a$b&c d' "" example.com n)" setup)"
+check "the OAuth2 sign-in" "auth-oauth2:auth/oauth/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
+check_contains "the callback URL is shown" "redirects to http://mcloud.example.com:8082/auth/oauth/callback" "$output"
+check_contains "a quote is asked again" "Quotes and backslashes are not supported." "$output"
+check "the authorization URL" "'https://idp.example.com/authorize'" "$(value variables.env OAUTH_AUTHORIZATION_URL)"
+check "the client secret is kept as typed" "'a\$b&c d'" "$(value variables.env OAUTH_CLIENT_SECRET)"
+# shellcheck disable=SC2016
+check_not_contains "the client secret is not shown" 'a$b&c d' "$output"
+check "the scope of OpenID Connect by default" "'openid email'" "$(value variables.env OAUTH_SCOPE)"
+check "the domain of the users" "'example.com'" "$(value variables.env OAUTH_DOMAIN)"
+check "the callback URL" "'http://mcloud.example.com:8082/auth/oauth/callback'" "$(value variables.env OAUTH_CALLBACK_URL)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" "" "" "" "" "" n)" setup)"
+check "the OAuth2 sign-in is the default of the next setup" "auth-oauth2" "$(value .env AUTH_SYSTEM)"
+check "the client secret is kept by the next setup" "'a\$b&c d'" "$(value variables.env OAUTH_CLIENT_SECRET)"
+check "the domain is kept by the next setup" "'example.com'" "$(value variables.env OAUTH_DOMAIN)"
+if docker compose version > /dev/null 2>&1; then
+  # shellcheck disable=SC2016
+  check_contains "docker compose reads the quoted values" 'OAUTH_CLIENT_SECRET: a$$b&c d' \
+    "$(cd "$MCLOUD" && docker compose config 2> /dev/null | grep OAUTH_CLIENT_SECRET | sed 's/^ *//')"
+else
+  skip_check "docker compose reads the quoted values" "requires docker compose"
+fi
+zbr "$(printf '%s\n' "" "" "" y "" "" y ldap ldap://ldap.example.com:389 "" "ou=people,dc=example,dc=com" "" n)" \
+  setup > /dev/null
+check "the LDAP sign-in" "auth-ldap:auth/ldap/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
+check "the LDAP URL" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP_URL)"
+check "the attribute of the user name by default" "'uid'" "$(value variables.env LDAP_SEARCH_FIELD)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oracle mock n)" setup)"
+check_contains "an unknown sign-in is asked again" "Please answer mock, oauth2 or ldap." "$output"
+check "the mock sign-in again" "auth-mock" "$(value .env AUTH_SYSTEM)"
 
 section "setup of Zebrunner CE"
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
 zbr_env=(ZBR_INSTALLER=1 ZBR_PROTOCOL=https ZBR_HOSTNAME=ce.example.com ZBR_PORT=443)
 output="$(zbr "" setup)"
+check "https of Zebrunner CE without its certificate fails" "1" "$?"
+check_contains "the certificate of Zebrunner CE is asked for" "../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing" "$output"
+certificate "${WORK}/nginx/ssl" ce.example.com
+output="$(zbr "" setup)"
+check "the certificate of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.crt" "${SSL}/ssl.crt" && echo same)"
+check "the key of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.key" "${SSL}/ssl.key" && echo same)"
 check "the setup asks nothing" "" "$(grep 'Zebrunner MCloud Settings' <<< "$output")"
 check "STF_URL is the one of Zebrunner CE" "https://ce.example.com:443" "$(value .env STF_URL)"
 check "STF_PORT is the internal one" "8082" "$(value .env STF_PORT)"
@@ -177,10 +263,17 @@ sed -i.orig -e "/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=/d" -e "/^RETHINKDB_ENV_AUTHKE
 output="$(zbr "" setup)"
 check_not_contains "Zebrunner CE does not offer the authentication" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 check_contains "Zebrunner CE reports its absence" "have no authentication" "$output"
+cp "${REPO}/tests/fixtures/shared-ssl.crt" "${WORK}/nginx/ssl/ssl.crt"
+# the key of the shared certificate is not in the repository: openssl takes the pair as a match
+stub openssl 'echo same'
+output="$(zbr "" setup)"
+rm -f "${WORK}/bin/openssl"
+check "the shared certificate of Zebrunner CE is used" "0" "$?"
+check_contains "the shared certificate of Zebrunner CE is reported" "the self-signed one of its repository" "$output"
 zbr_env=()
 
 section "setup without the CURVE keys of the STF image"
-rm -f "${MCLOUD}/variables.env"
+rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
 zbr_env=(NO_KEYGEN=1)
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 zbr_env=()
@@ -275,11 +368,10 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|down|-v" "$(calls docker)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/ssl/ssl.crt \
-  configuration/stf-proxy/ssl/ssl.key; do
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
-check "the originals stay" "yes" "$([[ -f "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt.original" ]] && echo yes)"
+check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
 check_contains "shutdown without settings" "Unable to erase as nothing is configured!" "$(zbr "" shutdown)"
 
 finish

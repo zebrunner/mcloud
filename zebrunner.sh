@@ -10,6 +10,8 @@ setup() {
   local url
   local is_new=1
   local secure=0
+  local secret_rotated=0
+  local sign_in="zebrunner"
   local agents_address=""
   local rethinkdb_address=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
@@ -45,7 +47,14 @@ setup() {
     fi
 
     set_mcloud_settings
+    set_sign_in
+    sign_in="$ZBR_MCLOUD_SIGN_IN"
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
+  fi
+
+  # https: the certificate is checked before anything is written (README.md#https)
+  if [[ "$ZBR_PROTOCOL" == "https" ]] && ! set_certificate; then
+    exit 1
   fi
 
   # the authentication of RethinkDB and of ZeroMQ: on for a new deployment (its password of RethinkDB tells it later, the
@@ -83,16 +92,38 @@ setup() {
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
   replace .env "RETHINKDB_ADDRESS=127.0.0.1" "RETHINKDB_ADDRESS=${rethinkdb_address}"
 
-  if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
+  # the sign-in unit of STF and its path: Zebrunner IAM in Zebrunner CE, the choice of the interactive setup otherwise
+  case "$sign_in" in
+  zebrunner)
     replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-zebrunner"
     replace .env "AUTH_URL=auth/mock/" "AUTH_URL=auth/zebrunner/"
+    ;;
+  oauth2)
+    replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-oauth2"
+    replace .env "AUTH_URL=auth/mock/" "AUTH_URL=auth/oauth/"
+    ;;
+  ldap)
+    replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-ldap"
+    replace .env "AUTH_URL=auth/mock/" "AUTH_URL=auth/ldap/"
+    ;;
+  esac
+  # the shared password of the mock sign-in, which takes any name and email behind it
+  if [[ "$sign_in" == "mock" && -z "$STF_AUTH_MOCK_BASIC_AUTH_PASSWORD" ]]; then
+    STF_AUTH_MOCK_BASIC_AUTH_PASSWORD="$(random_string 24)"
   fi
 
   if [[ -z "$SECRET" || ("$SECRET" == "password" && "$is_new" -eq 1) ]]; then
     # a new secret would end the sessions and invalidate the access tokens (STF_TOKEN) of an existing deployment
     SECRET="$(random_string 48)"
   elif [[ "$SECRET" == "password" ]]; then
-    echo_warning "SECRET of variables.env is the default one, replace it to protect the sessions and access tokens of STF (the users sign in again, the access tokens are generated again)."
+    if [[ "$ZBR_INSTALLER" -ne 1 ]] && confirm "
+      SECRET of variables.env is the default one: anyone can sign the sessions and the access tokens of STF. A new one
+      ends the sessions (the users sign in again) and invalidates the access tokens." "      Generate a new SECRET?" "y"; then
+      SECRET="$(random_string 48)"
+      secret_rotated=1
+    else
+      echo_warning "SECRET of variables.env is the default one, replace it to protect the sessions and access tokens of STF (the users sign in again, the access tokens are generated again)."
+    fi
   fi
   if [[ -z "$STF_STORAGE_TOKEN" ]]; then
     STF_STORAGE_TOKEN="$(random_string 64)"
@@ -110,6 +141,17 @@ setup() {
   replace variables.env "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=${STF_ZMQ_CURVE_SERVER_PUBLIC_KEY}"
   replace variables.env "STF_ZMQ_CURVE_SECRET_KEY=" "STF_ZMQ_CURVE_SECRET_KEY=${STF_ZMQ_CURVE_SECRET_KEY}"
   replace variables.env "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${STF_ZMQ_CURVE_CLIENT_KEYS}"
+  # the settings of the sign-in, quoted: the values the user typed are not read as a script by the next setup
+  if [[ "$sign_in" == "oauth2" ]]; then
+    # shellcheck disable=SC2034 # read by the loop below through ${!name}
+    OAUTH_CALLBACK_URL="${url}/auth/oauth/callback"
+  fi
+  local name
+  for name in STF_AUTH_MOCK_BASIC_AUTH_USERNAME STF_AUTH_MOCK_BASIC_AUTH_PASSWORD OAUTH_AUTHORIZATION_URL \
+    OAUTH_TOKEN_URL OAUTH_USERINFO_URL OAUTH_CLIENT_ID OAUTH_CLIENT_SECRET OAUTH_CALLBACK_URL OAUTH_SCOPE OAUTH_DOMAIN \
+    LDAP_URL LDAP_BIND_DN LDAP_BIND_CREDENTIALS LDAP_SEARCH_DN LDAP_SEARCH_FIELD; do
+    replace variables.env "${name}=''" "${name}='${!name}'"
+  done
   if [[ -z "$ZBR_MCLOUD_ADMIN_NAME" && -n "$STF_ADMIN_NAME" ]]; then
     ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
   fi
@@ -128,22 +170,12 @@ setup() {
 
   cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
   replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '${ZBR_HOSTNAME}'"
-  # the ssl protocol of the default NGiNX configuration
+  # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
   if [[ "$ZBR_PROTOCOL" == "https" ]]; then
     replace configuration/stf-proxy/nginx.conf "listen 80" "listen 80 ssl"
 
     # uncomment the default ssl settings
     replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
-
-    # ssl.crt and ssl.key are not under source control (#136)
-    if [[ ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
-      echo "using self-signed certificate..."
-      cp configuration/stf-proxy/ssl/ssl.crt.original configuration/stf-proxy/ssl/ssl.crt
-    fi
-    if [[ ! -f configuration/stf-proxy/ssl/ssl.key ]]; then
-      echo "using self-signed key..."
-      cp configuration/stf-proxy/ssl/ssl.key.original configuration/stf-proxy/ssl/ssl.key
-    fi
   fi
 
   # the user input for the next setup
@@ -156,6 +188,14 @@ setup() {
       Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add the
       public key mcloud-agent prints to STF_ZMQ_CURVE_CLIENT_KEYS of variables.env (separated by commas), then restart:
       STF accepts the device hosts with these keys only."
+  fi
+  if [[ "$sign_in" == "mock" ]]; then
+    echo "
+      The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
+      variables.env), then any name and email: share them with the users of STF only."
+  fi
+  if [[ "$secret_rotated" -eq 1 ]]; then
+    echo_warning "SECRET is new: the users sign in again; generate STF_TOKEN of the grid again (Settings, Keys of STF) and set it in variables.env, the grid reserves no device until then."
   fi
 }
 
@@ -186,8 +226,7 @@ shutdown() {
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
-  rm -f configuration/stf-proxy/ssl/ssl.crt
-  rm -f configuration/stf-proxy/ssl/ssl.key
+  # the certificate of https is the one of the user (README.md#https), it is kept
 }
 
 # start: starts the services, the first start runs the setup instead
@@ -288,6 +327,137 @@ version() {
 }
 
 #### Helpers
+
+# The SHA-256 of the self-signed certificate and key the repositories of MCloud and Zebrunner CE had: the key is public
+SHARED_SSL_CRT_SHA256="1fee845f65d86677768e4b49a67edfa7ebbe56bd37cb7ca1b393a8577040580d"
+SHARED_SSL_KEY_SHA256="219bcec4e1f8bced27b4a335ab9cec720cd1f8bd452ce38cf7121ddbd523aebe"
+
+# file_sha256 <file>: the SHA-256 of a file
+file_sha256() {
+  if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  else
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  fi
+}
+
+# set_certificate: configuration/stf-proxy/ssl/ssl.crt and ssl.key of https: the user puts them there, Zebrunner CE
+# gives its own (../nginx/ssl, its nginx is in front of this one); fails without them, for a key that is not the one of
+# the certificate and, but for Zebrunner CE, for the self-signed pair of the earlier versions
+set_certificate() {
+  local dir="configuration/stf-proxy/ssl"
+  local shared=0
+  if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
+    if [[ ! -f "${BASEDIR}/../nginx/ssl/ssl.crt" || ! -f "${BASEDIR}/../nginx/ssl/ssl.key" ]]; then
+      echo_warning "https needs the certificate of Zebrunner CE: ../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing."
+      return 1
+    fi
+    cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt"
+    cp "${BASEDIR}/../nginx/ssl/ssl.key" "${dir}/ssl.key"
+  fi
+  if [[ ! -f "${dir}/ssl.crt" || ! -f "${dir}/ssl.key" ]]; then
+    echo_warning "https needs the certificate of ${ZBR_HOSTNAME}: put it into ${dir}/ssl.crt and its key into ${dir}/ssl.key (README.md#https)."
+    return 1
+  fi
+  if [[ "$(file_sha256 "${dir}/ssl.crt")" == "$SHARED_SSL_CRT_SHA256" || "$(file_sha256 "${dir}/ssl.key")" == "$SHARED_SSL_KEY_SHA256" ]]; then
+    shared=1
+  fi
+  if [[ "$shared" -eq 1 && "$ZBR_INSTALLER" -eq 1 ]]; then
+    echo_warning "The certificate of Zebrunner CE (nginx/ssl) is the self-signed one of its repository, its private key is public: anyone can read and change the traffic of MCloud. Replace it with the certificate of ${ZBR_HOSTNAME}."
+  elif [[ "$shared" -eq 1 ]]; then
+    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the earlier MCloud versions, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} (README.md#https)."
+    return 1
+  fi
+  if command -v openssl > /dev/null 2>&1 &&
+    [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]; then
+    echo_warning "${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM)."
+    return 1
+  fi
+}
+
+# ask <variable> <question> [optional]: reads a value of the interactive setup, the current one by default; a value
+# with a quote or a backslash is asked again (variables.env keeps it in quotes), an empty one too unless optional
+ask() {
+  local name="$1"
+  local question="$2"
+  local optional="$3"
+  local answer
+  while true; do
+    read -r -p "${question} [${!name}]: " answer
+    answer="${answer:-${!name}}"
+    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
+      echo "Quotes and backslashes are not supported."
+    elif [[ -n "$answer" || -n "$optional" ]]; then
+      break
+    else
+      echo "A value is needed."
+    fi
+  done
+  printf -v "$name" '%s' "$answer"
+}
+
+# ask_secret <variable> <question>: ask without echo, the current value is kept on an empty answer
+ask_secret() {
+  local name="$1"
+  local question="$2"
+  local answer
+  while true; do
+    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer
+    echo
+    answer="${answer:-${!name}}"
+    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
+      echo "Quotes and backslashes are not supported."
+    elif [[ -n "$answer" ]]; then
+      break
+    else
+      echo "A value is needed."
+    fi
+  done
+  printf -v "$name" '%s' "$answer"
+}
+
+# set_sign_in: asks the sign-in of STF of the interactive setup and its settings (README.md#sign-in)
+set_sign_in() {
+  local answer
+  ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-mock}"
+  while true; do
+    read -r -p "Sign-in of STF: mock (any name and email behind a shared password), oauth2 (OpenID Connect) or ldap [${ZBR_MCLOUD_SIGN_IN}]: " answer
+    answer="${answer:-$ZBR_MCLOUD_SIGN_IN}"
+    if [[ "$answer" =~ ^(mock|oauth2|ldap)$ ]]; then
+      ZBR_MCLOUD_SIGN_IN="$answer"
+      break
+    fi
+    echo "Please answer mock, oauth2 or ldap."
+  done
+  export ZBR_MCLOUD_SIGN_IN
+
+  case "$ZBR_MCLOUD_SIGN_IN" in
+  mock)
+    STF_AUTH_MOCK_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_BASIC_AUTH_USERNAME:-mcloud}"
+    ;;
+  oauth2)
+    echo "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}/auth/oauth/callback"
+    ask OAUTH_AUTHORIZATION_URL "Authorization URL"
+    ask OAUTH_TOKEN_URL "Token URL"
+    ask OAUTH_USERINFO_URL "User info URL"
+    ask OAUTH_CLIENT_ID "Client ID"
+    ask_secret OAUTH_CLIENT_SECRET "Client secret"
+    OAUTH_SCOPE="${OAUTH_SCOPE:-openid email}"
+    ask OAUTH_SCOPE "Scope"
+    ask OAUTH_DOMAIN "Email domain of the users, empty for any" optional
+    ;;
+  ldap)
+    ask LDAP_URL "LDAP URL (ldap://host:389)"
+    ask LDAP_BIND_DN "Bind DN, empty for an anonymous search" optional
+    if [[ -n "$LDAP_BIND_DN" ]]; then
+      ask_secret LDAP_BIND_CREDENTIALS "Bind password"
+    fi
+    ask LDAP_SEARCH_DN "Search DN of the users"
+    LDAP_SEARCH_FIELD="${LDAP_SEARCH_FIELD:-uid}"
+    ask LDAP_SEARCH_FIELD "Attribute of the user name"
+    ;;
+  esac
+}
 
 # set_curve_keys: the CURVE keys of ZeroMQ of a new deployment by `stf curve-keygen` of the STF image (TAG_STF of the
 # environment overrides the one of .env, as for docker compose): the pair of the triproxies and the one of the STF units;

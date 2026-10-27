@@ -71,14 +71,18 @@ pull() {
   return 1
 }
 
-# answers: protocol, host, port and the admin of the interactive setup
-answers="http\nlocalhost\n${PORT}\ny\n\n\ny\nn\n"
+# answers: protocol, host, port, the admin and the sign-in (mock) of the interactive setup
+answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nn\n"
 
 section "setup and start"
 run_check "setup" zbr "$answers" setup
 # the units reach the storage by STF_URL, localhost is the container itself there: stf-proxy of the network instead
 sed -i.orig "s|^STF_URL=.*|STF_URL=http://stf-proxy|" "${MCLOUD}/.env"
 storage_token="$(sed -n 's/^STF_STORAGE_TOKEN=//p' "${MCLOUD}/variables.env")"
+# the shared user and password of the mock sign-in, quoted in variables.env
+sign_in_user="$(sed -n "s/^STF_AUTH_MOCK_BASIC_AUTH_USERNAME='\(.*\)'$/\1/p" "${MCLOUD}/variables.env")"
+sign_in_password="$(sed -n "s/^STF_AUTH_MOCK_BASIC_AUTH_PASSWORD='\(.*\)'$/\1/p" "${MCLOUD}/variables.env")"
+sign_in="${sign_in_user}:${sign_in_password}"
 # every image once and one after another: the parallel pulls of the services of one image exceed the rate limit of
 # public.ecr.aws for anonymous pulls; an image of this machine is not pulled
 while read -r image; do
@@ -93,7 +97,7 @@ done < <(cd "$MCLOUD" && docker compose config --images | sort -u)
 run_check "start" zbr "" start
 run_check "the database migration succeeds" \
   bash -c "test \"\$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' stf-migrate)\" == 'exited 0'"
-run_check "STF answers through stf-proxy" wait_for 180 curl -sf --max-time 5 "${URL}/auth/mock/"
+run_check "STF answers through stf-proxy" wait_for 180 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
 run_check "the grid answers through stf-proxy" wait_for 120 curl -sf --max-time 5 "${URL}/mcloud/wd/hub/status"
 running="$(cd "$MCLOUD" && docker compose ps --services --status running | sort | tr '\n' ' ')"
 expected="$(cd "$MCLOUD" && docker compose config --services | grep -vx stf-migrate | sort | tr '\n' ' ')"
@@ -102,13 +106,14 @@ check "every service but stf-migrate runs" "$expected" "$running"
 section "STF"
 check "the app redirects to the sign-in" "302" "$(http_code /)"
 check "/stf is the app" "302" "$(http_code /stf)"
-check "the mock sign-in page" "200" "$(http_code /auth/mock/)"
+check "the mock sign-in needs its password" "401" "$(http_code /auth/mock/)"
+check "the mock sign-in page with the password of variables.env" "200" "$(http_code /auth/mock/ -u "$sign_in")"
 check "the API needs an access token" "401" "$(http_code /api/v1/user)"
 check "the storage refuses a request without the token" "401" "$(http_code /s/blob/none/none)"
 check "the storage accepts the token of variables.env" "404" \
   "$(http_code /s/blob/none/none -H "x-stf-internal-token: ${storage_token}")"
 check "the apk plugin forwards the credentials" "401" "$(http_code /s/apk/none/none)"
-headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/auth/mock/" | tr -d '\r')"
+headers="$(curl -s -o /dev/null -D - --max-time 10 -u "$sign_in" "${URL}/auth/mock/" | tr -d '\r')"
 check "stf-proxy hides the nginx version" "Server: nginx" "$(grep -i '^server:' <<< "$headers")"
 check "no X-Powered-By" "" "$(grep -i '^x-powered-by:' <<< "$headers")"
 for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN" \
@@ -156,8 +161,11 @@ check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max
 section "https"
 HTTPS="${WORK}/https"
 copy_repo "$HTTPS"
-printf 'https\nlocalhost\n443\ny\n\n\ny\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
-run_check "the https configuration of nginx with the self-signed certificate" \
+# a certificate of the user: the repository has none
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost -keyout "${HTTPS}/configuration/stf-proxy/ssl/ssl.key" \
+  -out "${HTTPS}/configuration/stf-proxy/ssl/ssl.crt" > /dev/null 2>&1
+printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 
