@@ -8,10 +8,17 @@ source "${REPO}/patch/utility.sh"
 MCLOUD="${WORK}/mcloud"
 copy_repo "$MCLOUD"
 
-# the stub body is expanded when the stub runs; NO_NETWORK=1: the infra network is missing
+# the stub body is expanded when the stub runs; NO_NETWORK=1: the infra network is missing; `stf curve-keygen` of the
+# STF image prints two key pairs, none with NO_KEYGEN=1
 # shellcheck disable=SC2016
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ "$1 $2" == "network inspect" && "$NO_NETWORK" == "1" ]] && exit 1
+if [[ "$1" == "run" && "$*" == *curve-keygen* ]]; then
+  [[ "$NO_KEYGEN" == "1" ]] && exit 1
+  for key in a b c d; do
+    printf "%s=%s\n" "$([[ "$key" =~ [ac] ]] && echo public || echo secret)" "$(printf "%064d" 0 | tr 0 "$key")"
+  done
+fi
 exit 0'
 stub curl 'echo 203.0.113.10'
 
@@ -66,12 +73,33 @@ check_contains "the token for mcloud-agent is explained" "STF_STORAGE_TOKEN of m
 check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
 check_contains "the settings are saved" 'ZBR_HOSTNAME="mcloud.example.com"' "$(cat "${MCLOUD}/backup/settings.env")"
-check "the setup calls no docker" "" "$(calls docker)"
+check "the setup makes the CURVE keys with the STF image" \
+  "run|--rm|public.ecr.aws/zebrunner/stf:$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")|sh|-c|stf curve-keygen && stf curve-keygen" \
+  "$(calls docker)"
+keys="$(printf '%064d' 0)"
+check "the public key of the triproxies" "${keys//0/a}" "$(value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY)"
+check "the secret key of the triproxies" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the secret key of the STF units" "${keys//0/d}" "$(value variables.env STF_ZMQ_CURVE_SECRET_KEY)"
+check "no device host yet" "" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
+password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "the password of RethinkDB is generated" "48" "${#password}"
+check "RethinkDB is not published for the device hosts" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
+check "the ports of the device hosts are published on every address" "0.0.0.0" "$(value .env AGENTS_ADDRESS)"
+check_contains "the key for mcloud-agent is explained" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent" "$output"
+check_not_contains "no warning about the authentication" "have no authentication" "$output"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
+replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
+replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
+reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
+check "the setup again calls no docker" "" "$(calls docker)"
+check "the password of RethinkDB is kept" "$password" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "the CURVE keys are kept" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
+check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
@@ -88,6 +116,33 @@ replace "${MCLOUD}/variables.env" "SECRET=password" "SECRET="
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
+
+section "setup of an earlier deployment"
+for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY \
+  STF_ZMQ_CURVE_CLIENT_KEYS; do
+  sed -i.orig "/^${name}=/d" "${MCLOUD}/variables.env"
+done
+sed -i.orig "/^RETHINKDB_ADDRESS=/d" "${MCLOUD}/.env"
+reset_calls
+# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, no authentication,
+# no start of the services
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y n n)" setup)"
+check_contains "the authentication is offered" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
+check_contains "its absence is reported" "RethinkDB and ZeroMQ of STF have no authentication" "$output"
+check "no password of RethinkDB" "" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "RethinkDB stays published for the device hosts" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
+check "no docker without the authentication" "" "$(calls docker)"
+zbr "$(printf '%s\n' "" "" "" y "" "" y n n)" setup > /dev/null
+check "RethinkDB stays published on the next setup" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y y n)" setup)"
+password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "the password of RethinkDB is generated when the authentication is turned on" "48" "${#password}"
+check "the CURVE keys are made when the authentication is turned on" "${keys//0/b}" \
+  "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "RethinkDB is not published once the authentication is on" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_not_contains "the authentication is not offered again" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 
 section "setup questions"
 output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\nn\n" setup)"
@@ -117,7 +172,24 @@ check "ZEBRUNNER_USERINFO_URL" "https://ce.example.com:443/api/iam/v1/users" "$(
 secret="$(value variables.env SECRET)"
 check "a new SECRET is generated" "48" "${#secret}"
 check_not_contains "Zebrunner CE starts the services itself" "need to be started after setup" "$output"
+check "the CURVE keys of a new deployment of Zebrunner CE" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+sed -i.orig -e "/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=/d" -e "/^RETHINKDB_ENV_AUTHKEY=/d" "${MCLOUD}/variables.env"
+output="$(zbr "" setup)"
+check_not_contains "Zebrunner CE does not offer the authentication" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
+check_contains "Zebrunner CE reports its absence" "have no authentication" "$output"
 zbr_env=()
+
+section "setup without the CURVE keys of the STF image"
+rm -f "${MCLOUD}/variables.env"
+zbr_env=(NO_KEYGEN=1)
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+zbr_env=()
+check_contains "the missing keys are reported" "made no CURVE keys" "$output"
+check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "the password of RethinkDB is generated anyway" "48" "${#password}"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the keys are made by the next setup" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 
 section "compose"
 if docker compose version > /dev/null 2>&1; then
