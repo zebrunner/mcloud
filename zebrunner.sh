@@ -60,19 +60,19 @@ setup() {
     exit 1
   fi
 
-  # the authentication of RethinkDB and of ZeroMQ: on for a new deployment (its password of RethinkDB tells it later, the
-  # missing keys are made again), a deployment of an earlier MCloud turns it on when its device hosts run the
-  # mcloud-device of the current STF (README.md#authentication-of-the-device-hosts)
+  # the authentication of RethinkDB, of ZeroMQ and of the grid registration: on for a new deployment (its password of
+  # RethinkDB tells it later, the missing keys and token are made again), a deployment of an earlier MCloud turns it on
+  # when its device hosts run the mcloud-device and appium of the current MCloud (README.md#authentication-of-the-device-hosts)
   if [[ "$is_new" -eq 1 || -n "$RETHINKDB_ENV_AUTHKEY" ]]; then
     secure=1
   else
     if [[ "$ZBR_INSTALLER" -ne 1 ]] && confirm "
-      RethinkDB and ZeroMQ of STF accept anyone who reaches their ports. The authentication needs mcloud-agent with
-      the mcloud-device image of the current STF and the keys of the device hosts in STF_ZMQ_CURVE_CLIENT_KEYS,
-      the other device hosts cannot connect." "      Turn the authentication on?" "n"; then
+      RethinkDB and ZeroMQ of STF accept anyone who reaches their ports, the grid registers any Appium node. The
+      authentication needs mcloud-agent with the mcloud-device and appium images of the current MCloud, the keys of
+      the device hosts in STF_ZMQ_CURVE_CLIENT_KEYS and NODE_REGISTRATION_TOKEN, the other device hosts cannot connect." "      Turn the authentication on?" "n"; then
       secure=1
     else
-      echo_warning "RethinkDB and ZeroMQ of STF have no authentication, see README.md#authentication-of-the-device-hosts."
+      echo_warning "RethinkDB and ZeroMQ of STF have no authentication, the grid registers any Appium node, see README.md#authentication-of-the-device-hosts."
     fi
   fi
   if [[ "$secure" -eq 1 ]]; then
@@ -81,6 +81,9 @@ setup() {
     fi
     if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]]; then
       set_curve_keys
+    fi
+    if [[ -z "$NODE_REGISTRATION_TOKEN" ]]; then
+      NODE_REGISTRATION_TOKEN="$(random_string 48)"
     fi
     # the device units of the current STF have no database
     rethinkdb_address="127.0.0.1"
@@ -139,6 +142,7 @@ setup() {
   replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
   replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
+  replace variables.env "NODE_REGISTRATION_TOKEN=" "NODE_REGISTRATION_TOKEN=${NODE_REGISTRATION_TOKEN}"
   replace variables.env "SECRET=password" "SECRET=${SECRET}"
   replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
   replace variables.env "RETHINKDB_ENV_AUTHKEY=" "RETHINKDB_ENV_AUTHKEY=${RETHINKDB_ENV_AUTHKEY}"
@@ -193,6 +197,11 @@ setup() {
       Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add the
       public key mcloud-agent prints to STF_ZMQ_CURVE_CLIENT_KEYS of variables.env (separated by commas), then restart:
       STF accepts the device hosts with these keys only."
+  fi
+  if [[ -n "$NODE_REGISTRATION_TOKEN" ]]; then
+    echo "
+      Set NODE_REGISTRATION_TOKEN of variables.env as NODE_REGISTRATION_TOKEN of mcloud-agent: the grid registers the
+      Appium nodes with this token only."
   fi
   if [[ "$sign_in" == "mock" ]]; then
     echo "

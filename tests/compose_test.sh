@@ -173,6 +173,18 @@ for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff"
 done
 check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
+grid_token="$(sed -n 's/^NODE_REGISTRATION_TOKEN=//p' "${MCLOUD}/variables.env")"
+check "the grid gets the registration token" "$grid_token" "$(docker exec mcloud-grid printenv NODE_REGISTRATION_TOKEN)"
+# a node without the token registers at the port of the device hosts (4446) as Appium does: the grid of the current
+# MCloud refuses it (500), an earlier one registers it
+node='{"capabilities": [{"maxInstances": 1, "platformName": "ANDROID", "udid": "compose-test", "deviceName": "Pixel"}],
+  "configuration": {"proxy": "com.zebrunner.mcloud.grid.MobileRemoteProxy", "url": "http://192.0.2.1:4723/wd/hub",
+  "host": "192.0.2.1", "port": 4723, "id": "http://192.0.2.1:4723", "maxSession": 1, "register": true}}'
+check "the grid refuses a node without the registration token" "500" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST --data-binary "$node" http://127.0.0.1:4446/grid/register)"
+curl -s -o /dev/null --max-time 10 "${URL}/mcloud/lifecycle-manager?action=shutdown"
+sleep 2
+check "/lifecycle-manager does not shut the grid down" "200" "$(http_code /mcloud/wd/hub/status)"
 
 section "https"
 HTTPS="${WORK}/https"
