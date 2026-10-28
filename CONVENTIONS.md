@@ -257,6 +257,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 - The `lint` job is the reusable workflow of mcloud-conventions: `uses: zebrunner/mcloud-conventions/.github/workflows/lint.yml@v1` (`with: java-version` for the Maven checks).
 - The other jobs are `tests`, `docker` (those that apply, plus the project ones), each with `timeout-minutes` (10 unless the project needs more) and a JUnit report step `mikepenz/action-junit-report` with `annotate_only: true`, `detailed_summary: true`, `require_tests: true`.
 - The `tests` job runs the tests of `make test`; the jobs upload their JUnit XML as artifacts (`junit-docker` of the `docker` job).
+- A job that pulls from public.ecr.aws logs docker in first with `uses: zebrunner/mcloud-conventions/.github/actions/ecr-public-login@v1` and `permissions: contents: read, id-token: write` of the job: the anonymous pulls are limited to 1 per second per IP of the runners.
 - The `actions/*` are referenced by their major version tag, the other actions by the full commit SHA with the version in a comment: `uses: mikepenz/action-junit-report@<sha> # v6.6.0`.
 - `.github/dependabot.yml` updates `github-actions`, `docker` and the ecosystem of the project weekly, `pip` (`directory: /tests`) only for the project linters, each with a comment of what it covers.
 
