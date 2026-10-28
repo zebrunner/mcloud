@@ -51,7 +51,7 @@ The commands of `./zebrunner.sh`:
 | `restart` | `down` and `start` |
 | `down` | stops and removes the containers, the data is kept |
 | `shutdown` | removes the containers, the data and the settings |
-| `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back |
+| `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently |
 | `version` | the version of MCloud, the tag of the STF image |
 
 ## Configuration
@@ -67,6 +67,7 @@ The commands of `./zebrunner.sh`:
 | `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the device hosts connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); the value of the previous setup is kept |
 | `AGENT_HOSTS` | | the device hosts (`STF_PROVIDER_HOST` of mcloud-agent) separated by commas, see [Screens of the devices](#screens-of-the-devices); the setup asks it, the value of the previous setup is kept |
 | `RETHINKDB_ADDRESS` | `127.0.0.1` | the host address of the port of RethinkDB: `127.0.0.1` with the [authentication of the device hosts](#authentication-of-the-device-hosts), `0.0.0.0` for the device hosts of an earlier MCloud, which connect to it; the value of the previous setup is kept |
+| `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.25.3` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `develop` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
 | `TAG_RETHINKDB` | `2.4.2` | the tag of `rethinkdb` |
@@ -168,6 +169,8 @@ All the services are in the external docker network `infra`, which `./zebrunner.
 | `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events, the heartbeats and the groups of STF |
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; protected by `STF_STORAGE_TOKEN` |
+
+The services with a port have a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, and `mcloud-grid` (the one of its image); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
 
 ## Endpoints
 

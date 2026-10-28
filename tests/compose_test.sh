@@ -186,6 +186,25 @@ curl -s -o /dev/null --max-time 10 "${URL}/mcloud/lifecycle-manager?action=shutd
 sleep 2
 check "/lifecycle-manager does not shut the grid down" "200" "$(http_code /mcloud/wd/hub/status)"
 
+section "operations"
+check_contains "the logs of the services are rotated" '"max-file":"5","max-size":"50m"' \
+  "$(docker inspect --format '{{json .HostConfig.LogConfig.Config}}' stf-app)"
+# healthy: every service with a healthcheck; mcloud-grid has the one of its image (called through wait_for)
+# shellcheck disable=SC2329
+healthy() {
+  local service
+  for service in stf-proxy stf-app stf-auth stf-api stf-websocket stf-storage-temp stf-triproxy-app stf-triproxy-dev rethinkdb; do
+    [[ "$(docker inspect --format '{{.State.Health.Status}}' "$service")" == "healthy" ]] || return 1
+  done
+}
+run_check "the services with a healthcheck are healthy" wait_for 120 healthy
+run_check "backup" zbr "" backup
+check "backup archives the database" "yes" \
+  "$(tar -tzf "${MCLOUD}/backup/rethinkdb.tar.gz" 2> /dev/null | grep -q '^data/' && echo yes || echo no)"
+running="$(cd "$MCLOUD" && docker compose ps --services --status running | sort | tr '\n' ' ')"
+check "the services run again after the backup" "$expected" "$running"
+run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
+
 section "https"
 HTTPS="${WORK}/https"
 copy_repo "$HTTPS"

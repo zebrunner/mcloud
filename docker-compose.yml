@@ -7,6 +7,13 @@ networks:
     name: infra
     external: true
 
+# the logs of every service are rotated: the default json-file driver of docker keeps them all (LOG_MAX_SIZE, LOG_MAX_FILE of .env)
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-50m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 # the STF units: one image, the settings of variables.env, started after the database migration
 x-stf: &stf
   image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
@@ -15,7 +22,16 @@ x-stf: &stf
   depends_on:
     stf-migrate:
       condition: service_completed_successfully
+  logging: *logging
   restart: always
+
+# the units with an HTTP port: it accepts connections (docker ps shows an unhealthy unit)
+x-http-healthcheck: &http-healthcheck
+  test: ["CMD", "node", "-e", "require('net').connect(3000, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+  interval: 10s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
 
 services:
   stf-proxy:
@@ -30,7 +46,15 @@ services:
     ports:
       - "${STF_PORT}:80" # primary HTTP port
     depends_on:
-      - stf-app
+      stf-app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
     restart: always
   mcloud-grid:
     image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
@@ -46,6 +70,8 @@ services:
       # - MCLOUD_LOG_LEVEL=FINE
     ports:
       - "${AGENTS_ADDRESS}:4446:4444"
+    # the healthcheck is the one of the image (/wd/hub/status)
+    logging: *logging
     restart: always
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
@@ -61,6 +87,7 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+    logging: *logging
     restart: always
   # creates and updates the tables (e.g. the sessions of the sign-ins) before the other units start
   stf-migrate:
@@ -72,13 +99,16 @@ services:
     depends_on:
       rethinkdb:
         condition: service_healthy
+    logging: *logging
   stf-app:
     <<: *stf
     container_name: stf-app
+    healthcheck: *http-healthcheck
     command: stf app --port 3000 --auth-url ${STF_URL}/${AUTH_URL} --websocket-url ${STF_URL}/
   stf-auth:
     <<: *stf
     container_name: stf-auth
+    healthcheck: *http-healthcheck
     # ${STF_URL}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
     command: stf ${AUTH_SYSTEM} --port 3000 --app-url ${STF_URL}/stf
   stf-processor001:
@@ -92,21 +122,27 @@ services:
   stf-storage-plugin-apk:
     <<: *stf
     container_name: stf-storage-plugin-apk
+    healthcheck: *http-healthcheck
     command: stf storage-plugin-apk --port 3000 --storage-url ${STF_URL}/
   stf-storage-plugin-image:
     <<: *stf
     container_name: stf-storage-plugin-image
+    healthcheck: *http-healthcheck
     command: stf storage-plugin-image --port 3000 --storage-url ${STF_URL}/
   # SECRET and STF_STORAGE_TOKEN of variables.env protect the storage routes
   stf-storage-temp:
     <<: *stf
     container_name: stf-storage-temp
+    healthcheck: *http-healthcheck
     volumes:
       - "stf-temp-volume:/data"
     command: stf storage-temp --port 3000 --save-dir /data
   stf-triproxy-app:
     <<: *stf
     container_name: stf-triproxy-app
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "node", "-e", "require('net').connect(7160, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
     # the device hosts connect to the dealer only
     ports:
@@ -114,6 +150,9 @@ services:
   stf-triproxy-dev:
     <<: *stf
     container_name: stf-triproxy-dev
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "node", "-e", "require('net').connect(7260, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy dev001 --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
     ports:
       - "${AGENTS_ADDRESS}:7250:7250"
@@ -122,12 +161,14 @@ services:
   stf-websocket:
     <<: *stf
     container_name: stf-websocket
+    healthcheck: *http-healthcheck
     command: >-
       stf websocket --port 3000 --storage-url ${STF_URL}/
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
   stf-api:
     <<: *stf
     container_name: stf-api
+    healthcheck: *http-healthcheck
     command: >-
       stf api --port 3000
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
