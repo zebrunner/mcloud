@@ -38,9 +38,9 @@ value() {
 }
 
 # the answers of the interactive setup: protocol, host, port, confirmation, admin name, admin email, confirmation,
-# the sign-in of the previous setup, no start of the services
+# the sign-in and the device hosts of the previous setup, no start of the services
 answers() {
-  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y "" n
+  printf '%s\n' "$1" "$2" "$3" y "$4" "$5" y "" "" n
 }
 
 # certificate <directory> <host>: a self-signed certificate and its key as ssl.crt and ssl.key of the directory
@@ -77,6 +77,9 @@ check "no Zebrunner sign-in" "" "$(value variables.env ZEBRUNNER_LOGIN_URL)"
 check "variables.env ends with a newline" "" "$(tail -c 1 "${MCLOUD}/variables.env")"
 check_contains "the token for mcloud-agent is explained" "STF_STORAGE_TOKEN of mcloud-agent" "$output"
 check "the mock sign-in by default" "auth-mock:auth/mock/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
+check "no device host by default" "" "$(value .env AGENT_HOSTS)"
+check "stf-proxy serves no screen without the device hosts" "" "$(cat "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf")"
+check_contains "the missing device hosts are reported" "AGENT_HOSTS of .env is empty" "$output"
 check "the mock sign-in is behind the basic authentication" "true" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
 check "the user of the basic authentication" "'mcloud'" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_USERNAME)"
 mock_password="$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
@@ -124,12 +127,12 @@ check "the password of the sign-in is kept" "$mock_password" "$(value variables.
 
 replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
 # the answers: no new SECRET, no start
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup)"
 check_contains "a new SECRET is offered" "SECRET of variables.env is the default one: anyone can sign" "$output"
 check "the default SECRET of a deployment is kept when declined" "password" "$(value variables.env SECRET)"
 check_contains "the default SECRET is reported" "WARNING! SECRET of variables.env is the default one" "$output"
 # the answers: a new SECRET by default, no start
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" n)" setup)"
 secret="$(value variables.env SECRET)"
 check "the default SECRET is replaced by default" "48" "${#secret}"
 check_contains "STF_TOKEN is to be generated again" "generate STF_TOKEN of the grid again" "$output"
@@ -155,18 +158,18 @@ for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_
 done
 sed -i.orig "/^RETHINKDB_ADDRESS=/d" "${MCLOUD}/.env"
 reset_calls
-# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, the sign-in, no
-# authentication, no start of the services
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup)"
+# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, the sign-in, the
+# device hosts, no authentication, no start of the services
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup)"
 check_contains "the authentication is offered" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
 check_contains "its absence is reported" "RethinkDB and ZeroMQ of STF have no authentication" "$output"
 check "no password of RethinkDB" "" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "RethinkDB stays published for the device hosts" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
 check "no docker without the authentication" "" "$(calls docker)"
-zbr "$(printf '%s\n' "" "" "" y "" "" y "" n n)" setup > /dev/null
+zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup > /dev/null
 check "RethinkDB stays published on the next setup" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" y n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" y n)" setup)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated when the authentication is turned on" "48" "${#password}"
 check "the CURVE keys are made when the authentication is turned on" "${keys//0/b}" \
@@ -178,13 +181,13 @@ check_not_contains "the authentication is not offered again" "RethinkDB and Zero
 section "setup questions"
 SSL="${MCLOUD}/configuration/stf-proxy/ssl"
 cp "${MCLOUD}/.env" "${WORK}/env.saved"
-output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
+output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\n\nn\n" setup)"
 check "https without a certificate fails" "1" "$?"
 check_contains "the certificate is asked for" "put it into configuration/stf-proxy/ssl/ssl.crt" "$output"
 check "nothing is written without a certificate" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
 certificate "$SSL" mcloud.example.com
 cp "${SSL}/ssl.crt" "${WORK}/ssl.crt"
-output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
+output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\n\nn\n" setup)"
 check "a declined address is asked again" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
 check_contains "https listens with ssl" "listen 80 ssl;" "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/nginx/ssl/ssl.crt;' \
@@ -203,11 +206,28 @@ rm -f "${SSL}/ssl.crt" "${SSL}/ssl.key"
 zbr "$(answers http "" "" "" "")" setup > /dev/null
 check "http needs no certificate" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 
+section "device hosts"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "bad/host" "agent1.example.com, 10.0.0.7" n)" setup)"
+check_contains "a host with a slash is asked again" "Host names and addresses separated by commas only." "$output"
+check "the device hosts" "agent1.example.com,10.0.0.7" "$(value .env AGENT_HOSTS)"
+check "stf-proxy serves the screens of the device hosts" '"agent1.example.com" 1;
+"10.0.0.7" 1;' "$(cat "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf")"
+check_not_contains "no warning with device hosts" "AGENT_HOSTS of .env is empty" "$output"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the device hosts are kept by the next setup" "agent1.example.com,10.0.0.7" "$(value .env AGENT_HOSTS)"
+replace "${MCLOUD}/.env" "AGENT_HOSTS=agent1.example.com,10.0.0.7" "AGENT_HOSTS=agent2.example.com,bad/host"
+output="$(zbr "" start)"
+check "start writes the device hosts of .env" '"agent2.example.com" 1;' \
+  "$(cat "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf")"
+check_contains "start skips an invalid host" "'bad/host' of AGENT_HOSTS of .env is not a host name" "$output"
+replace "${MCLOUD}/.env" "AGENT_HOSTS=agent2.example.com,bad/host" "AGENT_HOSTS=agent1.example.com"
+zbr "" start > /dev/null
+
 section "sign-in"
 # the answers: the sign-in, its settings with a secret, a scope, a domain of the users, no start; the secret is literal
 # shellcheck disable=SC2016
 output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oauth2 https://idp.example.com/authorize https://idp.example.com/token \
-  https://idp.example.com/userinfo mcloud-client "it's" 'a$b&c d' "" example.com n)" setup)"
+  https://idp.example.com/userinfo mcloud-client "it's" 'a$b&c d' "" example.com "" n)" setup)"
 check "the OAuth2 sign-in" "auth-oauth2:auth/oauth/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
 check_contains "the callback URL is shown" "redirects to http://mcloud.example.com:8082/auth/oauth/callback" "$output"
 check_contains "a quote is asked again" "Quotes and backslashes are not supported." "$output"
@@ -218,7 +238,7 @@ check_not_contains "the client secret is not shown" 'a$b&c d' "$output"
 check "the scope of OpenID Connect by default" "'openid email'" "$(value variables.env OAUTH_SCOPE)"
 check "the domain of the users" "'example.com'" "$(value variables.env OAUTH_DOMAIN)"
 check "the callback URL" "'http://mcloud.example.com:8082/auth/oauth/callback'" "$(value variables.env OAUTH_CALLBACK_URL)"
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" "" "" "" "" "" n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" "" "" "" "" "" "" n)" setup)"
 check "the OAuth2 sign-in is the default of the next setup" "auth-oauth2" "$(value .env AUTH_SYSTEM)"
 check "the client secret is kept by the next setup" "'a\$b&c d'" "$(value variables.env OAUTH_CLIENT_SECRET)"
 check "the domain is kept by the next setup" "'example.com'" "$(value variables.env OAUTH_DOMAIN)"
@@ -229,12 +249,12 @@ if docker compose version > /dev/null 2>&1; then
 else
   skip_check "docker compose reads the quoted values" "requires docker compose"
 fi
-zbr "$(printf '%s\n' "" "" "" y "" "" y ldap ldap://ldap.example.com:389 "" "ou=people,dc=example,dc=com" "" n)" \
+zbr "$(printf '%s\n' "" "" "" y "" "" y ldap ldap://ldap.example.com:389 "" "ou=people,dc=example,dc=com" "" "" n)" \
   setup > /dev/null
 check "the LDAP sign-in" "auth-ldap:auth/ldap/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
 check "the LDAP URL" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP_URL)"
 check "the attribute of the user name by default" "'uid'" "$(value variables.env LDAP_SEARCH_FIELD)"
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oracle mock n)" setup)"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oracle mock "" n)" setup)"
 check_contains "an unknown sign-in is asked again" "Please answer mock, oauth2 or ldap." "$output"
 check "the mock sign-in again" "auth-mock" "$(value .env AUTH_SYSTEM)"
 
@@ -368,7 +388,7 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|down|-v" "$(calls docker)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf; do
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/agent-hosts.conf; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"

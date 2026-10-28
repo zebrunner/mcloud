@@ -71,8 +71,9 @@ pull() {
   return 1
 }
 
-# answers: protocol, host, port, the admin and the sign-in (mock) of the interactive setup
-answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nn\n"
+# answers: protocol, host, port, the admin, the sign-in (mock) and the device hosts of the interactive setup: stf-app
+# stands for a device host, its screen would be its root page
+answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nstf-app\nn\n"
 
 section "setup and start"
 run_check "setup" zbr "$answers" setup
@@ -121,6 +122,21 @@ for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "
   check_contains "STF: ${header}" "$header" "$headers"
 done
 
+section "screens of the devices"
+check "a host that is not a device host is refused" "403" "$(http_code /d/stf-api/serial/3000/)"
+check "the screen needs a signed-in user" "401" "$(http_code /d/stf-app/serial/3000/)"
+# the mock sign-in: its page gives the CSRF token, the app takes the token of the sign-in over (STF_URL is stf-proxy)
+jar="${WORK}/cookies"
+curl -s -o /dev/null -c "$jar" -u "$sign_in" --max-time 10 "${URL}/auth/mock/"
+xsrf="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$jar")"
+redirect="$(curl -s -b "$jar" -c "$jar" -u "$sign_in" --max-time 10 -H "Content-Type: application/json" \
+  -H "Accept: application/json" -H "X-XSRF-TOKEN: ${xsrf}" -d '{"name":"tester","email":"tester@example.com"}' \
+  "${URL}/auth/api/v1/mock" | sed -n 's/.*"redirect":"\([^"]*\)".*/\1/p')"
+curl -s -o /dev/null -b "$jar" -c "$jar" --max-time 10 "${redirect/http:\/\/stf-proxy/$URL}"
+check "the screen of a device host for a signed-in user" "200" "$(http_code /d/stf-app/serial/3000/ -b "$jar")"
+check "a port below 1024 is not proxied" "302" "$(http_code /d/stf-app/serial/80/)"
+check "/appium/ is not proxied" "302" "$(http_code /appium/mcloud-grid/4444/)"
+
 section "authentication of the device hosts"
 check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
 check "RethinkDB is published on 127.0.0.1 only" "127.0.0.1:28015" "$(docker port rethinkdb 28015/tcp)"
@@ -164,9 +180,10 @@ copy_repo "$HTTPS"
 # a certificate of the user: the repository has none
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost -keyout "${HTTPS}/configuration/stf-proxy/ssl/ssl.key" \
   -out "${HTTPS}/configuration/stf-proxy/ssl/ssl.crt" > /dev/null 2>&1
-printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+printf 'https\nlocalhost\n443\ny\n\n\ny\n\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
 run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "${HTTPS}/configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 
 section "shutdown"

@@ -26,6 +26,7 @@ services:
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
       - ./configuration/stf-proxy/htpasswd:/etc/nginx/htpasswd:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
+      - ./configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
     depends_on:
