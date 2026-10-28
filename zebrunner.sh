@@ -13,6 +13,8 @@ setup() {
   local secret_rotated=0
   local sign_in="zebrunner"
   local agents_address=""
+  local log_max_size=""
+  local log_max_file=""
   local rethinkdb_address=""
   AGENT_HOSTS=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
@@ -24,6 +26,8 @@ setup() {
     agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
     rethinkdb_address="$(sed -n 's/^RETHINKDB_ADDRESS=//p' .env)"
     AGENT_HOSTS="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
+    log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
+    log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -98,6 +102,8 @@ setup() {
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
   replace .env "RETHINKDB_ADDRESS=127.0.0.1" "RETHINKDB_ADDRESS=${rethinkdb_address}"
   replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
+  replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
+  replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
   write_agent_hosts
 
   # the sign-in unit of STF and its path: Zebrunner IAM in Zebrunner CE, the choice of the interactive setup otherwise
@@ -303,7 +309,32 @@ backup() {
     cp configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak
   fi
 
-  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" tar -czvf /var/backup/rethinkdb.tar.gz /data
+  # RethinkDB writes its files while it runs: the database and the STF units are stopped for the copy, the ones that
+  # ran start again
+  local running
+  local status=0
+  running="$(docker compose ps --services --status running 2> /dev/null | grep -E '^(rethinkdb|stf-)' | grep -vx 'stf-proxy')"
+  if [[ -n "$running" ]]; then
+    # shellcheck disable=SC2086 # the services, one per line
+    docker compose stop $running
+  fi
+  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "rethinkdb:$(rethinkdb_tag)" \
+    tar -czf /var/backup/rethinkdb.tar.gz /data || status=$?
+  if [[ -n "$running" ]]; then
+    # shellcheck disable=SC2086
+    docker compose start $running
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    echo_warning "The database was not archived into backup/rethinkdb.tar.gz."
+  fi
+  return "$status"
+}
+
+# rethinkdb_tag: the tag of the image of RethinkDB (TAG_RETHINKDB of .env), it archives and extracts the database
+rethinkdb_tag() {
+  local tag
+  tag="$(sed -n 's/^TAG_RETHINKDB=//p' .env 2> /dev/null)"
+  echo "${tag:-$(sed -n 's/^TAG_RETHINKDB=//p' .env.original)}"
 }
 
 # restore: the settings and the database of the backup, the services are stopped
@@ -328,7 +359,7 @@ restore() {
     cp configuration/stf-proxy/ssl/ssl.key.bak configuration/stf-proxy/ssl/ssl.key
   fi
 
-  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "ubuntu" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
+  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "rethinkdb:$(rethinkdb_tag)" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
   down
 }
 

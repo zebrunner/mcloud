@@ -9,10 +9,11 @@ MCLOUD="${WORK}/mcloud"
 copy_repo "$MCLOUD"
 
 # the stub body is expanded when the stub runs; NO_NETWORK=1: the infra network is missing; `stf curve-keygen` of the
-# STF image prints two key pairs, none with NO_KEYGEN=1
+# STF image prints two key pairs, none with NO_KEYGEN=1; `compose ps` prints ${STUB_DIR}/running
 # shellcheck disable=SC2016
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ "$1 $2" == "network inspect" && "$NO_NETWORK" == "1" ]] && exit 1
+[[ "$1 $2" == "compose ps" ]] && cat "${STUB_DIR}/running" 2> /dev/null
 if [[ "$1" == "run" && "$*" == *curve-keygen* ]]; then
   [[ "$NO_KEYGEN" == "1" ]] && exit 1
   for key in a b c d; do
@@ -111,6 +112,7 @@ section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
 replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
+replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
@@ -119,6 +121,8 @@ check "the CURVE keys are kept" "${keys//0/b}" "$(value variables.env STF_ZMQ_CU
 check "the registration token of the grid is kept" "$grid_token" "$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
+check "the size of the log files is kept" "200m" "$(value .env LOG_MAX_SIZE)"
+check "the default number of the log files" "5" "$(value .env LOG_MAX_FILE)"
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
@@ -369,12 +373,24 @@ for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx
   check "backup copies ${file}" "same" "$(cmp -s "${MCLOUD}/${file}" "${MCLOUD}/${file}.bak" && echo same)"
 done
 check_contains "backup archives the database" "run|--rm|--volumes-from|rethinkdb" "$(calls docker)"
+tag="$(sed -n 's/^TAG_RETHINKDB=//p' "${MCLOUD}/.env")"
+check_contains "backup archives with the image of RethinkDB" "rethinkdb:${tag}|tar|-czf|/var/backup/rethinkdb.tar.gz|/data" "$(calls docker)"
+check_not_contains "backup stops nothing when nothing runs" "compose|stop" "$(calls docker)"
+printf '%s\n' stf-proxy mcloud-grid rethinkdb stf-app stf-websocket > "${WORK}/running"
+reset_calls
+zbr "" backup > /dev/null
+check "backup stops the database and the STF units for the copy, then starts them again" "compose|ps|--services|--status|running
+compose|stop|rethinkdb|stf-app|stf-websocket
+run|--rm|--volumes-from|rethinkdb|-v|${MCLOUD}/backup:/var/backup|rethinkdb:${tag}|tar|-czf|/var/backup/rethinkdb.tar.gz|/data
+compose|start|rethinkdb|stf-app|stf-websocket" "$(calls docker)"
+rm -f "${WORK}/running"
 echo "changed" > "${MCLOUD}/variables.env"
 reset_calls
 zbr "" restore > /dev/null
 check "restore brings variables.env back" "same" "$(cmp -s "${MCLOUD}/variables.env" "${MCLOUD}/variables.env.bak" && echo same)"
 check_contains "restore stops the services first" "compose|stop" "$(calls docker | head -1)"
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
+check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
 check "restore removes the containers at the end" "compose|down" "$(calls docker | tail -1)"
 
 section "disabled"
