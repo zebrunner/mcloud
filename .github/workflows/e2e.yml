@@ -16,6 +16,9 @@ on:
       ref:
         description: The branch of the other repositories (E2E_REF)
         default: develop
+      refs:
+        description: The branches of single repositories (E2E_REFS), e.g. STF_REF=fix/x MCLOUD_AGENT_REF=feat/y
+        default: ""
 # a new push to a pull request cancels its outdated run, runs of the branches themselves are kept
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,6 +37,7 @@ jobs:
       id-token: write
     env:
       E2E_REF: ${{ inputs.ref || 'develop' }}
+      E2E_REFS: ${{ inputs.refs || 'MCLOUD_AGENT_REF=fix/pull-used-connectors' }}
     steps:
       - uses: actions/checkout@v7
       - name: The directories of the run

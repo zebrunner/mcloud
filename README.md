@@ -242,7 +242,7 @@ The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflo
 
 The end-to-end test of the farm (`.github/workflows/e2e.yml`, on the pushes and pull requests, every night and on demand) runs on a GitHub runner with KVM:
 
-1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The input `ref` of a manual run (or `E2E_REF`, `<REPOSITORY>_REF` such as `STF_REF=fix/x`) takes other branches.
+1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The inputs `ref` (all the repositories) and `refs` (single ones: `STF_REF=fix/x MCLOUD_AGENT_REF=feat/y`) of a manual run take other branches, as `E2E_REF` and `E2E_REFS` or `<REPOSITORY>_REF` of the script.
 2. `tests/e2e/emulator.sh` starts with an Android emulator (`android-emulator-runner`) and relays its adb to the containers.
 3. `tests/e2e/farm_test.sh` sets up and starts MCloud of this checkout, MinIO for the artifacts and a device host of `mcloud-agent` with the emulator, then checks the containers, the device in STF and in the grid, an Appium session with an app, the screen of the device in STF, the upload of a file to STF and the artifacts of the session (the video too) in S3.
 

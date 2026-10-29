@@ -2,7 +2,8 @@
 # tests/e2e/build-images.sh <dir>: the images of the farm with an Android device built from the branches of their
 # repositories cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (defaults/main.yml) use them.
 # E2E_REF is the branch of every repository (develop), <REPOSITORY>_REF the one of a repository (e.g. STF_REF=fix/x,
-# MCLOUD_AGENT_REF=feat/y); mcloud is this checkout. The uploader is pulled: artifacts-uploader is private.
+# MCLOUD_AGENT_REF=feat/y), also as the words of E2E_REFS ("STF_REF=fix/x MCLOUD_AGENT_REF=feat/y"); mcloud is this
+# checkout. The uploader is pulled: artifacts-uploader is private.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -14,10 +15,19 @@ log() {
   echo "[e2e] $*"
 }
 
-# ref <repository>: the branch of a repository, <REPOSITORY>_REF, E2E_REF or its default branch
+# ref <repository>: the branch of a repository, <REPOSITORY>_REF of E2E_REFS or of the environment, E2E_REF or develop
 ref() {
   local var
+  local word
+  local words
   var="$(echo "$1" | tr 'a-z-' 'A-Z_')_REF"
+  read -ra words <<< "${E2E_REFS:-}"
+  for word in "${words[@]}"; do
+    if [[ "$word" == "${var}="* ]]; then
+      echo "${word#*=}"
+      return
+    fi
+  done
   if [[ -n "${!var:-}" ]]; then
     echo "${!var}"
   else
