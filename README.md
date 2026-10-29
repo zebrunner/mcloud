@@ -218,6 +218,7 @@ The setup offers a new `SECRET` when it is still the default `password` (Zebrunn
 | the device host is up, its devices are not in STF; `stf-triproxy-app` or `stf-triproxy-dev` logs `Refused the ZeroMQ client <address> with the unknown key "<key>"` | the public key of the device host is not in `STF_ZMQ_CURVE_CLIENT_KEYS` of `variables.env`: add the one `./zebrunner.sh curve-key` of mcloud-agent prints and `./zebrunner.sh restart`; a device host with another `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` than `variables.env` is not let in either, see [Authentication of the device hosts](#authentication-of-the-device-hosts) |
 | the screen of a device stays gray, `/d/<device host>/...` answers `403` | the device host is not in `AGENT_HOSTS` of `.env`: add it and `./zebrunner.sh restart`, see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in) |
 | the screenshots or the app installs of the devices fail with `401` / `403` | `STF_STORAGE_TOKEN` of the device host differs from `variables.env` |
+| macOS (Docker Desktop): `./zebrunner.sh start` hangs, `stf-proxy` stays `Created`, `docker inspect stf-proxy` does not answer | the port forwarding of Docker Desktop hangs (seen after a failed start): `docker desktop restart` (or quit and start Docker Desktop), then `./zebrunner.sh start` |
 
 ## Components
 
