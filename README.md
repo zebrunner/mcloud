@@ -31,7 +31,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
    ```
 
 2. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
-3. Open `http://hostname:80/stf`.
+3. Open `http://hostname:80/stf` (the protocol, host and port of the setup).
 4. Sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then any name and email; the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
 5. Go to Settings, Keys and generate a new Access Token.
 6. Paste the generated token into `variables.env` as `STF_TOKEN`.
@@ -68,10 +68,10 @@ The commands of `./zebrunner.sh`:
 | `AGENT_HOSTS` | | the device hosts (`STF_PROVIDER_HOST` of mcloud-agent) separated by commas, see [Screens of the devices](#screens-of-the-devices); the setup asks it, the value of the previous setup is kept |
 | `RETHINKDB_ADDRESS` | `127.0.0.1` | the host address of the port of RethinkDB: `127.0.0.1` with the [authentication of the device hosts](#authentication-of-the-device-hosts), `0.0.0.0` for the device hosts of an earlier MCloud, which connect to it; the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
-| `TAG_NGINX` | `1.25.3` | the tag of `nginx` |
-| `TAG_SELENIUM_HUB` | `develop` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
-| `TAG_RETHINKDB` | `2.4.2` | the tag of `rethinkdb` |
-| `TAG_STF` | `develop` | the tag of `public.ecr.aws/zebrunner/stf` |
+| `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
+| `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
+| `TAG_RETHINKDB` | `2.4.3` | the tag of `rethinkdb` |
+| `TAG_STF` | `3.1` | the tag of `public.ecr.aws/zebrunner/stf` |
 | `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in Zebrunner CE |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
@@ -227,7 +227,7 @@ The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflo
 The conventions of the style, the formatting and the tooling of this repository are in [CONVENTIONS.md](CONVENTIONS.md), the same in all the MCloud repositories. The rules of this repository:
 
 - `docker-compose.yml` takes the image tags (`TAG_*`) and the ports from `.env`, the settings of the services from `variables.env`; `./zebrunner.sh setup` writes both from `.env.original` and `variables.env.original`, which keep the defaults. `make lint` checks `docker compose config` with the `*.original` files.
-- Every image is pinned by its `TAG_*` in `.env.original` (checked by `make lint`).
+- Every image is pinned by its `TAG_*` in `.env.original`, the table of `.env` shows the same default (both checked by `make lint`).
 - `zebrunner.sh` and `patch/*.sh` are [host scripts](CONVENTIONS.md#host-scripts): the interface of Zebrunner CE (`ZBR_INSTALLER`, the `ZBR_*` settings, `SHUTDOWN_CONFIRMED`, `.disabled`) and the commands stay compatible.
 - The static files of the Selenium grid console (`configuration/stf-proxy/grid/`) are kept byte for byte: `generated` of `tests/lint_project.sh` and unset formatting in `.editorconfig`.
 - A test of the services goes to `tests/compose_test.sh` (`DOCKER_TESTS`), a test of the commands of `zebrunner.sh` without docker to `tests/zebrunner_test.sh`.
