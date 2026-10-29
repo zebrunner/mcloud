@@ -46,7 +46,7 @@ The commands of `./zebrunner.sh`:
 | Command | What it does |
 | --- | --- |
 | `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept |
-| `start` | starts the services, the first start runs `setup` |
+| `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty; the first start runs `setup` |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
 | `down` | stops and removes the containers, the data is kept |

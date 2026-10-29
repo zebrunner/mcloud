@@ -267,7 +267,18 @@ start() {
 
   # AGENT_HOSTS of .env may have changed since the setup
   write_agent_hosts
-  docker compose up -d
+  docker compose up -d || return
+
+  # the next steps of a deployment without Zebrunner CE (README.md#run)
+  if [[ "$ZBR_INSTALLER" -ne 1 ]]; then
+    local url
+    url="$(sed -n 's/^STF_URL=//p' .env)"
+    echo "
+      MCloud: ${url}/stf, the Selenium/Appium hub: ${url}/mcloud/wd/hub, the devices: ${url}/mcloud/grid/console"
+    if [[ -z "$(sed -n 's/^STF_TOKEN=//p' variables.env 2> /dev/null)" ]]; then
+      echo_warning "STF_TOKEN of variables.env is empty: the grid reserves no device. Sign in to ${url}/stf, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart."
+    fi
+  fi
 }
 
 # stop: stops the services, the containers are kept
