@@ -33,6 +33,20 @@ x-http-healthcheck: &http-healthcheck
   retries: 3
   start_period: 60s
 
+# the units without a port: healthy while they are connected (ESTABLISHED) to the ports of their arguments, their
+# ZeroMQ brokers and RethinkDB; ZeroMQ reconnects by itself, a unit without its connections is cut off from STF
+x-connections-script: &connections-script >-
+  const fs = require('fs'); const up = new Set();
+  for (const f of ['/proc/net/tcp', '/proc/net/tcp6']) { try {
+  for (const l of fs.readFileSync(f, 'utf8').split('\n').slice(1)) {
+  const c = l.trim().split(/\s+/); if (c[3] === '01') up.add(parseInt(c[2].split(':').pop(), 16)); } } catch (e) {} }
+  process.exit(process.argv.slice(1).every((p) => up.has(Number(p))) ? 0 : 1)
+x-connections-healthcheck: &connections-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
 services:
   stf-proxy:
     image: "nginx:${TAG_NGINX}"
@@ -114,10 +128,16 @@ services:
   stf-processor001:
     <<: *stf
     container_name: stf-processor001
+    healthcheck:
+      <<: *connections-healthcheck
+      test: ["CMD", "node", "-e", *connections-script, "7160", "7260", "28015"]
     command: stf processor proc001 --connect-app-dealer tcp://stf-triproxy-app:7160 --connect-dev-dealer tcp://stf-triproxy-dev:7260
   stf-reaper:
     <<: *stf
     container_name: stf-reaper
+    healthcheck:
+      <<: *connections-healthcheck
+      test: ["CMD", "node", "-e", *connections-script, "7150", "7270", "28015"]
     command: stf reaper reaper001 --connect-push tcp://stf-triproxy-dev:7270 --connect-sub tcp://stf-triproxy-app:7150 --heartbeat-timeout 30000
   stf-storage-plugin-apk:
     <<: *stf
@@ -176,6 +196,9 @@ services:
   stf-api-groups-engine:
     <<: *stf
     container_name: stf-api-groups-engine
+    healthcheck:
+      <<: *connections-healthcheck
+      test: ["CMD", "node", "-e", *connections-script, "7150", "7170", "7250", "7270", "28015"]
     command: >-
       stf groups-engine
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
