@@ -146,7 +146,7 @@ wait_for() {
 | env vars of the image, exported vars, constants | `UPPER_SNAKE_CASE` | `DEVICE_UDID`, `MIN_ANDROID` |
 | variables and functions of the scripts of an image | `lowerCamelCase` | `isConfigValid`, `exitIfAdbServerStopped()` |
 | variables and functions of the [host scripts](#host-scripts) | `snake_case` | `create_containers()` |
-| variables and functions of `tests/`, `scripts/`, `build.sh` | `snake_case` | `check_contains()`, `diff_file` |
+| variables and functions of `tests/`, `scripts/` | `snake_case` | `check_contains()`, `diff_file` |
 | file names | `kebab-case.sh`; `<subject>_test.sh` for the tests | `build-patch.sh`, `entrypoint_test.sh` |
 
 The env vars of tools keep the names of the tools (e.g. `npm_config_cache`).
@@ -288,6 +288,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 - `check` runs `lint`, `test` and `docker` (plus the project targets), every one of them, and fails when one failed.
 - In the images of shell scripts `test` runs every `tests/*_test.sh` but the ones of `DOCKER_TESTS`, `docker` runs `DOCKER_TESTS`: a new test script is picked up without a change of the `Makefile`.
 - `lint` installs `tests/requirements-lint.txt` into `.venv` once (the stamp `.venv/.installed`).
+- The repositories of an image have `build` and `push` after the checks, not run by `check`: `make build VERSION=<tag>` builds `public.ecr.aws/zebrunner/<image>:<tag>` in the local docker (for the platform of the machine, `linux/amd64` for an amd64-only image), `make push VERSION=<tag>` builds the platforms of `PLATFORMS` with `docker buildx` (the builder `mcloud`, docker-container driver) and pushes them. `VERSION` is the tag and `--build-arg VERSION` (`dev` by default, `push` refuses it), `IMAGE_REPO` overrides the repository; both pass `--provenance=false`, as the docker tests. The tests of `make test` check their commands with a docker stub (`tests/make_test.sh`) where it runs the shell tests.
 - The recipes are indented with a tab, `SHELL := /bin/bash`.
 
 ## License
