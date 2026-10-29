@@ -16,6 +16,9 @@ project_checks() {
   local tag
   while read -r tag; do
     check_contains "${tag} is set in .env.original" "${tag}=" "$(grep -E "^${tag}=.+" .env.original)"
+    check "the default of ${tag} in README.md is the one of .env.original" \
+      "| \`${tag}\` | \`$(sed -n "s/^${tag}=//p" .env.original)\` |" \
+      "$(grep -oE "^\| \`${tag}\` \| \`[^\`]*\` \|" README.md)"
   done < <(grep -oE 'TAG_[A-Z_]+' docker-compose.yml | sort -u)
   if docker compose version > /dev/null 2>&1; then
     run_check "docker compose config with .env.original and variables.env.original" compose_config
