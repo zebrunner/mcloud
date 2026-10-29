@@ -204,6 +204,21 @@ The mock sign-in is behind a shared user and password now: the setup generates t
 
 The setup offers a new `SECRET` when it is still the default `password` (Zebrunner CE only warns): then generate the access tokens again (`STF_TOKEN` too), as the old ones are signed with the old secret. The grid logs JSON lines now, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#logs).
 
+## Troubleshooting
+
+`docker logs <service>` shows the log of a service, `docker ps` the unhealthy ones (see [Services](#services)).
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `./zebrunner.sh start` fails to pull: `denied: Your authorization token has expired` or `403 Forbidden` from `public.ecr.aws` | an expired login to public.ecr.aws in `~/.docker/config.json` of the user: the images are public, `docker logout public.ecr.aws` (or log in again: `aws ecr-public get-login-password --region us-east-1 \| docker login --username AWS --password-stdin public.ecr.aws`) |
+| the pull fails with `manifest unknown` | the tag of `TAG_*` of `.env` is not published: the tags of `.env.original` of the current MCloud |
+| the devices are in STF, not in `/mcloud/grid/console`; `mcloud-grid` logs `Could not get the device '<udid>' from STF (HTTP 401), the node is not registered.` | `STF_TOKEN` of `variables.env` is empty or not an access token of STF: generate one (STF, Settings, Keys), set it and `./zebrunner.sh restart` (`start` warns while it is empty) |
+| `mcloud-grid` logs `Node <url> has no or another NODE_REGISTRATION_TOKEN than the hub, so it is not registered.` | `NODE_REGISTRATION_TOKEN` of the device host differs from `variables.env`: set the one of `variables.env` in mcloud-agent and run its `./zebrunner.sh ansible`, `zebrunner-farm restart` |
+| `mcloud-grid` logs `Node <url> is not reachable from the hub` | the hub does not reach the Appium port of the device host: `STF_PROVIDER_HOST` of mcloud-agent and the firewall of the device host |
+| the device host is up, its devices are not in STF; `stf-triproxy-app` or `stf-triproxy-dev` logs `Refused the ZeroMQ client <address> with the unknown key "<key>"` | the public key of the device host is not in `STF_ZMQ_CURVE_CLIENT_KEYS` of `variables.env`: add the one `./zebrunner.sh curve-key` of mcloud-agent prints and `./zebrunner.sh restart`; a device host with another `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` than `variables.env` is not let in either, see [Authentication of the device hosts](#authentication-of-the-device-hosts) |
+| the screen of a device stays gray, `/d/<device host>/...` answers `403` | the device host is not in `AGENT_HOSTS` of `.env`: add it and `./zebrunner.sh restart`, see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in) |
+| the screenshots or the app installs of the devices fail with `401` / `403` | `STF_STORAGE_TOKEN` of the device host differs from `variables.env` |
+
 ## Components
 
 - [mcloud-agent](https://github.com/zebrunner/mcloud-agent) - Device Farm agent for connecting Android and iOS devices including phones, tablets, and TVs over USB or Wi-Fi, Android emulators and iOS / tvOS simulators (macOS) via Linux or macOS.
