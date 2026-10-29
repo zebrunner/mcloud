@@ -137,6 +137,25 @@ check "the screen of a device host for a signed-in user" "200" "$(http_code /d/s
 check "a port below 1024 is not proxied" "302" "$(http_code /d/stf-app/serial/80/)"
 check "/appium/ is not proxied" "302" "$(http_code /appium/mcloud-grid/4444/)"
 
+section "storage"
+# an image of the user is stored by stf-storage-temp (its volume) and resized by stf-storage-plugin-image (gm): a PNG of
+# 200x100 red pixels
+python3 -c '
+import struct, sys, zlib
+row = b"\x00" + b"\xff\x00\x00" * 200
+chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+sys.stdout.buffer.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 200, 100, 8, 2, 0, 0, 0))
+  + chunk(b"IDAT", zlib.compress(row * 100)) + chunk(b"IEND", b""))' > "${WORK}/image.png"
+xsrf="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$jar")"
+upload="$(curl -s -b "$jar" --max-time 30 -H "X-XSRF-TOKEN: ${xsrf}" -F "file=@${WORK}/image.png;type=image/png" \
+  "${URL}/s/upload/image")"
+check_contains "an image is uploaded" '"success":true' "$upload"
+href="$(sed -n 's/.*"href":"\([^"]*\)".*/\1/p' <<< "$upload")"
+curl -s -b "$jar" --max-time 30 -o "${WORK}/resized.png" "${URL}${href}?crop=50x"
+check "the image is resized" "50x25" \
+  "$(python3 -c 'import struct, sys; d = open(sys.argv[1], "rb").read(24); print("%dx%d" % struct.unpack(">II", d[16:24]))' \
+    "${WORK}/resized.png" 2> /dev/null)"
+
 section "authentication of the device hosts"
 check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
 check "RethinkDB is published on 127.0.0.1 only" "127.0.0.1:28015" "$(docker port rethinkdb 28015/tcp)"
