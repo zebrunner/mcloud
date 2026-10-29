@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034
 # The settings and the checks of the project for tests/lint.sh (CONVENTIONS.md): mcloud.
 
-scripts=(zebrunner.sh patch/*.sh tests/*.sh)
+scripts=(zebrunner.sh patch/*.sh tests/*.sh tests/e2e/*.sh)
 # the static files of the Selenium grid console served by stf-proxy
 generated=(configuration/stf-proxy/grid)
 # no image
