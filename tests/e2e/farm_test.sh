@@ -221,7 +221,7 @@ run_check "the device is ready in STF" wait_for 300 stf_ready
 check "the device is provided by the device host" "mcloud-linux" "$(device "d.get('provider', {}).get('name')")"
 run_check "the device is free in the grid" wait_for 300 grid_free
 python3 - "${URL}/mcloud/wd/hub" "$ADB_ADDRESS" "$APP" > "${WORK}/session.txt" 2> "${LOGS}/session.err" << 'EOF'
-import json, sys, urllib.request
+import json, sys, time, urllib.request
 hub, udid, app = sys.argv[1:]
 def call(method, path, body=None):
     request = urllib.request.Request(hub + path, method=method, headers={"Content-Type": "application/json"},
@@ -234,6 +234,14 @@ session = call("POST", "/session", {"capabilities": {"alwaysMatch": caps}})["ses
 print("session=" + session)
 print("source=%d" % ("API Demos" in call("GET", "/session/%s/source" % session)))
 print("screenshot=%d" % len(call("GET", "/session/%s/screenshot" % session)))
+# the screen changes: the frames of the video
+for name in ["Views", "Text", "Graphics", "Animation", "App", "Views"]:
+    element = call("POST", "/session/%s/element" % session, {"using": "xpath", "value": "//*[@text='%s']" % name})
+    call("POST", "/session/%s/element/%s/click" % (session, list(element.values())[0]), {})
+    time.sleep(1)
+    call("POST", "/session/%s/back" % session, {})
+    time.sleep(1)
+print("navigated=1")
 call("DELETE", "/session/%s" % session)
 print("deleted=1")
 EOF
@@ -241,6 +249,7 @@ check "an Appium session through the grid installs and starts an app" "0" "$?"
 SESSION_ID="$(sed -n 's/^session=//p' "${WORK}/session.txt")"
 check "the page source of the app" "1" "$(sed -n 's/^source=//p' "${WORK}/session.txt")"
 check "a screenshot of the device" "true" "$([[ "$(sed -n 's/^screenshot=//p' "${WORK}/session.txt")" -gt 1000 ]] && echo true || echo false)"
+check "the app is navigated" "1" "$(sed -n 's/^navigated=//p' "${WORK}/session.txt")"
 check "the session ends" "1" "$(sed -n 's/^deleted=//p' "${WORK}/session.txt")"
 run_check "the device is free again" wait_for 120 grid_free
 
