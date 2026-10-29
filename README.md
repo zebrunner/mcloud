@@ -211,7 +211,6 @@ The setup offers a new `SECRET` when it is still the default `password` (Zebrunn
 - [mcloud-grid](https://github.com/zebrunner/mcloud-grid) - Enhanced Selenium Grid for automating physical devices and emulators/simulators via Appium.
 - [stf](https://github.com/zebrunner/stf) - the STF of MCloud with iOS devices and the Zebrunner sign-in.
 - [appium](https://github.com/zebrunner/appium) - Enhanced Appium image with low-level video recording and local storage for ipa/apk artifacts.
-- [mcloud-redroid](https://github.com/zebrunner/mcloud-redroid) - GPU accelerated Android In Cloud solution.
 
 ## Development
 
