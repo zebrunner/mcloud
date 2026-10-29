@@ -1,8 +1,8 @@
 #!/bin/bash
-# tests/e2e/build-images.sh <dir>: the images of the farm built from the branches of their repositories into <dir>,
-# tagged as mcloud (.env.original) and mcloud-agent (defaults/main.yml) use them, so nothing is pulled from
-# public.ecr.aws. E2E_REF is the branch of every repository (develop, artifacts-uploader: master), <REPOSITORY>_REF
-# the one of a repository (e.g. STF_REF=fix/x, MCLOUD_AGENT_REF=feat/y); mcloud is this checkout.
+# tests/e2e/build-images.sh <dir>: the images of the farm with an Android device built from the branches of their
+# repositories cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (defaults/main.yml) use them.
+# E2E_REF is the branch of every repository (develop), <REPOSITORY>_REF the one of a repository (e.g. STF_REF=fix/x,
+# MCLOUD_AGENT_REF=feat/y); mcloud is this checkout. The uploader is pulled: artifacts-uploader is private.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,8 +20,6 @@ ref() {
   var="$(echo "$1" | tr 'a-z-' 'A-Z_')_REF"
   if [[ -n "${!var:-}" ]]; then
     echo "${!var}"
-  elif [[ "$1" == "artifacts-uploader" ]]; then
-    echo "master"
   else
     echo "${E2E_REF:-develop}"
   fi
@@ -44,8 +42,7 @@ agent_tag() {
   sed -n "s/^$1: *//p" "${DIR}/mcloud-agent/defaults/main.yml"
 }
 
-for repository in stf mcloud-grid mcloud-device appium mcloud-ios-connector mcloud-android-connector mcloud-agent \
-  artifacts-uploader; do
+for repository in stf mcloud-grid mcloud-device appium mcloud-android-connector mcloud-agent; do
   clone "$repository"
 done
 
@@ -62,12 +59,9 @@ log "mcloud-device:$(agent_tag DEVICE_VERSION)"
 make -C "${DIR}/mcloud-device" build VERSION="$(agent_tag DEVICE_VERSION)"
 log "appium:$(agent_tag APPIUM_VERSION)"
 make -C "${DIR}/appium" build VERSION="$(agent_tag APPIUM_VERSION)"
-log "mcloud-ios-connector:$(agent_tag IOS_CONNECTOR_VERSION)"
-make -C "${DIR}/mcloud-ios-connector" build VERSION="$(agent_tag IOS_CONNECTOR_VERSION)"
 log "mcloud-android-connector:$(agent_tag ANDROID_CONNECTOR_VERSION)"
 make -C "${DIR}/mcloud-android-connector" build VERSION="$(agent_tag ANDROID_CONNECTOR_VERSION)"
 log "uploader:$(agent_tag UPLOADER_VERSION)"
-docker build --quiet --provenance=false -f "${DIR}/artifacts-uploader/linux/Dockerfile" \
-  -t "public.ecr.aws/zebrunner/uploader:$(agent_tag UPLOADER_VERSION)" "${DIR}/artifacts-uploader"
+docker pull --quiet "public.ecr.aws/zebrunner/uploader:$(agent_tag UPLOADER_VERSION)"
 
 docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep '^public.ecr.aws/zebrunner/'
