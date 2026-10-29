@@ -14,7 +14,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 | Requirement | Value |
 | --- | --- |
-| Operating System | Ubuntu 24.04, Linux CentOS 7+, Amazon Linux 2, macOS |
+| Operating System | Ubuntu 24.04, macOS |
 | CPU | 4+ Cores |
 | Memory | 16 Gb RAM |
 | Free space | SSD 32Gb+ of free space |
