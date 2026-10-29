@@ -240,6 +240,14 @@ The setup offers a new `SECRET` when it is still the default `password` (Zebrunn
 
 The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflows/ci.yml`) runs the jobs `lint`, `tests` (Linux and macOS) and `docker` on the pushes and pull requests.
 
+The end-to-end test of the farm (`.github/workflows/e2e.yml`, on the pushes and pull requests, every night and on demand) runs on a GitHub runner with KVM:
+
+1. `tests/e2e/build-images.sh` builds every image of the farm from the `develop` branches of their repositories (`artifacts-uploader`: `master`) with the tags of `.env.original` and of `mcloud-agent`, nothing is pulled from `public.ecr.aws/zebrunner`. The input `ref` of a manual run (or `E2E_REF`, `<REPOSITORY>_REF` such as `STF_REF=fix/x`) takes other branches.
+2. `tests/e2e/emulator.sh` starts with an Android emulator (`android-emulator-runner`) and relays its adb to the containers.
+3. `tests/e2e/farm_test.sh` sets up and starts MCloud of this checkout, MinIO for the artifacts and a device host of `mcloud-agent` with the emulator, then checks the containers, the device in STF and in the grid, an Appium session with an app, the screen of the device in STF, the upload of a file to STF and the artifacts of the session (the video too) in S3.
+
+The logs of every container and of the emulator are the artifact `e2e` of the run (with JUnit XML). `tests/e2e/farm_test.sh` changes the machine (the ports, udev, `zebrunner-farm`), run it only on disposable machines.
+
 The conventions of the style, the formatting and the tooling of this repository are in [CONVENTIONS.md](CONVENTIONS.md), the same in all the MCloud repositories. The rules of this repository:
 
 - `docker-compose.yml` takes the image tags (`TAG_*`) and the ports from `.env`, the settings of the services from `variables.env`; `./zebrunner.sh setup` writes both from `.env.original` and `variables.env.original`, which keep the defaults. `make lint` checks `docker compose config` with the `*.original` files.
