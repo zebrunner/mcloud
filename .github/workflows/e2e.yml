@@ -37,7 +37,7 @@ jobs:
       id-token: write
     env:
       E2E_REF: ${{ inputs.ref || 'develop' }}
-      E2E_REFS: ${{ inputs.refs || 'MCLOUD_AGENT_REF=fix/pull-used-connectors STF_REF=fix/minicap-apk-without-lib' }}
+      E2E_REFS: ${{ inputs.refs || 'MCLOUD_AGENT_REF=fix/pull-used-connectors STF_REF=build/modern-stack APPIUM_REF=build/squash-base' }}
     steps:
       - uses: actions/checkout@v7
       - name: The directories of the run
