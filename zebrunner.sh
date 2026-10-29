@@ -580,11 +580,28 @@ set_curve_keys() {
   STF_ZMQ_CURVE_SECRET_KEY="${keys[3]}"
 }
 
+# ask_valid <variable> <question> <regex> <message>: reads a value of the interactive setup, the current one by default,
+# until it matches the regex (the message tells why not); fails when the input ends with an invalid value
+ask_valid() {
+  local name="$1"
+  local answer
+  while true; do
+    if ! read -r -p "${2} [${!name}]: " answer && [[ -z "$answer" && ! "${!name}" =~ $3 ]]; then
+      echo
+      echo_warning "${4}"
+      exit 1
+    fi
+    answer="${answer:-${!name}}"
+    if [[ "$answer" =~ $3 ]]; then
+      break
+    fi
+    echo "$4"
+  done
+  printf -v "$name" '%s' "$answer"
+}
+
 # set_mcloud_settings: asks the protocol, host, port and the admin of the interactive setup
 set_mcloud_settings() {
-  local local_protocol
-  local local_hostname
-  local local_port
   local local_admin_name
   local local_admin_mail
 
@@ -594,20 +611,11 @@ set_mcloud_settings() {
   fi
 
   while true; do
-    read -r -p "Protocol [${ZBR_PROTOCOL}]: " local_protocol
-    if [[ -n "$local_protocol" ]]; then
-      ZBR_PROTOCOL="$local_protocol"
-    fi
-
-    read -r -p "Fully qualified domain name (ip) [${ZBR_HOSTNAME}]: " local_hostname
-    if [[ -n "$local_hostname" ]]; then
-      ZBR_HOSTNAME="$local_hostname"
-    fi
-
-    read -r -p "Port [${ZBR_MCLOUD_PORT}]: " local_port
-    if [[ -n "$local_port" ]]; then
-      ZBR_MCLOUD_PORT="$local_port"
-    fi
+    ask_valid ZBR_PROTOCOL "Protocol" '^https?$' "Please answer http or https."
+    ask_valid ZBR_HOSTNAME "Fully qualified domain name (ip)" '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$' \
+      "A host name or an IP address only, without the protocol, the port or a path."
+    ask_valid ZBR_MCLOUD_PORT "Port" '^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$' \
+      "A port number from 1 to 65535."
 
     if confirm "Zebrunner MCloud STF URL: ${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}/stf" "Continue?" "y"; then
       break

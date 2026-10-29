@@ -217,6 +217,22 @@ check_contains "the shared self-signed certificate is reported" "its private key
 rm -f "${SSL}/ssl.crt" "${SSL}/ssl.key"
 zbr "$(answers http "" "" "" "")" setup > /dev/null
 check "http needs no certificate" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
+# invalid answers are asked again: a protocol, a host with a port and a host with the protocol, a port of letters and
+# one too big; the end of the input with an invalid value fails
+output="$(zbr "ftp\nhttp\nmcloud.example.com:80\nhttp://mcloud.example.com\nmcloud.example.com\nabc\n70000\n8080\ny\n\n\ny\n\n\nn\n" setup)"
+check "invalid answers are asked again" "http://mcloud.example.com:8080" "$(value .env STF_URL)"
+check_contains "an invalid protocol is explained" "Please answer http or https." "$output"
+check_contains "an invalid host is explained" "A host name or an IP address only" "$output"
+check_contains "an invalid port is explained" "A port number from 1 to 65535." "$output"
+check "the port is written" "8080" "$(value .env STF_PORT)"
+zbr "$(answers "" "" 8082 "" "")" setup > /dev/null
+# an invalid host of the previous setup (or none, when ifconfig.me does not answer) and no more input
+cp "${MCLOUD}/backup/settings.env" "${WORK}/settings.saved"
+echo 'declare -x ZBR_HOSTNAME="bad host"' >> "${MCLOUD}/backup/settings.env"
+output="$(zbr "\n" setup)"
+check "the end of the input with an invalid value fails" "1" "$?"
+check_contains "the invalid host is reported" "A host name or an IP address only" "$output"
+mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
 
 section "device hosts"
 output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "bad/host" "agent1.example.com, 10.0.0.7" n)" setup)"
