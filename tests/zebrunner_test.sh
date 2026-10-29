@@ -332,9 +332,17 @@ zbr "$(answers "" "" "" "" "" | sed '$d')\ny\n" setup > /dev/null
 check "the setup starts the services when confirmed" "network|inspect|infra
 compose|up|-d" "$(calls docker)"
 reset_calls
-zbr "" start > /dev/null
+output="$(zbr "" start)"
 check "start starts the services in the infra network" "network|inspect|infra
 compose|up|-d" "$(calls docker)"
+check_contains "start shows the URLs" "MCloud: http://203.0.113.10:80/stf, the Selenium/Appium hub: http://203.0.113.10:80/mcloud/wd/hub" "$output"
+check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
+check_not_contains "start with STF_TOKEN does not ask it" "STF_TOKEN of variables.env is empty" "$(zbr "" start)"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=token" "STF_TOKEN="
+zbr_env=(ZBR_INSTALLER=1)
+check_not_contains "Zebrunner CE shows no next steps" "MCloud: " "$(zbr "" start)"
+zbr_env=()
 reset_calls
 zbr_env=(NO_NETWORK=1)
 zbr "" start > /dev/null
