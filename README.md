@@ -170,7 +170,7 @@ All the services are in the external docker network `infra`, which `./zebrunner.
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; protected by `STF_STORAGE_TOKEN` |
 
-The services with a port have a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, and `mcloud-grid` (the one of its image); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
+Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
 
 ## Endpoints
 
@@ -219,6 +219,7 @@ The setup offers a new `SECRET` when it is still the default `password` (Zebrunn
 | the screen of a device stays gray, `/d/<device host>/...` answers `403` | the device host is not in `AGENT_HOSTS` of `.env`: add it and `./zebrunner.sh restart`, see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in) |
 | the screenshots or the app installs of the devices fail with `401` / `403` | `STF_STORAGE_TOKEN` of the device host differs from `variables.env` |
 | macOS (Docker Desktop): `./zebrunner.sh start` hangs, `stf-proxy` stays `Created`, `docker inspect stf-proxy` does not answer | the port forwarding of Docker Desktop hangs (seen after a failed start): `docker desktop restart` (or quit and start Docker Desktop), then `./zebrunner.sh start` |
+| `stf-processor001`, `stf-reaper` or `stf-api-groups-engine` is `unhealthy` | the unit lost its ZeroMQ brokers (`stf-triproxy-*`) or RethinkDB, docker does not restart an unhealthy unit: see the state and the logs of the brokers and of `rethinkdb`, then `./zebrunner.sh restart` |
 
 ## Components
 

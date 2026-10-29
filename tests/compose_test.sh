@@ -212,11 +212,33 @@ check_contains "the logs of the services are rotated" '"max-file":"5","max-size"
 # shellcheck disable=SC2329
 healthy() {
   local service
-  for service in stf-proxy stf-app stf-auth stf-api stf-websocket stf-storage-temp stf-triproxy-app stf-triproxy-dev rethinkdb; do
+  for service in stf-proxy stf-app stf-auth stf-api stf-websocket stf-storage-temp stf-storage-plugin-apk \
+    stf-storage-plugin-image stf-triproxy-app stf-triproxy-dev stf-processor001 stf-reaper stf-api-groups-engine rethinkdb; do
     [[ "$(docker inspect --format '{{.State.Health.Status}}' "$service")" == "healthy" ]] || return 1
   done
 }
 run_check "the services with a healthcheck are healthy" wait_for 120 healthy
+check "every running service but mcloud-grid has a healthcheck" "" \
+  "$(cd "$MCLOUD" && for c in $(docker compose ps --quiet --status running); do
+    docker inspect --format '{{.Name}} {{if .State.Health}}health{{end}}' "$c"
+  done | grep -v ' health$' | grep -v '^/mcloud-grid ')"
+# status <service>: the health status of a service
+# shellcheck disable=SC2329
+status() {
+  docker inspect --format '{{.State.Health.Status}}' "$1"
+}
+# shellcheck disable=SC2329
+unhealthy_processor() {
+  [[ "$(status stf-processor001)" == "unhealthy" ]]
+}
+# shellcheck disable=SC2329
+healthy_processor() {
+  [[ "$(status stf-processor001)" == "healthy" ]]
+}
+docker stop stf-triproxy-dev > /dev/null
+run_check "a unit cut off from its broker is unhealthy" wait_for 90 unhealthy_processor
+docker start stf-triproxy-dev > /dev/null
+run_check "a unit connected again is healthy" wait_for 90 healthy_processor
 run_check "backup" zbr "" backup
 check "backup archives the database" "yes" \
   "$(tar -tzf "${MCLOUD}/backup/rethinkdb.tar.gz" 2> /dev/null | grep -q '^data/' && echo yes || echo no)"
