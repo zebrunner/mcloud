@@ -42,6 +42,14 @@ clone() {
   log "$1 $(ref "$1") $(git -C "${DIR}/$1" rev-parse --short HEAD)"
 }
 
+# build <repository> <tag>: make build of the repository, once more after a failure (the downloads of the builds)
+build() {
+  make -C "${DIR}/$1" build VERSION="$2" || {
+    log "$1: the build failed, once more"
+    make -C "${DIR}/$1" build VERSION="$2"
+  }
+}
+
 # mcloud_tag <variable>: a tag of .env.original of mcloud
 mcloud_tag() {
   sed -n "s/^$1=//p" "${REPO}/.env.original"
@@ -58,19 +66,19 @@ done
 
 stf_tag="$(mcloud_tag TAG_STF)"
 log "stf:${stf_tag}"
-make -C "${DIR}/stf" build VERSION="$stf_tag"
+build stf "$stf_tag"
 log "mcloud-grid:$(mcloud_tag TAG_SELENIUM_HUB)"
-make -C "${DIR}/mcloud-grid" build VERSION="$(mcloud_tag TAG_SELENIUM_HUB)"
+build mcloud-grid "$(mcloud_tag TAG_SELENIUM_HUB)"
 
 # mcloud-device is built on the stf image above: its FROM (a published tag, maybe pinned by digest) is replaced
 sed -i.bak -E "s#^FROM public\.ecr\.aws/zebrunner/stf:[^ ]+#FROM public.ecr.aws/zebrunner/stf:${stf_tag}#" \
   "${DIR}/mcloud-device/Dockerfile"
 log "mcloud-device:$(agent_tag DEVICE_VERSION)"
-make -C "${DIR}/mcloud-device" build VERSION="$(agent_tag DEVICE_VERSION)"
+build mcloud-device "$(agent_tag DEVICE_VERSION)"
 log "appium:$(agent_tag APPIUM_VERSION)"
-make -C "${DIR}/appium" build VERSION="$(agent_tag APPIUM_VERSION)"
+build appium "$(agent_tag APPIUM_VERSION)"
 log "mcloud-android-connector:$(agent_tag ANDROID_CONNECTOR_VERSION)"
-make -C "${DIR}/mcloud-android-connector" build VERSION="$(agent_tag ANDROID_CONNECTOR_VERSION)"
+build mcloud-android-connector "$(agent_tag ANDROID_CONNECTOR_VERSION)"
 log "uploader:$(agent_tag UPLOADER_VERSION)"
 docker pull --quiet "public.ecr.aws/zebrunner/uploader:$(agent_tag UPLOADER_VERSION)"
 
