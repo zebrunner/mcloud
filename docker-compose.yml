@@ -90,9 +90,6 @@ services:
   rethinkdb:
     image: "rethinkdb:${TAG_RETHINKDB}"
     container_name: rethinkdb
-    # only the device hosts of an earlier MCloud connect to it (RETHINKDB_ADDRESS)
-    ports:
-      - "${RETHINKDB_ADDRESS}:28015:28015"
     volumes:
       - "stf-db-volume:/data"
     command: rethinkdb --bind all --cache-size 8192 --no-update-check --no-http-admin

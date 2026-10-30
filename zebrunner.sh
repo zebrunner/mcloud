@@ -9,13 +9,10 @@
 setup() {
   local url
   local is_new=1
-  local secure=0
-  local secret_rotated=0
   local sign_in="zebrunner"
   local agents_address=""
   local log_max_size=""
   local log_max_file=""
-  local rethinkdb_address=""
   AGENT_HOSTS=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
@@ -24,7 +21,6 @@ setup() {
   # the addresses of the published ports of the previous setup (README.md#firewall)
   if [[ -f .env ]]; then
     agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
-    rethinkdb_address="$(sed -n 's/^RETHINKDB_ADDRESS=//p' .env)"
     AGENT_HOSTS="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
     log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
     log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
@@ -64,43 +60,22 @@ setup() {
     exit 1
   fi
 
-  # the authentication of RethinkDB, of ZeroMQ and of the grid registration: on for a new deployment (its password of
-  # RethinkDB tells it later, the missing keys and token are made again), a deployment of an earlier MCloud turns it on
-  # when its device hosts run the mcloud-device and appium of the current MCloud (README.md#authentication-of-the-device-hosts)
-  if [[ "$is_new" -eq 1 || -n "$RETHINKDB_ENV_AUTHKEY" ]]; then
-    secure=1
-  else
-    if [[ "$ZBR_INSTALLER" -ne 1 ]] && confirm "
-      RethinkDB and ZeroMQ of STF accept anyone who reaches their ports, the grid registers any Appium node. The
-      authentication needs mcloud-agent with the mcloud-device and appium images of the current MCloud, the keys of
-      the device hosts in STF_ZMQ_CURVE_CLIENT_KEYS and NODE_REGISTRATION_TOKEN, the other device hosts cannot connect." "      Turn the authentication on?" "n"; then
-      secure=1
-    else
-      echo_warning "RethinkDB and ZeroMQ of STF have no authentication, the grid registers any Appium node, see README.md#authentication-of-the-device-hosts."
-    fi
+  # the authentication of RethinkDB, of ZeroMQ and of the grid registration (README.md#authentication-of-the-device-hosts):
+  # the secrets of the previous setup are kept, the missing ones are made
+  if [[ -z "$RETHINKDB_ENV_AUTHKEY" ]]; then
+    RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
   fi
-  if [[ "$secure" -eq 1 ]]; then
-    if [[ -z "$RETHINKDB_ENV_AUTHKEY" ]]; then
-      RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
-    fi
-    if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]]; then
-      set_curve_keys
-    fi
-    if [[ -z "$NODE_REGISTRATION_TOKEN" ]]; then
-      NODE_REGISTRATION_TOKEN="$(random_string 48)"
-    fi
-    # the device units of the current STF have no database
-    rethinkdb_address="127.0.0.1"
-  elif [[ -z "$rethinkdb_address" ]]; then
-    # the device hosts of an earlier MCloud connect to RethinkDB
-    rethinkdb_address="0.0.0.0"
+  if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]]; then
+    set_curve_keys
+  fi
+  if [[ -z "$NODE_REGISTRATION_TOKEN" ]]; then
+    NODE_REGISTRATION_TOKEN="$(random_string 48)"
   fi
 
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
-  replace .env "RETHINKDB_ADDRESS=127.0.0.1" "RETHINKDB_ADDRESS=${rethinkdb_address}"
   replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
@@ -126,18 +101,10 @@ setup() {
     STF_AUTH_MOCK_BASIC_AUTH_PASSWORD="$(random_string 24)"
   fi
 
-  if [[ -z "$SECRET" || ("$SECRET" == "password" && "$is_new" -eq 1) ]]; then
-    # a new secret would end the sessions and invalidate the access tokens (STF_TOKEN) of an existing deployment
+  # the placeholder of variables.env.original; a change of the secret would end the sessions and invalidate the access
+  # tokens (STF_TOKEN) of the deployment, so the one of the previous setup is kept
+  if [[ -z "$SECRET" || "$SECRET" == "password" ]]; then
     SECRET="$(random_string 48)"
-  elif [[ "$SECRET" == "password" ]]; then
-    if [[ "$ZBR_INSTALLER" -ne 1 ]] && confirm "
-      SECRET of variables.env is the default one: anyone can sign the sessions and the access tokens of STF. A new one
-      ends the sessions (the users sign in again) and invalidates the access tokens." "      Generate a new SECRET?" "y"; then
-      SECRET="$(random_string 48)"
-      secret_rotated=1
-    else
-      echo_warning "SECRET of variables.env is the default one, replace it to protect the sessions and access tokens of STF (the users sign in again, the access tokens are generated again)."
-    fi
   fi
   if [[ -z "$STF_STORAGE_TOKEN" ]]; then
     STF_STORAGE_TOKEN="$(random_string 64)"
@@ -197,25 +164,18 @@ setup() {
   export_settings
 
   echo "
-      Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only."
-  if [[ -n "$STF_ZMQ_CURVE_SERVER_PUBLIC_KEY" ]]; then
-    echo "
+      Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only.
+
       Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add the
       public key mcloud-agent prints to STF_ZMQ_CURVE_CLIENT_KEYS of variables.env (separated by commas), then restart:
-      STF accepts the device hosts with these keys only."
-  fi
-  if [[ -n "$NODE_REGISTRATION_TOKEN" ]]; then
-    echo "
+      STF accepts the device hosts with these keys only.
+
       Set NODE_REGISTRATION_TOKEN of variables.env as NODE_REGISTRATION_TOKEN of mcloud-agent: the grid registers the
       Appium nodes with this token only."
-  fi
   if [[ "$sign_in" == "mock" ]]; then
     echo "
       The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
       variables.env), then any name and email: share them with the users of STF only."
-  fi
-  if [[ "$secret_rotated" -eq 1 ]]; then
-    echo_warning "SECRET is new: the users sign in again; generate STF_TOKEN of the grid again (Settings, Keys of STF) and set it in variables.env, the grid reserves no device until then."
   fi
 }
 
@@ -402,7 +362,7 @@ file_sha256() {
 
 # set_certificate: configuration/stf-proxy/ssl/ssl.crt and ssl.key of https: the user puts them there, Zebrunner CE
 # gives its own (../nginx/ssl, its nginx is in front of this one); fails without them, for a key that is not the one of
-# the certificate and, but for Zebrunner CE, for the self-signed pair of the earlier versions
+# the certificate and, but for Zebrunner CE, for the self-signed pair of the repository of Zebrunner CE
 set_certificate() {
   local dir="configuration/stf-proxy/ssl"
   local shared=0
@@ -424,7 +384,7 @@ set_certificate() {
   if [[ "$shared" -eq 1 && "$ZBR_INSTALLER" -eq 1 ]]; then
     echo_warning "The certificate of Zebrunner CE (nginx/ssl) is the self-signed one of its repository, its private key is public: anyone can read and change the traffic of MCloud. Replace it with the certificate of ${ZBR_HOSTNAME}."
   elif [[ "$shared" -eq 1 ]]; then
-    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the earlier MCloud versions, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} (README.md#https)."
+    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the repository of Zebrunner CE, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} (README.md#https)."
     return 1
   fi
   if command -v openssl > /dev/null 2>&1 &&

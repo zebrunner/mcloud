@@ -158,7 +158,7 @@ check "the image is resized" "50x25" \
 
 section "authentication of the device hosts"
 check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
-check "RethinkDB is published on 127.0.0.1 only" "127.0.0.1:28015" "$(docker port rethinkdb 28015/tcp)"
+check "RethinkDB is not published on the host" "" "$(docker port rethinkdb)"
 check "ZeroMQ of the STF units is published for the device hosts only" "7160/tcp -> 0.0.0.0:7160" \
   "$(docker port stf-triproxy-app | grep -v '::')"
 stf_image="$(docker inspect --format '{{.Config.Image}}' stf-app)"
@@ -194,8 +194,7 @@ check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesSer
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
 grid_token="$(sed -n 's/^NODE_REGISTRATION_TOKEN=//p' "${MCLOUD}/variables.env")"
 check "the grid gets the registration token" "$grid_token" "$(docker exec mcloud-grid printenv NODE_REGISTRATION_TOKEN)"
-# a node without the token registers at the port of the device hosts (4446) as Appium does: the grid of the current
-# MCloud refuses it (500), an earlier one registers it
+# a node without the token registers at the port of the device hosts (4446) as Appium does: the grid refuses it (500)
 node='{"capabilities": [{"maxInstances": 1, "platformName": "ANDROID", "udid": "compose-test", "deviceName": "Pixel"}],
   "configuration": {"proxy": "com.zebrunner.mcloud.grid.MobileRemoteProxy", "url": "http://192.0.2.1:4723/wd/hub",
   "host": "192.0.2.1", "port": 4723, "id": "http://192.0.2.1:4723", "maxSession": 1, "register": true}}'

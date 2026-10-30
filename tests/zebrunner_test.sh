@@ -99,13 +99,11 @@ check "the secret key of the STF units" "${keys//0/d}" "$(value variables.env ST
 check "no device host yet" "" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated" "48" "${#password}"
-check "RethinkDB is not published for the device hosts" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
 check "the ports of the device hosts are published on every address" "0.0.0.0" "$(value .env AGENTS_ADDRESS)"
 check_contains "the key for mcloud-agent is explained" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent" "$output"
 grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the registration token of the grid is generated" "48" "${#grid_token}"
 check_contains "the registration token for mcloud-agent is explained" "NODE_REGISTRATION_TOKEN of mcloud-agent" "$output"
-check_not_contains "no warning about the authentication" "have no authentication" "$output"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 
 section "setup again"
@@ -129,66 +127,31 @@ check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
 check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_STORAGE_TOKEN)"
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
-check_not_contains "no warning about SECRET" "SECRET of variables.env" "$output"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 
 replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
-# the answers: no new SECRET, no start
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup)"
-check_contains "a new SECRET is offered" "SECRET of variables.env is the default one: anyone can sign" "$output"
-check "the default SECRET of a deployment is kept when declined" "password" "$(value variables.env SECRET)"
-check_contains "the default SECRET is reported" "WARNING! SECRET of variables.env is the default one" "$output"
-# the answers: a new SECRET by default, no start
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" n)" setup)"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
-check "the default SECRET is replaced by default" "48" "${#secret}"
-check_contains "STF_TOKEN is to be generated again" "generate STF_TOKEN of the grid again" "$output"
-replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
-# Zebrunner CE saves its settings too (ZBR_INSTALLER), the ones of the interactive setup come back after it
-cp "${MCLOUD}/backup/settings.env" "${WORK}/settings.saved"
-zbr_env=(ZBR_INSTALLER=1 ZBR_PROTOCOL=http ZBR_HOSTNAME=mcloud.example.com ZBR_PORT=80)
-output="$(zbr "" setup)"
-zbr_env=()
-cp "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
-check "Zebrunner CE keeps the default SECRET" "password" "$(value variables.env SECRET)"
-check_contains "Zebrunner CE reports the default SECRET" "WARNING! SECRET of variables.env is the default one" "$output"
-replace "${MCLOUD}/variables.env" "SECRET=password" "SECRET=${secret}"
-replace "${MCLOUD}/variables.env" "SECRET=password" "SECRET="
+check "the placeholder SECRET is generated" "48" "${#secret}"
+replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET="
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
 
-section "setup of an earlier deployment"
+section "setup without the secrets"
 for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY \
-  STF_ZMQ_CURVE_CLIENT_KEYS NODE_REGISTRATION_TOKEN; do
+  NODE_REGISTRATION_TOKEN; do
   sed -i.orig "/^${name}=/d" "${MCLOUD}/variables.env"
 done
-sed -i.orig "/^RETHINKDB_ADDRESS=/d" "${MCLOUD}/.env"
-reset_calls
-# the answers: the protocol, host and port with their confirmation, the admin with its confirmation, the sign-in, the
-# device hosts, no authentication, no start of the services
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup)"
-check_contains "the authentication is offered" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
-check_contains "its absence is reported" "RethinkDB and ZeroMQ of STF have no authentication" "$output"
-check "no password of RethinkDB" "" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
-check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-check "no registration token of the grid" "" "$(value variables.env NODE_REGISTRATION_TOKEN)"
-check_not_contains "no registration token for mcloud-agent is explained" "NODE_REGISTRATION_TOKEN of mcloud-agent" "$output"
-check "RethinkDB stays published for the device hosts" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
-check "no docker without the authentication" "" "$(calls docker)"
-zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" n n)" setup > /dev/null
-check "RethinkDB stays published on the next setup" "0.0.0.0" "$(value .env RETHINKDB_ADDRESS)"
-output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" y n)" setup)"
-password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
-check "the password of RethinkDB is generated when the authentication is turned on" "48" "${#password}"
-check "the CURVE keys are made when the authentication is turned on" "${keys//0/b}" \
-  "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-check "RethinkDB is not published once the authentication is on" "127.0.0.1" "$(value .env RETHINKDB_ADDRESS)"
-grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-check "the registration token of the grid is generated when the authentication is turned on" "48" "${#grid_token}"
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
-check_not_contains "the authentication is not offered again" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
+authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "the missing password of RethinkDB is generated" "48" "${#authkey}"
+check "the missing CURVE keys are made" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
+check "the missing registration token of the grid is generated" "48" "${#grid_token}"
+check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
+check_contains "the registration token for mcloud-agent is explained" "NODE_REGISTRATION_TOKEN of mcloud-agent" "$output"
 
 section "setup questions"
 SSL="${MCLOUD}/configuration/stf-proxy/ssl"
@@ -308,9 +271,10 @@ check "a new SECRET is generated" "48" "${#secret}"
 check_not_contains "Zebrunner CE starts the services itself" "need to be started after setup" "$output"
 check "the CURVE keys of a new deployment of Zebrunner CE" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 sed -i.orig -e "/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=/d" -e "/^RETHINKDB_ENV_AUTHKEY=/d" "${MCLOUD}/variables.env"
-output="$(zbr "" setup)"
-check_not_contains "Zebrunner CE does not offer the authentication" "RethinkDB and ZeroMQ of STF accept anyone" "$output"
-check_contains "Zebrunner CE reports its absence" "have no authentication" "$output"
+zbr "" setup > /dev/null
+check "Zebrunner CE makes the missing CURVE keys" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
+check "Zebrunner CE generates the missing password of RethinkDB" "48" "${#authkey}"
 cp "${REPO}/tests/fixtures/shared-ssl.crt" "${WORK}/nginx/ssl/ssl.crt"
 # the key of the shared certificate is not in the repository: openssl takes the pair as a match
 stub openssl 'echo same'
