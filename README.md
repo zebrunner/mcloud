@@ -158,6 +158,10 @@ The ports of the host and who needs them; close the others:
 
 See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md).
 
+### Files and secrets
+
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+
 ## Services
 
 All the services are in the external docker network `infra`, which `./zebrunner.sh start` creates.

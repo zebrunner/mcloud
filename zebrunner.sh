@@ -178,6 +178,7 @@ setup() {
 
   # the user input for the next setup
   export_settings
+  protect_files
 
   echo "
       Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only.
@@ -241,6 +242,7 @@ start() {
     exit 1
   fi
 
+  protect_files
   # AGENT_HOSTS of .env may have changed since the setup
   write_agent_hosts
   docker compose up -d || return
@@ -305,12 +307,15 @@ backup() {
     # shellcheck disable=SC2086 # the services, one per line
     docker compose stop $running
   fi
-  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "rethinkdb:$(rethinkdb_tag)" \
-    tar -czf /var/backup/rethinkdb.tar.gz /data || status=$?
+  # the archive of the container is of root: it gets the user and the mode of protect_files there
+  docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "rethinkdb:$(rethinkdb_tag)" sh -c \
+    "tar -czf /var/backup/rethinkdb.tar.gz /data && chown $(id -u):$(id -g) /var/backup/rethinkdb.tar.gz && chmod 600 /var/backup/rethinkdb.tar.gz" ||
+    status=$?
   if [[ -n "$running" ]]; then
     # shellcheck disable=SC2086
     docker compose start $running
   fi
+  protect_files
   if [[ "$status" -ne 0 ]]; then
     echo_warning "The database was not archived into backup/rethinkdb.tar.gz."
   fi
@@ -346,6 +351,7 @@ restore() {
     cp configuration/stf-proxy/ssl/ssl.key.bak configuration/stf-proxy/ssl/ssl.key
   fi
 
+  protect_files
   docker run --rm --volumes-from rethinkdb -v "$(pwd)"/backup:/var/backup "rethinkdb:$(rethinkdb_tag)" bash -c "cd / && tar -xzvf /var/backup/rethinkdb.tar.gz"
   down
 }
@@ -362,6 +368,33 @@ version() {
 }
 
 #### Helpers
+
+# protect_files: the files the commands write belong to the owner of this folder, also after a sudo ./zebrunner.sh, and
+# the ones with secrets are readable for it only: variables.env, backup/settings.env, the key of the certificate, the
+# archive of the database and their backups (README.md#files-and-secrets)
+protect_files() {
+  local owner=""
+  local file
+  if [[ "$(id -u)" -eq 0 ]]; then
+    owner="$(stat -c '%u:%g' . 2> /dev/null || stat -f '%u:%g' .)"
+  fi
+  for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
+    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/agent-hosts.conf \
+    configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.key \
+    configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
+    if [[ ! -f "$file" ]]; then
+      continue
+    fi
+    if [[ -n "$owner" ]]; then
+      chown "$owner" "$file"
+    fi
+    case "$file" in
+    variables.env* | backup/settings.env* | */ssl.key* | backup/rethinkdb.tar.gz)
+      chmod 600 "$file" 2> /dev/null
+      ;;
+    esac
+  done
+}
 
 # The SHA-256 of the self-signed certificate and key the repositories of MCloud and Zebrunner CE had: the key is public
 SHARED_SSL_CRT_SHA256="1fee845f65d86677768e4b49a67edfa7ebbe56bd37cb7ca1b393a8577040580d"
