@@ -27,6 +27,12 @@ zbr() {
     "${zbr_env[@]}" /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
 }
 
+# mode <file>: the permissions of a file of the copy, as ls shows them (-rw-------)
+mode() {
+  # shellcheck disable=SC2012 # one known file, ls is the same on Linux and macOS
+  ls -l "${MCLOUD}/$1" | cut -c1-10
+}
+
 # value <file> <name>: the value of a variable of an env file of the copy
 value() {
   sed -n "s/^$2=//p" "${MCLOUD}/$1"
@@ -105,6 +111,9 @@ server_secret="$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "no device host yet" "" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated" "48" "${#password}"
+check "variables.env is readable for its owner only" "-rw-------" "$(mode variables.env)"
+check "backup/settings.env is readable for its owner only" "-rw-------" "$(mode backup/settings.env)"
+check_contains ".env is readable" "-rw-r" "$(mode .env)"
 check "the ports of the device hosts are published on every address" "0.0.0.0" "$(value .env AGENTS_ADDRESS)"
 check_contains "the key for mcloud-agent is explained" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent" "$output"
 grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
@@ -170,6 +179,7 @@ certificate "$SSL" mcloud.example.com
 cp "${SSL}/ssl.crt" "${WORK}/ssl.crt"
 output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\n\nn\n" setup)"
 check "a declined address is asked again" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
+check "the key of the certificate is readable for its owner only" "-rw-------" "$(mode configuration/stf-proxy/ssl/ssl.key)"
 check_contains "https listens with ssl" "listen 80 ssl;" "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/nginx/ssl/ssl.crt;' \
   "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
@@ -396,6 +406,23 @@ check "the first start writes .env" "yes" "$([[ -f "${MCLOUD}/.env" ]] && echo y
 check "the first start does not start the services" "" "$(calls docker | grep compose)"
 mv "${MCLOUD}/.env.saved" "${MCLOUD}/.env"
 
+# the files of an earlier start: the secrets get the mode of their owner only
+chmod 664 "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
+zbr "" start > /dev/null
+check "start makes variables.env readable for its owner only" "-rw-------" "$(mode variables.env)"
+check "start makes backup/settings.env readable for its owner only" "-rw-------" "$(mode backup/settings.env)"
+# sudo ./zebrunner.sh: root gives the files back to the owner of the folder (id and chown are stubs)
+# shellcheck disable=SC2016 # the stub body is expanded when the stub runs
+stub id '[[ "$1" == "-u" ]] && echo 0 && exit 0; /usr/bin/id "$@"'
+record_stub chown
+reset_calls
+zbr "" start > /dev/null
+rm -f "${WORK}/bin/id" "${WORK}/bin/chown"
+owner="$(stat -c '%u:%g' "$MCLOUD" 2> /dev/null || stat -f '%u:%g' "$MCLOUD")"
+check_contains "root gives variables.env back to the owner of the folder" "${owner}|variables.env" "$(calls chown)"
+check_contains "root gives agent-hosts.conf back to the owner of the folder" \
+  "${owner}|configuration/stf-proxy/agent-hosts.conf" "$(calls chown)"
+
 section "stop, down, restart"
 reset_calls
 zbr "" stop > /dev/null
@@ -420,14 +447,20 @@ for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx
 done
 check_contains "backup archives the database" "run|--rm|--volumes-from|rethinkdb" "$(calls docker)"
 tag="$(sed -n 's/^TAG_RETHINKDB=//p' "${MCLOUD}/.env")"
-check_contains "backup archives with the image of RethinkDB" "rethinkdb:${tag}|tar|-czf|/var/backup/rethinkdb.tar.gz|/data" "$(calls docker)"
+check_contains "backup archives with the image of RethinkDB, for the user only" \
+  "rethinkdb:${tag}|sh|-c|tar -czf /var/backup/rethinkdb.tar.gz /data && chown $(id -u):$(id -g) /var/backup/rethinkdb.tar.gz && chmod 600 /var/backup/rethinkdb.tar.gz" \
+  "$(calls docker)"
+for file in variables.env.bak backup/settings.env.bak configuration/stf-proxy/ssl/ssl.key.bak; do
+  check "the backup ${file} is readable for its owner only" "-rw-------" "$(mode "$file")"
+done
 check_not_contains "backup stops nothing when nothing runs" "compose|stop" "$(calls docker)"
 printf '%s\n' stf-proxy mcloud-grid rethinkdb stf-app stf-websocket > "${WORK}/running"
 reset_calls
 zbr "" backup > /dev/null
 check "backup stops the database and the STF units for the copy, then starts them again" "compose|ps|--services|--status|running
 compose|stop|rethinkdb|stf-app|stf-websocket
-run|--rm|--volumes-from|rethinkdb|-v|${MCLOUD}/backup:/var/backup|rethinkdb:${tag}|tar|-czf|/var/backup/rethinkdb.tar.gz|/data
+run|--rm|--volumes-from|rethinkdb|-v|${MCLOUD}/backup:/var/backup|rethinkdb:${tag}|sh|-c|tar -czf /var/backup/rethinkdb.tar.gz /data \
+&& chown $(id -u):$(id -g) /var/backup/rethinkdb.tar.gz && chmod 600 /var/backup/rethinkdb.tar.gz
 compose|start|rethinkdb|stf-app|stf-websocket" "$(calls docker)"
 rm -f "${WORK}/running"
 echo "changed" > "${MCLOUD}/variables.env"
