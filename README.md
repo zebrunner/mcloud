@@ -71,7 +71,7 @@ The commands of `./zebrunner.sh`:
 | `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
 | `TAG_RETHINKDB` | `2.4.3` | the tag of `rethinkdb` |
 | `TAG_STF` | `3.1` | the tag of `public.ecr.aws/zebrunner/stf` |
-| `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in Zebrunner CE |
+| `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in [Zebrunner CE](#zebrunner-ce) by default |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
 `variables.env`, the settings of the STF units and of the grid:
@@ -99,7 +99,7 @@ More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session,
 
 ### Sign-in
 
-The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zebrunner IAM (`auth-zebrunner`). The values the setup asks are written quoted into `variables.env` (quotes and backslashes are not supported) and are the defaults of the next setup.
+The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zebrunner IAM (`auth-zebrunner`) by default, see [Zebrunner CE](#zebrunner-ce). The values the setup asks are written quoted into `variables.env` (quotes and backslashes are not supported) and are the defaults of the next setup.
 
 | Sign-in | Who is the user | The setup asks |
 | --- | --- | --- |
@@ -110,6 +110,10 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 ### https
 
 `./zebrunner.sh setup` with the `https` protocol turns on the ssl of `stf-proxy` with the certificate of the host: put it into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` before the setup, which fails without them, for a key of another certificate and for the self-signed pair the repository had (its private key is public). Zebrunner CE gives its own certificate (`nginx/ssl` of Zebrunner CE, its nginx is in front of `stf-proxy`): the setup copies it and warns when it is the self-signed one of the repository of Zebrunner CE. `shutdown` keeps the certificate. `stf-proxy` passes the scheme of the client to STF (`X-Forwarded-Proto`, the one of a proxy in front of it when there is one), so the session cookie is `Secure` behind https. The ssl settings allow TLS 1.2 and 1.3 only.
+
+### Zebrunner CE
+
+[Zebrunner CE](https://zebrunner.github.io/community-edition) runs `./zebrunner.sh setup` of its `mcloud` folder with `ZBR_INSTALLER=1` and its settings: the URL of Zebrunner CE, its nginx is in front of `stf-proxy` (its port `STF_PORT` is `8082`, the port of Zebrunner CE belongs to its nginx), its certificate, the sign-in through Zebrunner IAM. `./zebrunner.sh setup` run in the `mcloud` folder of Zebrunner CE keeps them (from `backup/settings.env` of the last setup of Zebrunner CE) and asks only the admin and the sign-in: `zebrunner` (Zebrunner IAM), `mock`, `oauth2` or `ldap`; the setup of Zebrunner CE keeps that sign-in. Restart the services after it: `./zebrunner.sh restart`.
 
 ### Security headers
 

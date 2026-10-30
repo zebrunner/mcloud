@@ -34,9 +34,25 @@ setup() {
   fi
 
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
-    # Zebrunner CE installer
+    # Zebrunner CE installer: the sign-in of the last setup of this MCloud, Zebrunner IAM by default
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
     ZBR_MCLOUD_PORT=8082
+    ZBR_MCLOUD_SIGN_IN="$(sed -n 's/^declare -x ZBR_MCLOUD_SIGN_IN="\(.*\)"$/\1/p' backup/settings.env 2> /dev/null)"
+    export ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-zebrunner}"
+    sign_in="$ZBR_MCLOUD_SIGN_IN"
+  elif grep -q '^declare -x ZBR_INSTALLER="1"$' backup/settings.env 2> /dev/null; then
+    # this MCloud of Zebrunner CE (README.md#zebrunner-ce): the URL, the port and the certificate of the last setup of
+    # Zebrunner CE (its nginx is in front of stf-proxy), only the admin and the sign-in are asked
+    # shellcheck source=backup/settings.env.original
+    source backup/settings.env.original
+    # shellcheck source=/dev/null
+    source backup/settings.env
+    url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
+    ZBR_MCLOUD_PORT=8082
+    echo "Zebrunner MCloud of Zebrunner CE: ${url} (the setup of Zebrunner CE changes it)"
+    set_admin
+    set_sign_in "$url" zebrunner
+    sign_in="$ZBR_MCLOUD_SIGN_IN"
   else
     # the defaults of the interactive setup
     # shellcheck source=backup/settings.env.original
@@ -49,10 +65,10 @@ setup() {
     fi
 
     set_mcloud_settings
-    set_sign_in
+    url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
+    set_sign_in "$url"
     sign_in="$ZBR_MCLOUD_SIGN_IN"
     set_agent_hosts
-    url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
   fi
 
   # https: the certificate is checked before anything is written (README.md#https)
@@ -65,8 +81,8 @@ setup() {
   if [[ -z "$RETHINKDB_ENV_AUTHKEY" ]]; then
     RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
   fi
-  if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]]; then
-    set_curve_keys
+  if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]] && ! set_curve_keys; then
+    exit 1
   fi
   if [[ -z "$NODE_REGISTRATION_TOKEN" ]]; then
     NODE_REGISTRATION_TOKEN="$(random_string 48)"
@@ -81,7 +97,7 @@ setup() {
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
   write_agent_hosts
 
-  # the sign-in unit of STF and its path: Zebrunner IAM in Zebrunner CE, the choice of the interactive setup otherwise
+  # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
   case "$sign_in" in
   zebrunner)
     replace .env "AUTH_SYSTEM=auth-mock" "AUTH_SYSTEM=auth-zebrunner"
@@ -472,18 +488,26 @@ write_agent_hosts() {
   fi
 }
 
-# set_sign_in: asks the sign-in of STF of the interactive setup and its settings (README.md#sign-in)
+# set_sign_in <url> [zebrunner]: asks the sign-in of STF of the interactive setup and its settings (README.md#sign-in),
+# zebrunner (Zebrunner IAM) is a choice and the default in Zebrunner CE
 set_sign_in() {
   local answer
-  ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-mock}"
+  local choices="mock|oauth2|ldap"
+  local question="mock (any name and email behind a shared password), oauth2 (OpenID Connect) or ldap"
+  if [[ "$2" == "zebrunner" ]]; then
+    choices="zebrunner|${choices}"
+    question="zebrunner (Zebrunner IAM of Zebrunner CE), ${question}"
+  fi
+  ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-${2:-mock}}"
   while true; do
-    read -r -p "Sign-in of STF: mock (any name and email behind a shared password), oauth2 (OpenID Connect) or ldap [${ZBR_MCLOUD_SIGN_IN}]: " answer
+    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer
     answer="${answer:-$ZBR_MCLOUD_SIGN_IN}"
-    if [[ "$answer" =~ ^(mock|oauth2|ldap)$ ]]; then
+    if [[ "$answer" =~ ^(${choices})$ ]]; then
       ZBR_MCLOUD_SIGN_IN="$answer"
       break
     fi
-    echo "Please answer mock, oauth2 or ldap."
+    answer="${choices%|*}"
+    echo "Please answer ${answer//|/, } or ${choices##*|}."
   done
   export ZBR_MCLOUD_SIGN_IN
 
@@ -492,7 +516,7 @@ set_sign_in() {
     STF_AUTH_MOCK_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_BASIC_AUTH_USERNAME:-mcloud}"
     ;;
   oauth2)
-    echo "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}/auth/oauth/callback"
+    echo "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${1}/auth/oauth/callback"
     ask OAUTH_AUTHORIZATION_URL "Authorization URL"
     ask OAUTH_TOKEN_URL "Token URL"
     ask OAUTH_USERINFO_URL "User info URL"
@@ -517,7 +541,7 @@ set_sign_in() {
 
 # set_curve_keys: the CURVE keys of ZeroMQ of a new deployment by `stf curve-keygen` of the STF image (TAG_STF of the
 # environment overrides the one of .env, as for docker compose): the pair of the triproxies and the one of the STF units;
-# none when the image cannot make them
+# fails when the image cannot make them
 set_curve_keys() {
   local tag="$TAG_STF"
   local name
@@ -532,8 +556,8 @@ set_curve_keys() {
     fi
   done < <(docker run --rm "public.ecr.aws/zebrunner/stf:${tag}" sh -c 'stf curve-keygen && stf curve-keygen' 2> /dev/null)
   if [[ "${#keys[@]}" -ne 4 ]]; then
-    echo_warning "The STF image ${tag} made no CURVE keys (stf curve-keygen): ZeroMQ of STF has no authentication."
-    return
+    echo_warning "The STF image public.ecr.aws/zebrunner/stf:${tag} made no CURVE keys (stf curve-keygen), nothing is written: check that docker pulls it; TAG_STF=<tag> ./zebrunner.sh setup takes another tag."
+    return 1
   fi
   STF_ZMQ_CURVE_SERVER_PUBLIC_KEY="${keys[0]}"
   STF_ZMQ_CURVE_SERVER_SECRET_KEY="${keys[1]}"
@@ -562,9 +586,6 @@ ask_valid() {
 
 # set_mcloud_settings: asks the protocol, host, port and the admin of the interactive setup
 set_mcloud_settings() {
-  local local_admin_name
-  local local_admin_mail
-
   echo "Zebrunner MCloud Settings"
   if [[ -z "$ZBR_HOSTNAME" ]]; then
     ZBR_HOSTNAME="$(curl -s ifconfig.me)"
@@ -585,6 +606,14 @@ set_mcloud_settings() {
   export ZBR_PROTOCOL
   export ZBR_HOSTNAME
   export ZBR_MCLOUD_PORT
+
+  set_admin
+}
+
+# set_admin: asks the admin of STF of the interactive setup
+set_admin() {
+  local local_admin_name
+  local local_admin_mail
 
   while true; do
     read -r -p "Admin username [${ZBR_MCLOUD_ADMIN_NAME}]: " local_admin_name
@@ -633,11 +662,14 @@ cd "$BASEDIR" || exit
 # shellcheck source=patch/utility.sh
 source patch/utility.sh
 
+# Zebrunner CE runs the setup with ZBR_INSTALLER=1, the setup of its MCloud reads ZBR_INSTALLER of its settings too
+installer="${ZBR_INSTALLER:-0}"
+
 case "$1" in
 setup)
   setup
   # Zebrunner CE starts the services itself
-  if [[ "$ZBR_INSTALLER" -ne 1 ]]; then
+  if [[ "$installer" -ne 1 ]]; then
     echo_warning "Your services need to be started after setup."
     if confirm "" "      Start now?" "y"; then
       start
