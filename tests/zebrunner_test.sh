@@ -284,17 +284,39 @@ check "the shared certificate of Zebrunner CE is used" "0" "$?"
 check_contains "the shared certificate of Zebrunner CE is reported" "the self-signed one of its repository" "$output"
 zbr_env=()
 
+section "setup of the MCloud of Zebrunner CE"
+certificate "${WORK}/nginx/ssl" ce.example.com
+# the answers: the admin with its confirmation, the default sign-in, no start of the services
+zbr "$(printf '%s\n' "" "" y "" n)" setup > /dev/null
+check "Zebrunner IAM is the default sign-in" "auth-zebrunner" "$(value .env AUTH_SYSTEM)"
+# the answers: the admin with its confirmation, the sign-in ldap with its URL, no bind DN, the search DN, the default
+# attribute, no start of the services
+output="$(zbr "$(printf '%s\n' "" "" y ldap ldap://ldap.example.com:389 "" ou=people,dc=example,dc=com "" n)" setup)"
+check "the setup of the MCloud of Zebrunner CE succeeds" "0" "$?"
+check "no protocol, host or port is asked" "" "$(grep 'Zebrunner MCloud Settings' <<< "$output")"
+check_contains "the URL of Zebrunner CE is shown" "Zebrunner MCloud of Zebrunner CE: https://ce.example.com:443" "$output"
+check "STF_URL stays the one of Zebrunner CE" "https://ce.example.com:443" "$(value .env STF_URL)"
+check "STF_PORT stays the internal one" "8082" "$(value .env STF_PORT)"
+check "the sign-in of the setup" "auth-ldap" "$(value .env AUTH_SYSTEM)"
+check "the certificate of Zebrunner CE stays" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.crt" "${SSL}/ssl.crt" && echo same)"
+check_contains "the start is offered" "need to be started after setup" "$output"
+zbr_env=(ZBR_INSTALLER=1 ZBR_PROTOCOL=https ZBR_HOSTNAME=ce.example.com ZBR_PORT=443)
+zbr "" setup > /dev/null
+zbr_env=()
+check "the setup of Zebrunner CE keeps the sign-in" "auth-ldap" "$(value .env AUTH_SYSTEM)"
+check "the setup of Zebrunner CE keeps the LDAP settings" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP_URL)"
+check "the setup of Zebrunner CE keeps its port" "8082" "$(value .env STF_PORT)"
+
 section "setup without the CURVE keys of the STF image"
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
+cp "${MCLOUD}/.env" "${WORK}/env.saved"
 zbr_env=(NO_KEYGEN=1)
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check "the setup fails without the CURVE keys" "1" "$?"
 zbr_env=()
 check_contains "the missing keys are reported" "made no CURVE keys" "$output"
-grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-check "the registration token of the grid does not need the STF image" "48" "${#grid_token}"
-check "no CURVE keys" "" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
-check "the password of RethinkDB is generated anyway" "48" "${#password}"
+check "nothing is written without the CURVE keys" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
+check "no variables.env without the CURVE keys" "no" "$([[ -f "${MCLOUD}/variables.env" ]] && echo yes || echo no)"
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
 check "the keys are made by the next setup" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 
