@@ -539,29 +539,42 @@ set_sign_in() {
   esac
 }
 
-# set_curve_keys: the CURVE keys of ZeroMQ of a new deployment by `stf curve-keygen` of the STF image (TAG_STF of the
-# environment overrides the one of .env, as for docker compose): the pair of the triproxies and the one of the STF units;
-# fails when the image cannot make them
-set_curve_keys() {
-  local tag="$TAG_STF"
-  local name
-  local key
-  local keys=()
-  if [[ -z "$tag" ]]; then
-    tag="$(sed -n 's/^TAG_STF=//p' .env.original)"
-  fi
-  while IFS='=' read -r name key; do
-    if [[ "$name" =~ ^(public|secret)$ && "$key" =~ ^[0-9a-f]{64}$ ]]; then
-      keys+=("$key")
+# curve_pair: `public=<key>` and `secret=<key>` of a new CURVE key pair of ZeroMQ, 64 hex characters as of
+# `stf curve-keygen` (X25519): by openssl, by patch/curve_keygen.py where openssl has no X25519 (the LibreSSL of macOS)
+curve_pair() {
+  local pem
+  local secret=""
+  local public=""
+  if pem="$(openssl genpkey -algorithm X25519 2> /dev/null)" && [[ -n "$pem" ]]; then
+    # the DER of the keys ends with the 32 bytes of the key: PKCS#8 of the secret one (48 bytes), SPKI of the public one
+    secret="$(printf '%s\n' "$pem" | openssl pkey -outform DER 2> /dev/null | od -An -v -tx1 | tr -d ' \n')"
+    public="$(printf '%s\n' "$pem" | openssl pkey -pubout -outform DER 2> /dev/null | od -An -v -tx1 | tr -d ' \n')"
+    if [[ ${#secret} -eq 96 && ${#public} -eq 88 ]]; then
+      echo "public=${public:24}"
+      echo "secret=${secret:32}"
+      return
     fi
-  done < <(docker run --rm "public.ecr.aws/zebrunner/stf:${tag}" sh -c 'stf curve-keygen && stf curve-keygen' 2> /dev/null)
-  if [[ "${#keys[@]}" -ne 4 ]]; then
-    echo_warning "The STF image public.ecr.aws/zebrunner/stf:${tag} made no CURVE keys (stf curve-keygen), nothing is written: check that docker pulls it; TAG_STF=<tag> ./zebrunner.sh setup takes another tag."
-    return 1
   fi
-  STF_ZMQ_CURVE_SERVER_PUBLIC_KEY="${keys[0]}"
-  STF_ZMQ_CURVE_SERVER_SECRET_KEY="${keys[1]}"
-  STF_ZMQ_CURVE_SECRET_KEY="${keys[3]}"
+  python3 "${BASEDIR}/patch/curve_keygen.py" 2> /dev/null
+}
+
+# set_curve_keys: the CURVE keys of ZeroMQ of a new deployment (README.md#authentication-of-the-device-hosts): the pair of
+# the triproxies and the secret key of the STF units; fails without openssl with X25519 and without python3
+set_curve_keys() {
+  local server
+  local units
+  server="$(curve_pair)"
+  units="$(curve_pair)"
+  STF_ZMQ_CURVE_SERVER_PUBLIC_KEY="$(sed -n 's/^public=//p' <<< "$server")"
+  STF_ZMQ_CURVE_SERVER_SECRET_KEY="$(sed -n 's/^secret=//p' <<< "$server")"
+  STF_ZMQ_CURVE_SECRET_KEY="$(sed -n 's/^secret=//p' <<< "$units")"
+  local key
+  for key in "$STF_ZMQ_CURVE_SERVER_PUBLIC_KEY" "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" "$STF_ZMQ_CURVE_SECRET_KEY"; do
+    if [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
+      echo_warning "The setup makes the CURVE keys with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements); nothing is written."
+      return 1
+    fi
+  done
 }
 
 # ask_valid <variable> <question> <regex> <message>: reads a value of the interactive setup, the current one by default,

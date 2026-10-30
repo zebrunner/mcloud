@@ -8,18 +8,12 @@ source "${REPO}/patch/utility.sh"
 MCLOUD="${WORK}/mcloud"
 copy_repo "$MCLOUD"
 
-# the stub body is expanded when the stub runs; NO_NETWORK=1: the infra network is missing; `stf curve-keygen` of the
-# STF image prints two key pairs, none with NO_KEYGEN=1; `compose ps` prints ${STUB_DIR}/running
+# the stub body is expanded when the stub runs; NO_NETWORK=1: the infra network is missing; `compose ps` prints
+# ${STUB_DIR}/running
 # shellcheck disable=SC2016
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ "$1 $2" == "network inspect" && "$NO_NETWORK" == "1" ]] && exit 1
 [[ "$1 $2" == "compose ps" ]] && cat "${STUB_DIR}/running" 2> /dev/null
-if [[ "$1" == "run" && "$*" == *curve-keygen* ]]; then
-  [[ "$NO_KEYGEN" == "1" ]] && exit 1
-  for key in a b c d; do
-    printf "%s=%s\n" "$([[ "$key" =~ [ac] ]] && echo public || echo secret)" "$(printf "%064d" 0 | tr 0 "$key")"
-  done
-fi
 exit 0'
 stub curl 'echo 203.0.113.10'
 
@@ -36,6 +30,21 @@ zbr() {
 # value <file> <name>: the value of a variable of an env file of the copy
 value() {
   sed -n "s/^$2=//p" "${MCLOUD}/$1"
+}
+
+# curve_keys: ok when variables.env has the CURVE keys of a new deployment, 64 hex characters, the public key of the
+# triproxies the one of their secret key (X25519 of patch/curve_keygen.py, the check of the keys of openssl too)
+curve_keys() {
+  local public
+  local secret
+  local units
+  public="$(value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY)"
+  secret="$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+  units="$(value variables.env STF_ZMQ_CURVE_SECRET_KEY)"
+  if [[ "$secret" =~ ^[0-9a-f]{64}$ && "$units" =~ ^[0-9a-f]{64}$ && "$units" != "$secret" &&
+    "public=${public}" == "$(python3 "${REPO}/patch/curve_keygen.py" "$secret" | head -1)" ]]; then
+    echo ok
+  fi
 }
 
 # the answers of the interactive setup: protocol, host, port, confirmation, admin name, admin email, confirmation,
@@ -89,13 +98,10 @@ check_contains "the password of the sign-in is shown" "the password ${mock_passw
 check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
 check_contains "the settings are saved" 'ZBR_HOSTNAME="mcloud.example.com"' "$(cat "${MCLOUD}/backup/settings.env")"
-check "the setup makes the CURVE keys with the STF image" \
-  "run|--rm|public.ecr.aws/zebrunner/stf:$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")|sh|-c|stf curve-keygen && stf curve-keygen" \
-  "$(calls docker)"
+check_not_contains "the CURVE keys need no docker" "run|" "$(calls docker)"
 keys="$(printf '%064d' 0)"
-check "the public key of the triproxies" "${keys//0/a}" "$(value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY)"
-check "the secret key of the triproxies" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-check "the secret key of the STF units" "${keys//0/d}" "$(value variables.env STF_ZMQ_CURVE_SECRET_KEY)"
+check "the CURVE keys of the triproxies and of the STF units" "ok" "$(curve_keys)"
+server_secret="$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "no device host yet" "" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated" "48" "${#password}"
@@ -115,7 +121,7 @@ reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
 check "the password of RethinkDB is kept" "$password" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
-check "the CURVE keys are kept" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the CURVE keys are kept" "$server_secret" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
 check "the registration token of the grid is kept" "$grid_token" "$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
@@ -147,7 +153,7 @@ done
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the missing password of RethinkDB is generated" "48" "${#authkey}"
-check "the missing CURVE keys are made" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the missing CURVE keys are made" "ok" "$(curve_keys)"
 grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the missing registration token of the grid is generated" "48" "${#grid_token}"
 check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
@@ -269,10 +275,10 @@ check "ZEBRUNNER_USERINFO_URL" "https://ce.example.com:443/api/iam/v1/users" "$(
 secret="$(value variables.env SECRET)"
 check "a new SECRET is generated" "48" "${#secret}"
 check_not_contains "Zebrunner CE starts the services itself" "need to be started after setup" "$output"
-check "the CURVE keys of a new deployment of Zebrunner CE" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the CURVE keys of a new deployment of Zebrunner CE" "ok" "$(curve_keys)"
 sed -i.orig -e "/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=/d" -e "/^RETHINKDB_ENV_AUTHKEY=/d" "${MCLOUD}/variables.env"
 zbr "" setup > /dev/null
-check "Zebrunner CE makes the missing CURVE keys" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "Zebrunner CE makes the missing CURVE keys" "ok" "$(curve_keys)"
 authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "Zebrunner CE generates the missing password of RethinkDB" "48" "${#authkey}"
 cp "${REPO}/tests/fixtures/shared-ssl.crt" "${WORK}/nginx/ssl/ssl.crt"
@@ -307,18 +313,26 @@ check "the setup of Zebrunner CE keeps the sign-in" "auth-ldap" "$(value .env AU
 check "the setup of Zebrunner CE keeps the LDAP settings" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP_URL)"
 check "the setup of Zebrunner CE keeps its port" "8082" "$(value .env STF_PORT)"
 
-section "setup without the CURVE keys of the STF image"
+section "the CURVE keys without openssl"
+check "patch/curve_keygen.py: the X25519 test vector of RFC 7748" \
+  "public=8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a" \
+  "$(python3 "${REPO}/patch/curve_keygen.py" 77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a | head -1)"
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
+# openssl without X25519 (the LibreSSL of macOS): patch/curve_keygen.py makes them
+stub openssl 'exit 1'
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "python3 makes the CURVE keys" "ok" "$(curve_keys)"
+rm -f "${MCLOUD}/variables.env"
 cp "${MCLOUD}/.env" "${WORK}/env.saved"
-zbr_env=(NO_KEYGEN=1)
+stub python3 'exit 127'
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check "the setup fails without the CURVE keys" "1" "$?"
-zbr_env=()
-check_contains "the missing keys are reported" "made no CURVE keys" "$output"
+rm -f "${WORK}/bin/openssl" "${WORK}/bin/python3"
+check_contains "the missing tools of the CURVE keys are reported" "openssl (X25519, OpenSSL 1.1.1+) or python3" "$output"
 check "nothing is written without the CURVE keys" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
 check "no variables.env without the CURVE keys" "no" "$([[ -f "${MCLOUD}/variables.env" ]] && echo yes || echo no)"
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
-check "the keys are made by the next setup" "${keys//0/b}" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
+check "the keys are made by the next setup" "ok" "$(curve_keys)"
 
 section "compose"
 if docker compose version > /dev/null 2>&1; then
