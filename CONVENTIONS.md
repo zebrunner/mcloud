@@ -10,6 +10,8 @@ The conventions of the style, the formatting and the tooling of the Zebrunner MC
 - [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
 - [mcloud](https://github.com/zebrunner/mcloud)
 
+Outside of them: [stf](https://github.com/zebrunner/stf), the fork of DeviceFarmer STF, keeps the tooling of upstream (the npm scripts, its own linters, `ZEBRUNNER.md`), its `Makefile` has the targets of [Makefile](#makefile) without the shared block: `help`, `check`, `lint` and `test` over the npm scripts, `build` and `push` of the image. artifacts-uploader (the uploader image) has no conventions.
+
 This file is the same in all of them: a change of a convention is made in every repository, and a new repository starts with a copy of it and of the shared files listed below. Most of the rules are checked by `make lint`; the rest is kept by review. The rules that come from the kind of a project (Java, Ansible) are in [Project rules](#project-rules).
 
 ## Contents
@@ -55,7 +57,7 @@ This file is the same in all of them: a change of a convention is made in every 
 The shared files live in [mcloud-conventions](https://github.com/zebrunner/mcloud-conventions) and are changed there only:
 
 - the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`;
-- the shared blocks of `.editorconfig`, `.gitignore` and `tests/requirements-lint.txt`: the lines between `# >>> mcloud-conventions` and `# <<< mcloud-conventions`, the lines after them are the project part.
+- the shared blocks of `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile`: the lines between `# >>> mcloud-conventions` and `# <<< mcloud-conventions`, the other lines are the project part.
 
 A merge into mcloud-conventions syncs them: its workflow opens (or updates) the pull request `mcloud-conventions-sync` into `develop` of every repository it changes, which is reviewed and merged like any other one. The sync also writes `.mcloud-conventions`, the checksums of the shared files and blocks, and `make lint` fails when one of them is changed in the repository.
 
@@ -72,7 +74,6 @@ These files have a shared part and a project part kept by review:
 | `.yamllint` | the rules after the shared ones (mcloud-agent) |
 | `.dockerignore` | the comment with the paths the image build needs |
 | `.hadolint.yaml` | the ignored rules, each one with its reason |
-| `Makefile` | what `test` and `docker` run, the targets after `docker` |
 | `.github/workflows/ci.yml` | the jobs after `lint`, the timeouts, the OS matrix |
 | `.github/dependabot.yml` | the ecosystems of the project (e.g. `maven`); `docker` only when the base image can be updated without a manual change; `pip` only for the project linters |
 
@@ -283,7 +284,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 
 ## Makefile
 
-- `make help` (the default goal) lists the targets with their `## <description>` comments.
+- The shared block follows the comment of the first line (what `make check` runs): `SHELL := /bin/bash`, `VENV` and its `bin` in `PATH`, `make help` as the default goal (it lists the targets with their `## <description>` comments) and the `.venv/.installed` stamp of `lint`. The project part after it: the variables of the project (`DOCKER_TESTS`, the image), `.PHONY`, the targets.
 - The targets are `help`, `check`, `lint`, `test`, `docker`, then the project ones; all of them are `.PHONY`.
 - `check` runs `lint`, `test` and `docker` (plus the project targets), every one of them, and fails when one failed.
 - In the images of shell scripts `test` runs every `tests/*_test.sh` but the ones of `DOCKER_TESTS`, `docker` runs `DOCKER_TESTS`: a new test script is picked up without a change of the `Makefile`.
@@ -336,7 +337,7 @@ The rules above are the same for every repository; these ones come from the kind
 
 ## New repository checklist
 
-1. Create `.editorconfig`, `.gitignore` and `tests/requirements-lint.txt` with the markers of the shared block and the project part after it.
+1. Create `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile` with the markers of the shared block and the project part.
 2. Add the repository to `sync/targets.yml` of mcloud-conventions: its sync brings the [shared files](#shared-files) and `.mcloud-conventions`.
 3. Set the project parts: `tests/lint_project.sh`, `.dockerignore` comment, `.hadolint.yaml`, `DOCKER_TESTS`, the `lint` job of the reusable workflow and the other jobs.
 4. Write `tests/<subject>_test.sh` for the scripts of the image and `tests/image_test.sh` for the image.
