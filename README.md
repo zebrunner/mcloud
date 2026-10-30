@@ -36,7 +36,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 5. Go to Settings, Keys and generate a new Access Token.
 6. Paste the generated token into `variables.env` as `STF_TOKEN`.
 7. Restart the services: `./zebrunner.sh restart`.
-8. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent), the same on Linux and macOS ([mcloud-ios](https://github.com/zebrunner/mcloud-ios) is deprecated). Set `STF_STORAGE_TOKEN` of mcloud-agent to the `STF_STORAGE_TOKEN` of `variables.env`: the STF storage accepts the uploads of the devices with this token only. Set `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` and `NODE_REGISTRATION_TOKEN` of mcloud-agent to the ones of `variables.env` and add the public key of every device host to `STF_ZMQ_CURVE_CLIENT_KEYS`, see [Authentication of the device hosts](#authentication-of-the-device-hosts).
+8. Set up the servers with Android and iOS devices according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent), the same on Linux and macOS. Set `STF_STORAGE_TOKEN` of mcloud-agent to the `STF_STORAGE_TOKEN` of `variables.env`: the STF storage accepts the uploads of the devices with this token only. Set `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` and `NODE_REGISTRATION_TOKEN` of mcloud-agent to the ones of `variables.env` and add the public key of every device host to `STF_ZMQ_CURVE_CLIENT_KEYS`, see [Authentication of the device hosts](#authentication-of-the-device-hosts).
 9. Use `http://hostname:80/mcloud/grid/console` to see the connected devices and `http://hostname:80/mcloud/wd/hub` as the Selenium/Appium hub URL for test automation.
 
 Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
@@ -66,7 +66,6 @@ The commands of `./zebrunner.sh`:
 | `STF_PORT` | `8082` | the port of `stf-proxy` on the host |
 | `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the device hosts connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); the value of the previous setup is kept |
 | `AGENT_HOSTS` | | the device hosts (`STF_PROVIDER_HOST` of mcloud-agent) separated by commas, see [Screens of the devices](#screens-of-the-devices); the setup asks it, the value of the previous setup is kept |
-| `RETHINKDB_ADDRESS` | `127.0.0.1` | the host address of the port of RethinkDB: `127.0.0.1` with the [authentication of the device hosts](#authentication-of-the-device-hosts), `0.0.0.0` for the device hosts of an earlier MCloud, which connect to it; the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
@@ -79,10 +78,10 @@ The commands of `./zebrunner.sh`:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SECRET` | generated | the secret of the sessions and the access tokens of STF; a new deployment gets a random one, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
+| `SECRET` | generated | the secret of the sessions and the access tokens of STF; the setup generates it once, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
 | `STF_STORAGE_TOKEN` | generated | the token of the STF units for the storage routes, the same value as `STF_STORAGE_TOKEN` of mcloud-agent |
 | `STF_TOKEN` | | the access token of the STF user the grid reserves the devices with |
-| `NODE_REGISTRATION_TOKEN` | generated | the secret the Appium nodes of the device hosts register in the grid with, the same value as `NODE_REGISTRATION_TOKEN` of mcloud-agent; empty = the grid registers any node |
+| `NODE_REGISTRATION_TOKEN` | generated | the secret the Appium nodes of the device hosts register in the grid with, the same value as `NODE_REGISTRATION_TOKEN` of mcloud-agent |
 | `STF_URL` | `http://localhost:8082` | the public URL of MCloud |
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
 | `STF_ADMIN_NAME`, `STF_ADMIN_EMAIL` | `admin`, `admin@zebrunner.com` | the administrator of STF, the owner of the root group |
@@ -118,15 +117,15 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 ### Authentication of the device hosts
 
-The device hosts (mcloud-agent) connect to ZeroMQ of STF (the triproxies) and, before the current STF, to RethinkDB, their Appium nodes register in the grid. None has an authentication of its own: anyone who reaches their ports reads the events of all the devices, sends commands to them or changes the database, and a node registered in the grid gets the sessions of its device with their capabilities (the personal `zebrunner:STF_TOKEN` too). A new deployment turns the authentication on:
+The device hosts (mcloud-agent) connect to ZeroMQ of STF (the triproxies), their Appium nodes register in the grid. Neither has an authentication of its own: anyone who reaches their ports reads the events of all the devices or sends commands to them, and a node registered in the grid gets the sessions of its device with their capabilities (the personal `zebrunner:STF_TOKEN` too). So `./zebrunner.sh setup` turns the authentication on:
 
 - the triproxies accept only the clients with a known CURVE key ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)): the STF units and the device hosts of `STF_ZMQ_CURVE_CLIENT_KEYS`, the traffic is encrypted. `./zebrunner.sh setup` makes the keys with `stf curve-keygen` of the STF image;
-- RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published (`RETHINKDB_ADDRESS=127.0.0.1`): the device units of the current STF have no database;
+- RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published: only the STF units of the server use the database;
 - the grid registers only the Appium nodes with `NODE_REGISTRATION_TOKEN` of `variables.env`, which the setup generates ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)), and sends it with its requests to them: the Appium of a device answers the grid only, the devices are used through `/mcloud/wd/hub` and reserved in STF. Set it as `NODE_REGISTRATION_TOKEN` of every mcloud-agent.
 
 A device host makes its own key pair (mcloud-agent prints its public key): add the public key to `STF_ZMQ_CURVE_CLIENT_KEYS` of `variables.env`, separated by commas, and run `./zebrunner.sh restart`. The removal of a key disconnects its device host.
 
-The device hosts need the mcloud-device and appium images of the current MCloud, `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` and `NODE_REGISTRATION_TOKEN`; the others cannot connect. So `./zebrunner.sh setup` of a deployment of an earlier MCloud keeps it off and asks to turn it on (Zebrunner CE keeps it off), until then it warns on every setup: turn it on once all the device hosts are updated.
+The device hosts need mcloud-agent of the same MCloud release with `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY`, `NODE_REGISTRATION_TOKEN` and `STF_STORAGE_TOKEN`; the others cannot connect.
 
 ### Screens of the devices
 
@@ -147,7 +146,6 @@ The ports of the host and who needs them; close the others:
 | `STF_PORT` | `stf-proxy` | the users, the tests, the device hosts (the storage, the screens) |
 | `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the device hosts |
 | `4446` (`AGENTS_ADDRESS`) | `mcloud-grid` | the device hosts (Appium registers to the grid); the tests use `/mcloud/wd/hub` of `STF_PORT` |
-| `28015` (`RETHINKDB_ADDRESS`) | `rethinkdb` | the device hosts of an earlier MCloud only, `127.0.0.1` otherwise |
 
 `AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts. A device host publishes the ports of its devices for the server (`stf-proxy` serves the screens to the users) and for the remote ADB of the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
@@ -163,7 +161,7 @@ All the services are in the external docker network `infra`, which `./zebrunner.
 | --- | --- | --- |
 | `stf-proxy` | `nginx` | the entry point on `STF_PORT`: STF, the grid under `/mcloud`, the static files of the grid console |
 | `mcloud-grid` | `public.ecr.aws/zebrunner/mcloud-grid` | the Selenium/Appium hub of the devices, also on the port `4446` of the host (`AGENTS_ADDRESS`) |
-| `rethinkdb` | `rethinkdb` | the database of STF, the volume `stf-db-volume`, with the password `RETHINKDB_ENV_AUTHKEY` and without its web console; the port `28015` of the host (`RETHINKDB_ADDRESS`) |
+| `rethinkdb` | `rethinkdb` | the database of STF, the volume `stf-db-volume`, with the password `RETHINKDB_ENV_AUTHKEY` and without its web console, not published on the host |
 | `stf-migrate` | `public.ecr.aws/zebrunner/stf` | creates and updates the tables of the database, the other STF units start after it |
 | `stf-app`, `stf-auth`, `stf-api`, `stf-websocket` | `public.ecr.aws/zebrunner/stf` | the UI, the sign-in, the REST API and the websocket of STF |
 | `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events, the heartbeats and the groups of STF |
@@ -187,22 +185,12 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 
 ## Upgrade
 
-From the images `stf:3.0` and `mcloud-grid:2.6`:
+An MCloud release works with mcloud-agent of the same release only (the images of the device hosts, the authentication of the device hosts): update the server and all the device hosts together.
 
 1. Update the repository: `git pull`.
-2. Run `./zebrunner.sh setup`: it keeps the settings of `variables.env` and generates `STF_STORAGE_TOKEN`.
-3. Set the same `STF_STORAGE_TOKEN` in mcloud-agent and update it with its mcloud-device image to the versions of the new STF, then restart the devices.
-4. Restart the services: `./zebrunner.sh restart`. `stf-migrate` creates the table of the sessions, the users sign in once more.
-
-The ports `7150` and `7170` of the host are no longer published: the device hosts connect to `7160` and `7250`-`7270` only.
-
-The setup offers the [authentication of the device hosts](#authentication-of-the-device-hosts): turn it on when every device host runs mcloud-agent with the mcloud-device and appium images of the current MCloud, its key is in `STF_ZMQ_CURVE_CLIENT_KEYS` and it has `NODE_REGISTRATION_TOKEN`. Without it RethinkDB stays published (`RETHINKDB_ADDRESS=0.0.0.0`) for the device hosts of the earlier STF.
-
-The mock sign-in is behind a shared user and password now: the setup generates them and prints them (`STF_AUTH_MOCK_BASIC_AUTH_*`), or choose OAuth2 or LDAP, see [Sign-in](#sign-in). https needs the certificate of the host in `configuration/stf-proxy/ssl`: the self-signed pair of the earlier versions is refused.
-
-`stf-proxy` serves the screens of the devices of `AGENT_HOSTS` only, to signed-in users (the setup asks the device hosts, see [Screens of the devices](#screens-of-the-devices)), and no longer proxies `/appium/<host>/<port>/`.
-
-The setup offers a new `SECRET` when it is still the default `password` (Zebrunner CE only warns): then generate the access tokens again (`STF_TOKEN` too), as the old ones are signed with the old secret. The grid logs JSON lines now, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#logs).
+2. Run `./zebrunner.sh setup`: it keeps the settings of the previous setup and generates the missing ones, check the settings of mcloud-agent it prints.
+3. Update mcloud-agent of every device host to the same release, see its README.
+4. Restart the services: `./zebrunner.sh restart`; `stf-migrate` updates the tables of the database.
 
 ## Troubleshooting
 
