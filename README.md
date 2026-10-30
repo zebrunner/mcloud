@@ -21,6 +21,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 - Docker v27+ with the Docker compose plugin
 - git 2.20.0+
+- openssl with X25519 (OpenSSL 1.1.1+) or Python 3: the setup makes the [CURVE keys](#authentication-of-the-device-hosts) with them (the LibreSSL of macOS has no X25519, Python 3 is used there)
 
 ## Run
 
@@ -123,7 +124,7 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 The device hosts (mcloud-agent) connect to ZeroMQ of STF (the triproxies), their Appium nodes register in the grid. Neither has an authentication of its own: anyone who reaches their ports reads the events of all the devices or sends commands to them, and a node registered in the grid gets the sessions of its device with their capabilities (the personal `zebrunner:STF_TOKEN` too). So `./zebrunner.sh setup` turns the authentication on:
 
-- the triproxies accept only the clients with a known CURVE key ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)): the STF units and the device hosts of `STF_ZMQ_CURVE_CLIENT_KEYS`, the traffic is encrypted. `./zebrunner.sh setup` makes the keys with `stf curve-keygen` of the STF image;
+- the triproxies accept only the clients with a known CURVE key ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)): the STF units and the device hosts of `STF_ZMQ_CURVE_CLIENT_KEYS`, the traffic is encrypted. `./zebrunner.sh setup` makes the keys (X25519, as `stf curve-keygen`) with openssl or, where it has no X25519, with `patch/curve_keygen.py`, the same as of mcloud-agent;
 - RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published: only the STF units of the server use the database;
 - the grid registers only the Appium nodes with `NODE_REGISTRATION_TOKEN` of `variables.env`, which the setup generates ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)), and sends it with its requests to them: the Appium of a device answers the grid only, the devices are used through `/mcloud/wd/hub` and reserved in STF. Set it as `NODE_REGISTRATION_TOKEN` of every mcloud-agent.
 
@@ -226,7 +227,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | Target | What it checks | Needs |
 | --- | --- | --- |
 | `make check` | everything below, as CI runs it | |
-| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, the text files, `docker compose config` with the `*.original` settings | Python 3; on macOS `brew install hadolint` |
+| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings | Python 3; on macOS `brew install hadolint` |
 | `make test` | `tests/zebrunner_test.sh` and `tests/utility_test.sh`: the commands of `zebrunner.sh` on a copy of the repository with a `docker` stub | bash |
 | `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, then their shutdown; `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
 

@@ -1,0 +1,5 @@
+line-length = 120
+
+[lint]
+# pycodestyle, pyflakes, imports order, bugbear, pyupgrade, simplify
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]

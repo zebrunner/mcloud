@@ -7,9 +7,14 @@ scripts=(zebrunner.sh patch/*.sh tests/*.sh tests/e2e/*.sh)
 generated=(configuration/stf-proxy/grid)
 # no image
 dockerfiles=()
+tools=(ruff)
 
-# project_checks: docker-compose.yml with the settings of the *.original files
+# project_checks: Python, docker-compose.yml with the settings of the *.original files
 project_checks() {
+  section "python"
+  run_check "ruff check" ruff check --no-cache .
+  run_check "ruff format" ruff format --check --no-cache .
+
   section "compose"
   check "every image is pinned by a TAG_* of .env.original" "" \
     "$(grep -E '^[[:space:]]*image:' docker-compose.yml | grep -vE ':\$\{TAG_[A-Z_]+\}"?$')"
