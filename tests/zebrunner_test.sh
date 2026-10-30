@@ -219,6 +219,18 @@ check "start writes the device hosts of .env" '"agent2.example.com" 1;' \
 check_contains "start skips an invalid host" "'bad/host' of AGENT_HOSTS of .env is not a host name" "$output"
 replace "${MCLOUD}/.env" "AGENT_HOSTS=agent2.example.com,bad/host" "AGENT_HOSTS=agent1.example.com"
 zbr "" start > /dev/null
+# a file of root (sudo ./zebrunner.sh): root writes any file, so the check runs for another user only
+if [[ "$(id -u)" -ne 0 ]]; then
+  chmod 444 "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf"
+  output="$(zbr "" start)"
+  chmod 644 "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf"
+  check_contains "a file of the device hosts that is not writable is reported" \
+    "configuration/stf-proxy/agent-hosts.conf is not writable" "$output"
+  check_not_contains "it is not reported as no device hosts" "AGENT_HOSTS of .env is empty" "$output"
+  check_not_contains "no shell error" "Permission denied" "$output"
+else
+  skip_check "a file of the device hosts that is not writable" "root writes any file"
+fi
 
 section "sign-in"
 # the answers: the sign-in, its settings with a secret, a scope, a domain of the users, no start; the secret is literal
@@ -262,6 +274,16 @@ output="$(zbr "" setup)"
 check "https of Zebrunner CE without its certificate fails" "1" "$?"
 check_contains "the certificate of Zebrunner CE is asked for" "../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing" "$output"
 certificate "${WORK}/nginx/ssl" ce.example.com
+# a key of root only (e.g. of certbot): root reads any file, so the check runs for another user only
+if [[ "$(id -u)" -ne 0 ]]; then
+  chmod 000 "${WORK}/nginx/ssl/ssl.key"
+  output="$(zbr "" setup)"
+  check "https of Zebrunner CE with a key that is not readable fails" "1" "$?"
+  chmod 600 "${WORK}/nginx/ssl/ssl.key"
+  check_contains "the key that is not readable is reported" "The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied" "$output"
+else
+  skip_check "https of Zebrunner CE with a key that is not readable" "root reads any file"
+fi
 output="$(zbr "" setup)"
 check "the certificate of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.crt" "${SSL}/ssl.crt" && echo same)"
 check "the key of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.key" "${SSL}/ssl.key" && echo same)"

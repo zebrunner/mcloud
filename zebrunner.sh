@@ -387,8 +387,12 @@ set_certificate() {
       echo_warning "https needs the certificate of Zebrunner CE: ../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing."
       return 1
     fi
-    cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt"
-    cp "${BASEDIR}/../nginx/ssl/ssl.key" "${dir}/ssl.key"
+    # a key of root only (e.g. of certbot) is not readable for the user of the setup: the copy would be an old one
+    if ! cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt" 2> /dev/null ||
+      ! cp "${BASEDIR}/../nginx/ssl/ssl.key" "${dir}/ssl.key" 2> /dev/null; then
+      echo_warning "The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied into ${dir}: make it readable for $(id -un) (README.md#troubleshooting)."
+      return 1
+    fi
   fi
   if [[ ! -f "${dir}/ssl.crt" || ! -f "${dir}/ssl.key" ]]; then
     echo_warning "https needs the certificate of ${ZBR_HOSTNAME}: put it into ${dir}/ssl.crt and its key into ${dir}/ssl.key (README.md#https)."
@@ -472,7 +476,11 @@ write_agent_hosts() {
   local hosts=()
   local host
   IFS=',' read -r -a hosts <<< "$(sed -n 's/^AGENT_HOSTS=//p' .env)"
-  : > configuration/stf-proxy/agent-hosts.conf
+  # a file of root (e.g. of `sudo ./zebrunner.sh`) cannot be written, stf-proxy keeps the device hosts it has
+  if ! : 2> /dev/null > configuration/stf-proxy/agent-hosts.conf; then
+    echo_warning "configuration/stf-proxy/agent-hosts.conf is not writable for $(id -un): remove it (rm -f configuration/stf-proxy/agent-hosts.conf) and run ./zebrunner.sh restart (README.md#troubleshooting)."
+    return
+  fi
   for host in "${hosts[@]}"; do
     host="${host// /}"
     if [[ -z "$host" ]]; then
