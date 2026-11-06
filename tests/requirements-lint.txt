@@ -1,7 +1,7 @@
 # >>> mcloud-conventions: the shared part, changed in https://github.com/zebrunner/mcloud-conventions
 # Tools of tests/lint.sh: pip install -r tests/requirements-lint.txt
 actionlint-py==1.7.12.25
-hadolint-py==2.15.1.2
+hadolint-py==2.15.1.3
 pymarkdownlnt==0.9.41
 shellcheck-py==0.11.0.1
 shfmt-py==4.2.0
