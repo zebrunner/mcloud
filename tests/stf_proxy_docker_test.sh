@@ -85,7 +85,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '  }' '  server {' '    listen 7400;' \
   '    location / {' \
   '      default_type text/plain;' \
-  '      return 200 "node cookie=[$http_cookie] authorization=[$http_authorization] stf=[$http_x_stf_secret] upgrade=[$http_upgrade] connection=[$http_connection] key=[$http_sec_websocket_key] version=[$http_sec_websocket_version]\n";' \
+  '      return 200 "node cookie=[$http_cookie] authorization=[$http_authorization] stf=[$http_x_stf_secret] internal=[$http_x_stf_internal_token] upgrade=[$http_upgrade] connection=[$http_connection] key=[$http_sec_websocket_key] version=[$http_sec_websocket_version]\n";' \
   '    }' '  }' '}' > "${FAKE}/nginx.conf"
 docker network create stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
@@ -103,13 +103,21 @@ check "a wrong session is refused" "401" "$(http_code "$screen" -H "Cookie: ssid
 check "another port of the device is refused (403 of stf-api for the original URI)" "403" \
   "$(http_code /d/node1/serial1/7401/ -H "Cookie: ssid=good")"
 check "the node gets the WebSocket without the cookie and the other headers of the user" \
-  "node cookie=[] authorization=[] stf=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
-  "$(body "$screen" -H "Cookie: other=1; ssid=good" -H "X-Stf-Secret: leak" "${websocket[@]}")"
+  "node cookie=[] authorization=[] stf=[] internal=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
+  "$(body "$screen" -H "Cookie: other=1; ssid=good" -H "X-Stf-Secret: leak" -H "X-Stf-Internal-Token: leak" "${websocket[@]}")"
 check "an access token: the node does not get it" \
-  "node cookie=[] authorization=[] stf=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
+  "node cookie=[] authorization=[] stf=[] internal=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
   "$(body "$screen" -H "Authorization: Bearer good-token" "${websocket[@]}")"
 check "a port below 1024 is not a screen: the app gets it" "upstream GET /d/node1/serial1/80/" \
   "$(body /d/node1/serial1/80/ -H "Cookie: ssid=good")"
+
+section "internal routes of the registry"
+for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Zebrunner/Nodes/keys/ \
+  //api//v1/zebrunner/nodes/keys /api/v1/zebrunner/%6Eodes/keys /api/v1/zebrunner/nodes; do
+  check "${path} is refused" "403" "$(http_code "$path" -H "X-Stf-Internal-Token: guess")"
+done
+check "the screen decision of the API is not an internal route (401 of stf-api)" "401" \
+  "$(http_code /api/v1/zebrunner/screen-auth)"
 
 section "enrollment of the nodes"
 check "the enrollment goes to stf-api" "upstream POST /api/v1/nodes/enroll" "$(body /api/v1/nodes/enroll -X POST -d '{}')"

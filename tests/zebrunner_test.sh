@@ -136,6 +136,9 @@ check "variables.env is readable for its owner only" "-rw-------" "$(mode variab
 check "backup/settings.env is readable for its owner only" "-rw-------" "$(mode backup/settings.env)"
 check_contains ".env is readable" "-rw-r" "$(mode .env)"
 check "the ports of the device hosts are published on every address" "0.0.0.0" "$(value .env AGENTS_ADDRESS)"
+check "the nodes reach the host of STF_URL" "mcloud.example.com" "$(value .env NODES_HOST)"
+check "the triproxies and the storage read the nodes from stf-api" "http://stf-api:3000" \
+  "$(value variables.env STF_NODES_API_URL)"
 grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
 check "the registration token of the grid is generated" "48" "${#grid_token}"
 check_contains "the start is suggested" "need to be started after setup" "$output"
@@ -157,6 +160,7 @@ check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(val
 check "the key of a device host of its own variable is kept" "${keys//0/a}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01)"
 check "a variable added to variables.env is kept" "3600" "$(value variables.env STF_SESSION_TTL_SECONDS)"
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
+check "the nodes reach AGENTS_ADDRESS" "10.0.0.5" "$(value .env NODES_HOST)"
 check "the size of the log files is kept" "200m" "$(value .env LOG_MAX_SIZE)"
 check "the default number of the log files" "5" "$(value .env LOG_MAX_FILE)"
 check "the relay hosts are kept" "192.168.30.2:7404,192.168.30.2:7464" "$(value .env ADB_RELAY_HOSTS)"
@@ -254,6 +258,25 @@ output="$(zbr "" start)"
 check_contains "start reports an invalid host" "'bad/host' of AGENT_HOSTS of .env is not a host name or address: stf-api ignores it." "$output"
 check_not_contains "a valid host is not reported" "agent2.example.com" "$output"
 replace "${MCLOUD}/.env" "AGENT_HOSTS=agent2.example.com,bad/host" "AGENT_HOSTS=agent1.example.com"
+replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.5" "AGENTS_ADDRESS=10.0.0.6"
+zbr "" start > /dev/null
+check "start writes NODES_HOST of a new AGENTS_ADDRESS" "10.0.0.6" "$(value .env NODES_HOST)"
+replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.6" "AGENTS_ADDRESS=0.0.0.0"
+sed -i.orig '/^NODES_HOST=/d' "${MCLOUD}/.env"
+zbr "" start > /dev/null
+check "start adds NODES_HOST to the .env of an earlier MCloud" "mcloud.example.com" "$(value .env NODES_HOST)"
+replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
+zbr "" start > /dev/null
+if docker compose version > /dev/null 2>&1; then
+  check "stf-api gives the nodes the ZeroMQ endpoints at NODES_HOST" \
+    "--nodes-connect-sub tcp://10.0.0.5:7250 --nodes-connect-push tcp://10.0.0.5:7270 --nodes-connect-app-dealer tcp://10.0.0.5:7160 --nodes-connect-dev-dealer tcp://10.0.0.5:7260" \
+    "$(cd "$MCLOUD" && docker compose config --format json 2> /dev/null |
+      python3 -c 'import json, sys; c = json.load(sys.stdin)["services"]["stf-api"]["command"]; print(" ".join(c[c.index("--nodes-connect-sub"):]))')"
+  check "the triproxies, the storage and stf-api get STF_NODES_API_URL" "http://stf-api:3000 http://stf-api:3000 http://stf-api:3000 http://stf-api:3000" \
+    "$(cd "$MCLOUD" && docker compose config --format json 2> /dev/null | python3 -c 'import json, sys
+s = json.load(sys.stdin)["services"]
+print(" ".join(s[n]["environment"]["STF_NODES_API_URL"] for n in ("stf-triproxy-app", "stf-triproxy-dev", "stf-storage-temp", "stf-api")))')"
+fi
 if docker compose version > /dev/null 2>&1; then
   check "docker compose passes AGENT_HOSTS to stf-api" "AGENT_HOSTS: agent1.example.com" \
     "$(cd "$MCLOUD" && docker compose config 2> /dev/null | sed -n '/^  stf-api:/,/^  [a-z]/p' | grep -E '^      AGENT_HOSTS' |
@@ -743,6 +766,11 @@ for label in Lab-1 -lab lab_1 "" "$(printf 'a%.0s' {1..41})"; do
   no_curl "the label '${label}'" node-invite "$label" 10.0.0.5
   check_contains "the label '${label}' is reported" "is not a label of a node" "$output"
 done
+for label in enroll invites relay verify; do
+  no_curl "the reserved label '${label}'" node-invite "$label" 10.0.0.5
+  check_contains "the reserved label '${label}' is reported" \
+    "The label '${label}' is reserved by STF (enroll, invites, relay, verify): choose another one." "$output"
+done
 for address in 127.0.0.1 0.0.0.0 169.254.169.254 224.0.0.1 255.255.255.255 localhost a.localhost http://10.0.0.5 10.0.0.5:7000 \
   10.0.0.256 "a b" 10.0.0.5/x; do
   no_curl "the address '${address}'" node-invite lab-1 "$address"
@@ -794,7 +822,7 @@ output="$(zbr "" node-invite lab-1 10.0.0.5)"
 check "an answer without an invite fails" "1" "$?"
 check_contains "an answer without an invite is reported" "answered the invite without one" "$output"
 for answer in "000:stf-proxy does not answer on 127.0.0.1:443" "401:STF_TOKEN of variables.env is not a valid access token" \
-  "403:refused: STF_TOKEN is not of an admin of STF" "400:refused as invalid" "404:not found: an unknown node" \
+  "403:refused: STF_TOKEN is not of an admin of STF" "400:refused: an unknown node" "404:not found: an unknown node" \
   "500:the STF API answered 500"; do
   api "${answer%%:*}" '{"success":false}'
   output="$(zbr "" node-invite lab-1 10.0.0.5)"
@@ -925,7 +953,10 @@ check_contains "the screens are allowed by stf-api" "auth_request /_screen_auth;
 check_contains "the node gets the headers of the WebSocket only" "proxy_pass_request_headers off;" "$screen"
 check_contains "the node gets no session cookie" 'proxy_set_header Cookie "";' "$screen"
 check_contains "the node gets no access token" 'proxy_set_header Authorization "";' "$screen"
-check "the node gets no X-Stf-* header" "" "$(grep -i 'proxy_set_header *X-Stf' <<< "$screen")"
+check_contains "the node gets no internal token" 'proxy_set_header X-Stf-Internal-Token "";' "$screen"
+check_contains "the internal routes of the registry are refused" "return 403;" \
+  "$(block "location ~* ^/api/v1/zebrunner/nodes {")"
+check "the node gets no X-Stf-* header" "" "$(grep -i 'proxy_set_header *X-Stf' <<< "$screen" | grep -v ' "";$')"
 check_contains "the decision of stf-api" "proxy_pass http://\$upstream_screen_auth/api/v1/zebrunner/screen-auth;" "$screen_auth"
 check_contains "stf-api gets the original URI" "proxy_set_header X-Original-URI \$request_uri;" "$screen_auth"
 check_contains "stf-api gets the session cookie" "proxy_set_header Cookie \$http_cookie;" "$screen_auth"

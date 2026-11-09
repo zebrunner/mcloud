@@ -226,10 +226,14 @@ services:
       # the legacy nodes without enrollment (README.md#nodes): /api/v1/zebrunner/screen-auth allows the screens of their
       # devices that are not bound to a node at these hosts only
       - AGENT_HOSTS=${AGENT_HOSTS:-}
+    # --nodes-connect-*: the ZeroMQ endpoints of the answer of the enrollment, the published ports of the triproxies at
+    # NODES_HOST (the host of the join string); --nodes-stf-url is STF_URL of variables.env, the public URL
     command: >-
       stf api --port 3000
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
       --connect-sub-dev tcp://stf-triproxy-dev:7250 --connect-push-dev tcp://stf-triproxy-dev:7270
+      --nodes-connect-sub tcp://${NODES_HOST}:7250 --nodes-connect-push tcp://${NODES_HOST}:7270
+      --nodes-connect-app-dealer tcp://${NODES_HOST}:7160 --nodes-connect-dev-dealer tcp://${NODES_HOST}:7260
   stf-api-groups-engine:
     <<: *stf
     container_name: stf-api-groups-engine

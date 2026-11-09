@@ -110,6 +110,7 @@ http {
       proxy_pass_request_headers off;
       proxy_set_header Cookie "";
       proxy_set_header Authorization "";
+      proxy_set_header X-Stf-Internal-Token "";
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection upgrade;
       proxy_set_header Sec-WebSocket-Key $http_sec_websocket_key;
@@ -136,6 +137,12 @@ http {
       proxy_set_header X-Original-URI $request_uri;
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # the internal routes of the registry of the nodes: the triproxies and the storage read them on stf-api:3000, never
+    # through stf-proxy. Case-insensitive and with any suffix, as the router of the API matches the path
+    location ~* ^/api/v1/zebrunner/nodes {
+      return 403;
     }
 
     # the enrollment of a node with its invite (./zebrunner.sh join of mcloud-agent), without an authentication of its

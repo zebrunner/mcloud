@@ -106,6 +106,7 @@ setup() {
   done <<< "$relay_settings"
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
+  set_nodes_host
   check_agent_hosts
   write_adb_relay_hosts
 
@@ -262,7 +263,8 @@ start() {
   fi
 
   protect_files
-  # AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
+  # AGENTS_ADDRESS, AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
+  set_nodes_host
   check_agent_hosts
   write_adb_relay_hosts
   check_adb_relay_auto
@@ -419,6 +421,12 @@ node_invite() {
   if ! valid_label "$label" || ! node_address "$address"; then
     return 1
   fi
+  case "$label" in
+  enroll | invites | relay | verify)
+    echo_warning "The label '${label}' is reserved by STF (enroll, invites, relay, verify): choose another one."
+    return 1
+    ;;
+  esac
   if [[ -n "$minutes" ]] && { [[ ! "$minutes" =~ ^[0-9]{1,4}$ ]] || ((10#$minutes < 1 || 10#$minutes > 1440)); }; then
     echo_warning "The validity of the invite '${minutes}' is not a number of minutes from 1 to 1440 (60 by default)."
     return 1
@@ -617,6 +625,22 @@ url_encode() {
   echo "${value//=/%3D}"
 }
 
+# set_nodes_host: NODES_HOST of .env, the host of join_host for the ZeroMQ endpoints stf-api gives the nodes
+# (docker-compose.yml); the line is added to the .env of an earlier MCloud
+set_nodes_host() {
+  local host
+  local current
+  host="$(join_host)"
+  if ! grep -q '^NODES_HOST=' .env; then
+    echo "NODES_HOST=${host}" >> .env
+    return
+  fi
+  current="$(sed -n 's/^NODES_HOST=//p' .env)"
+  if [[ "$current" != "$host" ]]; then
+    replace .env "NODES_HOST=${current}" "NODES_HOST=${host}"
+  fi
+}
+
 # join_host: the host the nodes reach stf-proxy, the grid and ZeroMQ at: AGENTS_ADDRESS of .env (their ports are
 # published there), the host of STF_URL when it is every address of the server
 join_host() {
@@ -669,7 +693,7 @@ api_error() {
   401) reason="STF_TOKEN of variables.env is not a valid access token of STF" ;;
   403) reason="refused: STF_TOKEN is not of an admin of STF, or the request is not allowed, see docker logs stf-api" ;;
   404) reason="not found: an unknown node, or the STF of TAG_STF has no registry of the nodes" ;;
-  400) reason="refused as invalid (a label or an address of another node?), see docker logs stf-api" ;;
+  400) reason="refused: an unknown node, a label or an address of another node, or a node that is not revoked; see docker logs stf-api" ;;
   *) reason="the STF API answered ${api_status}, see docker logs stf-api" ;;
   esac
   echo_warning "${1} failed: ${reason}."

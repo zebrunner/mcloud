@@ -69,6 +69,7 @@ The commands of `./zebrunner.sh`:
 | `STF_URL` | `http://localhost:8082` | the public URL of MCloud: the protocol, host and port of the setup |
 | `STF_PORT` | `8082` | the port of `stf-proxy` on the host |
 | `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the nodes connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); also the host of the join string of `./zebrunner.sh node-invite` (the host of `STF_URL` for `0.0.0.0`); the value of the previous setup is kept |
+| `NODES_HOST` | `localhost` | written by `./zebrunner.sh setup` and `start`: the host the nodes reach the ports of `AGENTS_ADDRESS` at, `AGENTS_ADDRESS` or the host of `STF_URL` for `0.0.0.0`; the host of the join string and of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) |
 | `AGENT_HOSTS` | | legacy: the nodes without enrollment (`STF_PROVIDER_HOST` of their mcloud-agent) separated by commas, `stf-api` allows the screens of their devices, see [Nodes](#nodes); not asked by the setup, the value of the previous setup is kept, `nodes legacy-off` empties it |
 | `ADB_RELAY` | `false` | `true`: `adb-relay` relays the remote debug ports of the Android devices of the enrolled nodes (the auto mode), see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); the value of the previous setup is kept |
 | `ADB_RELAY_PORTS` | | the auto mode relays the ports of this range only, `<first>-<last>` (e.g. `7400-7999`): the range opened in the firewall; empty: any port; the value of the previous setup is kept |
@@ -103,6 +104,7 @@ The commands of `./zebrunner.sh`:
 | `STF_ZMQ_CURVE_SECRET_KEY` | generated | the CURVE key of the STF units |
 | `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` | | legacy: the public key of one node without enrollment (`./zebrunner.sh curve-key` of mcloud-agent), one variable per node, `<HOST>` is a free label of letters, digits and `_` (e.g. `STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01`): the triproxies accept these keys and the ones of the enrolled nodes; an empty value is ignored, an invalid one stops STF with an error naming the variable; `nodes legacy-off` empties them |
 | `STF_ZMQ_CURVE_CLIENT_KEYS` | | legacy: the public keys of the nodes without enrollment separated by commas, kept for compatibility: the triproxies accept them too |
+| `STF_NODES_API_URL` | `http://stf-api:3000` | the API the triproxies and the storage read the keys and the tokens of the enrolled nodes from (every 5 seconds), with `STF_STORAGE_TOKEN`; its internal routes `/api/v1/zebrunner/nodes/` are refused by `stf-proxy` |
 
 More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session, or `STF_STORAGE_TEMP_DOWNLOAD_ALLOW`, the private networks the apps may be installed from by URL) are described in [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#configuration). The settings of the grid (e.g. `NODE_ALLOWED_NETWORKS`, `MAX_NEW_COMMAND_TIMEOUT`, `MCLOUD_LOG_LEVEL`) are described in [mcloud-grid](https://github.com/zebrunner/mcloud-grid#configuration), they go to `environment` of `mcloud-grid` in `docker-compose.yml`.
 
@@ -221,10 +223,10 @@ A node is a device host of [mcloud-agent](https://github.com/zebrunner/mcloud-ag
 
 ### Enrollment
 
-The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and the STF of this MCloud release (`TAG_STF`).
+The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and the STF of this MCloud release (`TAG_STF`) with the registry of the nodes ([zebrunner/stf](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md)), `mcloud-grid` and mcloud-agent of the same release.
 
 1. On the server: `./zebrunner.sh node-invite <label> <address> [<minutes>]`, e.g. `./zebrunner.sh node-invite lab-1 192.168.30.2`:
-   - the label is the name of the node, unique, 1-40 lower case letters, digits and `-`;
+   - the label is the name of the node, unique, 1-40 lower case letters, digits and `-`; `enroll`, `invites`, `relay` and `verify` are reserved by STF;
    - the address is the one the server connects to (the screens, Appium), the `STF_PROVIDER_HOST` of the node: an IPv4 address or a host name without the protocol and the port, not a loopback, link-local or multicast one, unique among the nodes;
    - the invite is valid 60 minutes, `<minutes>` sets 1-1440, and enrolls once.
 2. It prints the join string once, a secret: copy it to the node over a trusted channel.
@@ -248,7 +250,7 @@ mcloud-join://<host>:<port>?label=<label>&grid=<grid host>:<grid port>&pin=<pin>
 | `pin` | base64 of the SHA-256 of the public key (DER SubjectPublicKeyInfo) of `configuration/stf-proxy/ssl/ssl.crt`, as `curl --pinnedpubkey 'sha256//<pin>'` takes it, with `+`, `/` and `=` percent-encoded (`%2B`, `%2F`, `%3D`); `node-invite` also prints it as it is |
 | `token` | the invite, `mci1.<secret>` |
 
-The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment and their host from the join string: the triproxies publish `7160`, `7250`, `7260` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall). A new certificate of `stf-proxy` changes the pin of the next invites.
+The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`, `NODES_HOST` of `.env` is the host of the join string) and their host from the join string: the triproxies publish `7160`, `7250`, `7260` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
 
 ### Commands
 
@@ -284,7 +286,8 @@ What the enrollment gives:
 - the node trusts the server by the pin of the certificate of `stf-proxy`, a self-signed certificate is fine; the join string is never an argument of a command (the process list), the server prints it once;
 - the address of a node is the one of the admin, never one the node reports: the grid takes a node token only for an Appium node at that address, a device is bound to the node only with a proof of the token of the node (an HMAC) and at that address, the screens and the remote debug relay go to the registered address only, so a node cannot point the server at another host;
 - the screens are served to the user of the device only, and `stf-proxy` never passes the session cookie, the access token or the `X-Stf-*` headers of the user to the node;
-- `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` gets it alone.
+- `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` gets it alone;
+- the internal routes of the registry (`/api/v1/zebrunner/nodes/`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) are refused by `stf-proxy` (`403`), also for the holders of the legacy `STF_STORAGE_TOKEN`.
 
 The risks that stay:
 
@@ -385,7 +388,7 @@ The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflo
 
 The end-to-end test of the farm (`.github/workflows/e2e.yml`, on the pushes and pull requests, every night and on demand) runs on a GitHub runner with KVM:
 
-1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The inputs `ref` (all the repositories) and `refs` (single ones: `STF_REF=fix/x MCLOUD_AGENT_REF=feat/y`) of a manual run take other branches, as `E2E_REF` and `E2E_REFS` or `<REPOSITORY>_REF` of the script.
+1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The inputs `ref` (all the repositories) and `refs` (single ones: `STF_REF=fix/x MCLOUD_AGENT_REF=feat/y`) of a manual run take other branches, as `E2E_REF` and `E2E_REFS` or `<REPOSITORY>_REF` of the script; `refs` is `STF_REF=feat/node-enrollment` by default until [zebrunner/stf#1124](https://github.com/zebrunner/stf/pull/1124) (the registry of the nodes) is merged.
 2. `tests/e2e/emulator.sh` starts with an Android emulator (`android-emulator-runner`) and relays its adb to the containers.
 3. `tests/e2e/farm_test.sh` sets up and starts MCloud of this checkout, MinIO for the artifacts and a device host of `mcloud-agent` with the emulator, then checks the containers, the device in STF and in the grid, an Appium session with an app, the screen of the device in STF, the upload of a file to STF and the artifacts of the session (the video too) in S3.
 

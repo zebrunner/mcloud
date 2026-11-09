@@ -18,7 +18,7 @@ on:
         default: develop
       refs:
         description: The branches of single repositories (E2E_REFS), e.g. STF_REF=fix/x MCLOUD_AGENT_REF=feat/y
-        default: ""
+        default: "STF_REF=feat/node-enrollment"
 # a new push to a pull request cancels its outdated run, runs of the branches themselves are kept
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,7 +37,8 @@ jobs:
       id-token: write
     env:
       E2E_REF: ${{ inputs.ref || 'develop' }}
-      E2E_REFS: ${{ inputs.refs }}
+      # the registry of the nodes of STF (screen-auth, nodes API) until zebrunner/stf#1124 is merged: remove it then
+      E2E_REFS: ${{ inputs.refs || 'STF_REF=feat/node-enrollment' }}
     steps:
       - uses: actions/checkout@v7
       - name: The directories of the run
