@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034
 # The settings and the checks of the project for tests/lint.sh (CONVENTIONS.md): mcloud.
 
-scripts=(zebrunner.sh patch/*.sh tests/*.sh tests/e2e/*.sh)
+scripts=(zebrunner.sh patch/*.sh configuration/adb-relay/*.sh tests/*.sh tests/e2e/*.sh)
 # the static files of the Selenium grid console served by stf-proxy
 generated=(configuration/stf-proxy/grid)
 # no image
@@ -27,6 +27,7 @@ project_checks() {
   done < <(grep -oE 'TAG_[A-Z_]+' docker-compose.yml | sort -u)
   if docker compose version > /dev/null 2>&1; then
     run_check "docker compose config with .env.original and variables.env.original" compose_config
+    run_check "docker compose config with the profile adb-relay" compose_config --profile adb-relay
   else
     skip_check "docker compose config" "requires docker compose"
   fi

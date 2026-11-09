@@ -22,12 +22,11 @@ http {
     "" $scheme;
   }
 
-  # the device hosts whose screens stf-proxy serves (/d/): AGENT_HOSTS of .env, written by ./zebrunner.sh setup and
-  # start into agent-hosts.conf; any other host is refused, none without the file
-  map $stfprovider $agent_host {
-    default 0;
-    include /etc/nginx/agent-hosts.conf;
-  }
+  # the enrollment of the nodes (README.md#nodes): an invite is guessed by nobody, the limit keeps the API from the tries
+  # anyway, 6 a minute per address with a burst of 3
+  limit_req_zone $binary_remote_addr zone=node_enroll:1m rate=6r/m;
+  # the diagnostics of a node with its token (./zebrunner.sh doctor of mcloud-agent): 30 a minute per address
+  limit_req_zone $binary_remote_addr zone=node_self:1m rate=30r/m;
 
   server {
     listen 80;
@@ -101,31 +100,73 @@ http {
       proxy_read_timeout      300;
     }
 
-    # the screens of the devices: the WebSocket of the STF provider of a device host of AGENT_HOSTS on a port 1024-65535,
-    # for the signed-in users of STF only
+    # the screens of the devices: the WebSocket of the STF provider of a node on a port 1024-65535. stf-api allows it
+    # (/api/v1/zebrunner/screen-auth, README.md#screens-of-the-devices) only for a signed-in user of STF who uses the
+    # device, at the registered address of its node and on its screen port; 401 or 403 otherwise
     location ~ "^/d/(?<stfprovider>[^/]+)/(?<udid>[^/]+)/(?<port>102[4-9]|10[3-9][0-9]|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/$" {
-      if ($agent_host = 0) {
-        return 403;
-      }
-      auth_request /_stf_session;
+      auth_request /_screen_auth;
       proxy_pass http://$stfprovider:$port/;
       proxy_http_version 1.1;
+      # only the headers of the WebSocket go to the node: never the session cookie, the access token or the X-Stf-*
+      # headers of the user, the node is not trusted with them
+      proxy_pass_request_headers off;
+      proxy_set_header Cookie "";
+      proxy_set_header Authorization "";
+      proxy_set_header X-Stf-Internal-Token "";
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection upgrade;
+      proxy_set_header Sec-WebSocket-Key $http_sec_websocket_key;
+      proxy_set_header Sec-WebSocket-Version $http_sec_websocket_version;
+      proxy_set_header Sec-WebSocket-Extensions $http_sec_websocket_extensions;
+      proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+      proxy_set_header Origin $http_origin;
+      proxy_set_header User-Agent $http_user_agent;
       proxy_set_header X-Forwarded-For $remote_addr;
       proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # the session of the user (the cookie of STF) or an access token: 2xx of the API lets the request in, 401 refuses it
-    location = /_stf_session {
+    # the decision of stf-api about a screen: the session cookie of STF or an access token of the user and the original
+    # URI only; 2xx lets the request in, 401 and 403 refuse it
+    location = /_screen_auth {
       internal;
-      set $upstream_session stf-api:3000;
-      proxy_pass http://$upstream_session/api/v1/user;
+      set $upstream_screen_auth stf-api:3000;
+      proxy_pass http://$upstream_screen_auth/api/v1/zebrunner/screen-auth;
       proxy_pass_request_body off;
+      proxy_pass_request_headers off;
       proxy_set_header Content-Length "";
-      proxy_set_header Upgrade "";
+      proxy_set_header Cookie $http_cookie;
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header X-Original-URI $request_uri;
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # the internal routes of the registry of the nodes: the triproxies and the storage read them on stf-api:3000, never
+    # through stf-proxy. Case-insensitive and with any suffix, as the router of the API matches the path
+    location ~* ^/api/v1/zebrunner/nodes {
+      return 403;
+    }
+
+    # the record of a node and its devices for the node itself, with its token (./zebrunner.sh doctor of mcloud-agent):
+    # limited per address
+    location ~* ^/api/v1/nodes/self {
+      limit_req zone=node_self burst=10 nodelay;
+      limit_req_status 429;
+      proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      set $upstream_node_self stf-api:3000;
+      proxy_pass http://$upstream_node_self;
+    }
+
+    # the enrollment of a node with its invite (./zebrunner.sh join of mcloud-agent), without an authentication of its
+    # own: limited per address. Case-insensitive and with any suffix, as the router of the API matches the path
+    location ~* ^/api/v1/nodes/enroll {
+      limit_req zone=node_enroll burst=3 nodelay;
+      limit_req_status 429;
+      proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      set $upstream_enroll stf-api:3000;
+      proxy_pass http://$upstream_enroll;
     }
 
     location /auth/ {

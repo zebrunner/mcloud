@@ -3,7 +3,9 @@
 # mcloud-agent (E2E_AGENT_DIR, a checkout) on this machine with an Android emulator, the images of
 # tests/e2e/build-images.sh. E2E_ADB_ADDRESS is the adb address of the emulator reachable from the containers
 # (host:port), E2E_ADB_KEYS the adb keys it trusts (~/.android), E2E_LOGS the directory of the logs.
-# It changes the machine: ports 80 and 7401-7410, the udev rules, zebrunner-farm and the shell profiles of mcloud-agent
+# MCloud and the node are on one machine (README.md#devices-on-the-mcloud-server): AGENTS_ADDRESS and the address of the
+# node are the address of the machine, the node is enrolled with ./zebrunner.sh node-invite and join over https.
+# It changes the machine: ports 443 and 7401-7410, the udev rules, zebrunner-farm and the shell profiles of mcloud-agent
 # (sudo without a password), the docker volume mcloud-key-volume; for CI and disposable machines only.
 source "$(dirname "$0")/../lib.sh"
 
@@ -12,7 +14,7 @@ require_cmd ansible-playbook
 require_cmd python3
 
 HOST_IP="${E2E_HOST_IP:-$(hostname -I | awk '{print $1}')}"
-URL="http://${HOST_IP}"
+URL="https://${HOST_IP}"
 ADB_ADDRESS="${E2E_ADB_ADDRESS:?the adb address of the emulator, host:port}"
 ADB_KEYS="${E2E_ADB_KEYS:-${HOME}/.android}"
 AGENT="${E2E_AGENT_DIR:?a checkout of mcloud-agent}"
@@ -64,6 +66,11 @@ value() {
 # mcloud <command>: zebrunner.sh of MCloud, its output in the logs
 mcloud() {
   bash "${MCLOUD}/zebrunner.sh" "$@" >> "${LOGS}/mcloud.log" 2>&1
+}
+
+# curl: the certificate of stf-proxy is a self-signed one of this run
+curl() {
+  command curl -k "$@"
 }
 
 # stf_up: STF answers through stf-proxy
@@ -143,9 +150,16 @@ artifacts_uploaded() {
 UPLOADER_IMAGE="public.ecr.aws/zebrunner/uploader:$(sed -n 's/^UPLOADER_VERSION: *//p' "${AGENT}/defaults/main.yml")"
 
 section "MCloud"
-# the answers: protocol, host, port, confirmation, admin name and email, confirmation, sign-in, device hosts, no start
-printf 'http\n%s\n80\ny\nadmin\nadmin@zebrunner.com\ny\nmock\n%s\nn\n' "$HOST_IP" "$HOST_IP" | mcloud setup
+# https with a self-signed certificate of the address of the machine: the node trusts its pin
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=${HOST_IP}" -addext "subjectAltName=IP:${HOST_IP}" \
+  -keyout "${MCLOUD}/configuration/stf-proxy/ssl/ssl.key" -out "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt" > /dev/null 2>&1
+# the answers: protocol, host, port, confirmation, admin name and email, confirmation, sign-in, no start
+printf 'https\n%s\n443\ny\nadmin\nadmin@zebrunner.com\ny\nmock\nn\n' "$HOST_IP" | mcloud setup
 check "setup" "0" "$?"
+# the node is on this machine: the ports of MCloud on its address, the host of the join string
+sed -i.bak "s/^AGENTS_ADDRESS=.*/AGENTS_ADDRESS=${HOST_IP}/" "${MCLOUD}/.env"
+# the storage plugins of STF fetch the files from STF_URL: the self-signed certificate of this run is not trusted there
+echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> "${MCLOUD}/variables.env"
 run_check "start" mcloud start
 SIGN_IN="$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_USERNAME):$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 run_check "STF answers through stf-proxy" wait_for 300 stf_up
@@ -154,6 +168,8 @@ STF_TOKEN="$(curl -s -b "${WORK}/cookies" --max-time 10 -H "X-XSRF-TOKEN: $(xsrf
   "${URL}/api/v1/user/accessTokens?title=grid" | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"]["id"])')"
 check "an access token of STF for the grid" "true" "$([[ ${#STF_TOKEN} -ge 32 ]] && echo true || echo false)"
 sed -i.bak "s/^STF_TOKEN=.*/STF_TOKEN=${STF_TOKEN}/" "${MCLOUD}/variables.env"
+run_check "MCloud restarts with STF_TOKEN" mcloud restart
+run_check "STF answers after the restart" wait_for 300 stf_up
 [[ "$FAILED" -eq 0 ]] || finish
 
 section "S3"
@@ -164,18 +180,19 @@ run_check "the bucket of the artifacts" s3 s3 mb "s3://${BUCKET}"
 
 section "device host"
 run_check "mcloud-agent setup" bash "${AGENT}/zebrunner.sh" setup
-public_key="$(bash "${AGENT}/zebrunner.sh" curve-key 2>&1 | sed -n 's/.*The public key of this host: \([0-9a-f]\{64\}\).*/\1/p')"
-check "the CURVE key of the device host" "64" "${#public_key}"
-python3 - "${AGENT}/roles/devices/vars/main.yml" "${MCLOUD}/variables.env" "$HOST_IP" "$ADB_ADDRESS" \
-  "$MINIO" "$BUCKET" "$S3_USER" "$S3_PASSWORD" << 'EOF'
+# the invite of the node at the address of the machine; the join string is a secret: not in the logs
+invite="$(bash "${MCLOUD}/zebrunner.sh" node-invite e2e "$HOST_IP" 30 2>&1)"
+check "node-invite" "0" "$?"
+join="$(grep -o 'mcloud-join://[^ ]*' <<< "$invite")"
+check_contains "the join string" "mcloud-join://${HOST_IP}:443?label=e2e&grid=${HOST_IP}:4446&pin=" "$join"
+printf '%s\n' "$join" | bash "${AGENT}/zebrunner.sh" join > "${LOGS}/join.log" 2>&1
+check "the node joins MCloud" "0" "$?"
+check_contains "the node is enrolled and active" "e2e ${HOST_IP} active" \
+  "$(bash "${MCLOUD}/zebrunner.sh" nodes 2>&1 | grep '^e2e ' | tr -s ' ')"
+python3 - "${AGENT}/roles/devices/vars/main.yml" "$ADB_ADDRESS" "$MINIO" "$BUCKET" "$S3_USER" "$S3_PASSWORD" << 'EOF'
 import re, sys
-vars_file, env_file, host, address, minio, bucket, user, password = sys.argv[1:]
-env = dict(re.findall(r"^([A-Z_]+)='?([^'\n]*)'?$", open(env_file).read(), re.M))
+vars_file, address, minio, bucket, user, password = sys.argv[1:]
 settings = {
-    "PUBLIC_IP": host, "PUBLIC_IP_PORT": "80", "PUBLIC_IP_PROTOCOL": "http", "STF_PROVIDER_HOST": host,
-    "STF_STORAGE_TOKEN": '"%s"' % env["STF_STORAGE_TOKEN"],
-    "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY": '"%s"' % env["STF_ZMQ_CURVE_SERVER_PUBLIC_KEY"],
-    "NODE_REGISTRATION_TOKEN": '"%s"' % env["NODE_REGISTRATION_TOKEN"],
     "S3_BUCKET": bucket, "S3_ENDPOINT": "http://%s:9000" % minio, "S3_ACCESS_KEY_ID": user, "S3_SECRET": password,
     "S3_REGION": "us-east-1",
 }
@@ -192,17 +209,12 @@ devices:
     address: %s
     appium_port: 7401
     adb_port: 7402
-    proxy_port: 7403
-    server_proxy_port: 7404
     min_port: 7405
     max_port: 7410
 """ % address
 open(vars_file, "w").write(text)
 EOF
-check "the settings of MCloud in mcloud-agent" "0" "$?"
-sed -i.bak "s/^STF_ZMQ_CURVE_CLIENT_KEYS=.*/STF_ZMQ_CURVE_CLIENT_KEYS=${public_key}/" "${MCLOUD}/variables.env"
-run_check "MCloud restarts with the key of the device host and STF_TOKEN" mcloud restart
-run_check "STF answers after the restart" wait_for 300 stf_up
+check "the S3 settings and the device in mcloud-agent" "0" "$?"
 # the connector authenticates to the emulator with its adb keys (mcloud-key-volume of the connectors)
 docker volume create mcloud-key-volume > /dev/null
 docker run --rm -v mcloud-key-volume:/keys -v "${ADB_KEYS}:/host:ro" --entrypoint sh \
@@ -219,14 +231,21 @@ run_check "the containers of the device are healthy" wait_for 600 healthy connec
 section "device"
 run_check "the device is ready in STF" wait_for 300 stf_ready
 check "the device is provided by the device host" "mcloud-linux" "$(device "d.get('provider', {}).get('name')")"
+check "the device is bound to the node" "e2e" "$(device "d.get('node')")"
+output="$(bash "${MCLOUD}/zebrunner.sh" nodes check e2e 2>&1)"
+check "nodes check of the node" "0" "$?"
+echo "$output" > "${LOGS}/nodes-check.log"
+check_contains "stf-proxy reaches the screen of the device" "reachable" "$(grep "^${ADB_ADDRESS} " <<< "$output")"
 run_check "the device is free in the grid" wait_for 300 grid_free
 python3 - "${URL}/mcloud/wd/hub" "$ADB_ADDRESS" "$APP" > "${WORK}/session.txt" 2> "${LOGS}/session.err" << 'EOF'
-import json, sys, time, urllib.request
+import json, ssl, sys, time, urllib.request
 hub, udid, app = sys.argv[1:]
+# the self-signed certificate of stf-proxy of this run
+context = ssl._create_unverified_context()
 def call(method, path, body=None):
     request = urllib.request.Request(hub + path, method=method, headers={"Content-Type": "application/json"},
                                      data=json.dumps(body).encode() if body is not None else None)
-    with urllib.request.urlopen(request, timeout=900) as response:
+    with urllib.request.urlopen(request, timeout=900, context=context) as response:
         return json.load(response)["value"]
 caps = {"platformName": "android", "appium:automationName": "UiAutomator2", "appium:udid": udid, "appium:app": app,
         "appium:newCommandTimeout": 120}
@@ -260,7 +279,7 @@ check_contains "the screen of the device is served by stf-proxy" "${HOST_IP}" "$
 check "the screen WebSocket for a signed-in user" "101" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -b "${WORK}/cookies" -H "Connection: Upgrade" \
     -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-    "${screen/ws:\/\//http://}")"
+    "${screen/wss:\/\//https://}")"
 python3 -c '
 import struct, sys, zlib
 row = b"\x00" + b"\xff\x00\x00" * 200

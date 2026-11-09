@@ -56,7 +56,6 @@ services:
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
       - ./configuration/stf-proxy/htpasswd:/etc/nginx/htpasswd:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
-      - ./configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
     depends_on:
@@ -64,6 +63,37 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+    restart: always
+  # the TCP relay of the remote debug of STF (adb connect) for the nodes in a private network: ./zebrunner.sh starts it
+  # with the profile adb-relay when ADB_RELAY of .env is true (README.md#remote-debug-through-the-adb-relay)
+  adb-relay:
+    image: "nginx:${TAG_NGINX}"
+    container_name: adb-relay
+    profiles: [adb-relay]
+    # it listens on the remote debug ports of the devices on every address of the server, connects to the nodes and
+    # reads the devices of the nodes from stf-proxy on the port of the host: the network of the host instead of published
+    # ports
+    network_mode: host
+    # nginx and the sync of the devices of STF
+    entrypoint: ["bash", "/opt/adb-relay/adb-relay.sh"]
+    environment:
+      - ADB_RELAY=${ADB_RELAY:-false}
+      - ADB_RELAY_PORTS=${ADB_RELAY_PORTS:-}
+      - ADB_RELAY_SYNC_SECONDS=${ADB_RELAY_SYNC_SECONDS:-300}
+      - STF_URL=${STF_URL}
+      - STF_PORT=${STF_PORT}
+    volumes:
+      - ./configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro
+      # adb-relay.sh, its awk programs and stf-token (STF_TOKEN of variables.env only, written by ./zebrunner.sh)
+      - ./configuration/adb-relay:/opt/adb-relay:ro
+    healthcheck:
+      # nginx writes its pid once it listens on every port of the ranges
+      test: ["CMD", "sh", "-c", "kill -0 $$(cat /run/nginx.pid)"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -82,6 +112,7 @@ services:
       - CHECK_APPIUM_STATUS=true
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
+    # the nodes register on AGENTS_ADDRESS:4446, the grid of the join string of ./zebrunner.sh node-invite
     ports:
       - "${AGENTS_ADDRESS}:4446:4444"
     # the healthcheck is the one of the image (/wd/hub/status)
@@ -161,7 +192,8 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7160, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
-    # the device hosts connect to the dealer only
+    # the nodes connect to the dealer only; their ZeroMQ ports are on AGENTS_ADDRESS, the host of the join string of
+    # ./zebrunner.sh node-invite
     ports:
       - "${AGENTS_ADDRESS}:7160:7160"
   stf-triproxy-dev:
@@ -186,10 +218,14 @@ services:
     <<: *stf
     container_name: stf-api
     healthcheck: *http-healthcheck
+    # --nodes-connect-*: the ZeroMQ endpoints of the answer of the enrollment, the published ports of the triproxies at
+    # NODES_HOST (the host of the join string); --nodes-stf-url is STF_URL of variables.env, the public URL
     command: >-
       stf api --port 3000
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
       --connect-sub-dev tcp://stf-triproxy-dev:7250 --connect-push-dev tcp://stf-triproxy-dev:7270
+      --nodes-connect-sub tcp://${NODES_HOST}:7250 --nodes-connect-push tcp://${NODES_HOST}:7270
+      --nodes-connect-app-dealer tcp://${NODES_HOST}:7160 --nodes-connect-dev-dealer tcp://${NODES_HOST}:7260
   stf-api-groups-engine:
     <<: *stf
     container_name: stf-api-groups-engine

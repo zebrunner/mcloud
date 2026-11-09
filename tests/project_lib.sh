@@ -7,12 +7,13 @@ copy_repo() {
   mkdir -p "$1"
   (cd "$REPO" && tar --exclude=.git --exclude=.venv --exclude=.idea -cf - .) | (cd "$1" && tar -xf -)
   (cd "$1" && rm -f .env variables.env .disabled backup/settings.env configuration/stf-proxy/nginx.conf \
+    configuration/adb-relay/stf-token \
     configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/htpasswd/mcloud.htpasswd &&
     find . -name '*.bak' -delete)
 }
 
-# compose_config: `docker compose config` of docker-compose.yml with the settings of the *.original files;
-# a variable that is not set fails it too
+# compose_config [<docker compose options>...]: `docker compose config` of docker-compose.yml with the settings of the
+# *.original files (e.g. `--profile adb-relay`); a variable that is not set fails it too
 compose_config() {
   local dir="${WORK}/compose"
   mkdir -p "$dir"
@@ -20,7 +21,7 @@ compose_config() {
   cp "${REPO}/.env.original" "${dir}/.env"
   cp "${REPO}/variables.env.original" "${dir}/variables.env"
   local output
-  output="$(cd "$dir" && docker compose config --quiet 2>&1)" || {
+  output="$(cd "$dir" && docker compose "$@" config --quiet 2>&1)" || {
     echo "$output"
     return 1
   }
