@@ -72,12 +72,13 @@ pull() {
   return 1
 }
 
-# answers: protocol, host, port, the admin, the sign-in (mock) and the device hosts of the interactive setup: stf-app
-# stands for a device host, its screen would be its root page
-answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nstf-app\nn\n"
+# answers: protocol, host, port, the admin and the sign-in (mock) of the interactive setup
+answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nn\n"
 
 section "setup and start"
 run_check "setup" zbr "$answers" setup
+# stf-app stands for a legacy node, its screen would be its root page
+sed -i.orig "s|^AGENT_HOSTS=.*|AGENT_HOSTS=stf-app|" "${MCLOUD}/.env"
 # the units reach the storage by STF_URL, localhost is the container itself there: stf-proxy of the network instead
 sed -i.orig "s|^STF_URL=.*|STF_URL=http://stf-proxy|" "${MCLOUD}/.env"
 storage_token="$(sed -n 's/^STF_STORAGE_TOKEN=//p' "${MCLOUD}/variables.env")"
@@ -124,8 +125,12 @@ for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "
 done
 
 section "screens of the devices"
-check "a host that is not a device host is refused" "403" "$(http_code /d/stf-api/serial/3000/)"
-check "the screen needs a signed-in user" "401" "$(http_code /d/stf-app/serial/3000/)"
+check "stf-api gets AGENT_HOSTS, the legacy nodes" "stf-app" "$(docker exec stf-api printenv AGENT_HOSTS)"
+# stf-api decides (/api/v1/zebrunner/screen-auth); an STF without it (an older TAG_STF) answers 404
+screen_auth="$(http_code /api/v1/zebrunner/screen-auth)"
+if [[ "$screen_auth" != "404" ]]; then
+  check "the screen needs a signed-in user" "401" "$(http_code /d/stf-app/serial/3000/)"
+fi
 # the mock sign-in: its page gives the CSRF token, the app takes the token of the sign-in over (STF_URL is stf-proxy)
 jar="${WORK}/cookies"
 curl -s -o /dev/null -c "$jar" -u "$sign_in" --max-time 10 "${URL}/auth/mock/"
@@ -134,7 +139,11 @@ redirect="$(curl -s -b "$jar" -c "$jar" -u "$sign_in" --max-time 10 -H "Content-
   -H "Accept: application/json" -H "X-XSRF-TOKEN: ${xsrf}" -d '{"name":"tester","email":"tester@example.com"}' \
   "${URL}/auth/api/v1/mock" | sed -n 's/.*"redirect":"\([^"]*\)".*/\1/p')"
 curl -s -o /dev/null -b "$jar" -c "$jar" --max-time 10 "${redirect/http:\/\/stf-proxy/$URL}"
-check "the screen of a device host for a signed-in user" "200" "$(http_code /d/stf-app/serial/3000/ -b "$jar")"
+if [[ "$screen_auth" != "404" ]]; then
+  check "the screen of a device that is not in STF is refused" "403" "$(http_code /d/stf-app/serial/3000/ -b "$jar")"
+else
+  skip_check "the screens allowed by stf-api" "the STF of TAG_STF has no /api/v1/zebrunner/screen-auth"
+fi
 check "a port below 1024 is not proxied" "302" "$(http_code /d/stf-app/serial/80/)"
 check "/appium/ is not proxied" "302" "$(http_code /appium/mcloud-grid/4444/)"
 
@@ -278,14 +287,13 @@ copy_repo "$HTTPS"
 # a certificate of the user: the repository has none
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost -keyout "${HTTPS}/configuration/stf-proxy/ssl/ssl.key" \
   -out "${HTTPS}/configuration/stf-proxy/ssl/ssl.crt" > /dev/null 2>&1
-printf 'https\nlocalhost\n443\ny\n\n\ny\n\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
 run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "${HTTPS}/configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 # the servers of adb-relay: single ports of one address, a range of a host name (the resolvers of the template of the image)
 sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464,agent.example.com:7700-7799|" "${HTTPS}/.env"
-printf 'https\nlocalhost\n443\ny\n\n\ny\n\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
 check_contains "the setup writes the servers of adb-relay" "proxy_pass agent.example.com:" \
   "$(cat "${HTTPS}/configuration/adb-relay/relay-hosts.conf")"
 run_check "the configuration of adb-relay" \

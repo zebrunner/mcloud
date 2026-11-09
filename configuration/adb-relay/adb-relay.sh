@@ -1,9 +1,10 @@
 #!/bin/bash
 # The entrypoint of adb-relay (README.md#remote-debug-through-the-adb-relay), it runs in the nginx image: nginx relays the
-# remote debug ports of the Android devices of the device hosts in a private network. ADB_RELAY_HOSTS of .env is a fixed
-# list (relay-hosts.conf of ./zebrunner.sh); with ADB_RELAY=true this script also reads the devices of STF from its API
-# every ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on): the
-# devices of STF, present or not, so only a new, a removed or a moved device changes them.
+# remote debug ports of the Android devices of the nodes in a private network. ADB_RELAY_HOSTS of .env is a fixed list
+# (relay-hosts.conf of ./zebrunner.sh); with ADB_RELAY=true this script also reads the devices of the enrolled nodes from
+# the STF API (GET /api/v1/nodes/relay: the registered address of the node, never an address the node reports) every
+# ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on): the devices of
+# STF, present or not, so only a new, a removed or a moved device changes them.
 # tests/adb_relay_test.sh sources it: keep the functions compatible with the macOS system bash 3.2, mawk and BSD awk.
 
 # the configuration of nginx (configuration/adb-relay/nginx.conf includes stream-conf.d), the file of ./zebrunner.sh
@@ -14,8 +15,8 @@ MANUAL_TEMPLATE="${MANUAL_TEMPLATE:-/etc/nginx/templates/relay-hosts.conf.stream
 TOKEN_FILE="${TOKEN_FILE:-/opt/adb-relay/stf-token}"
 # the awk programs next to this script
 AWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# the fields of the devices of GET /api/v1/devices: screenPort and connectPort are missing in older STF images
-DEVICE_FIELDS="serial,platform,display.url,screenPort,connectPort"
+# the Android devices bound to an active node with the address of the node (README.md#nodes)
+RELAY_PATH="/api/v1/nodes/relay"
 
 #### Helpers
 
@@ -38,21 +39,19 @@ port_range() {
   echo "$first $last"
 }
 
-# devices_of_json: the devices of a JSON answer of GET /api/v1/devices of STF (stdin), a line per device:
-# <serial>|<platform>|<display.url>|<screenPort>|<connectPort>; fails when the answer has no devices
+# devices_of_json: the devices of a JSON answer of GET /api/v1/nodes/relay of STF (stdin), a line per device:
+# <serial>|<label of the node>|<address of the node>|<connectPort>; fails when the answer has no devices
 devices_of_json() {
   awk -f "${AWK_DIR}/devices.awk"
 }
 
-# relay_devices <agent hosts> <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin)
-# with what the relay does with them, a line per Android device, present or not: `relay|<port>|<host>|<serial>` or
-# `skip|<port>|<host>|<serial>|<reason>`. The remote debug port is connectPort, the screen port + 1 of an older STF
-# (STF takes the screen port, then the remote debug port); the host is the device host of display.url,
-# <proto>://<host of MCloud>/d/<device host>/<serial>/<screen port>/, one of AGENT_HOSTS (separated by commas); an empty
+# relay_devices <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin) with what the
+# relay does with them, a line per Android device, present or not: `relay|<port>|<address>|<serial>|<label>` or
+# `skip|<port>|<address>|<serial>|<label>|<reason>`. The port is connectPort, the address the one of the node; an empty
 # first port takes any port; the ports not to relay (of MCloud, of ADB_RELAY_HOSTS) are separated by spaces, a range as
 # <first>-<last>; a port of two devices is not relayed
 relay_devices() {
-  awk -v agent_hosts="$1" -v first="$2" -v last="$3" -v reserved="$4" -f "${AWK_DIR}/relay.awk"
+  awk -v first="$1" -v last="$2" -v reserved="$3" -f "${AWK_DIR}/relay.awk"
 }
 
 # servers_of <resolvers>: the servers of nginx of the relay lines of relay_devices (stdin), the resolvers (of
@@ -61,7 +60,7 @@ servers_of() {
   awk -v resolvers="$1" '
     BEGIN { FS = "|" }
     $1 == "relay" {
-      print "# " $4
+      print "# " $4 " of " $5
       print "server {"
       print "  listen " $2 " so_keepalive=on;"
       if ($3 !~ /^[0-9.]+$/ && resolvers != "") print "  resolver " resolvers " valid=30s ipv6=off;"
@@ -92,8 +91,9 @@ sync_devices() {
     report_error "The access token of STF (STF_TOKEN of variables.env) is empty: no device is relayed, set it and run ./zebrunner.sh start (README.md#remote-debug-through-the-adb-relay)."
     return
   fi
-  # the certificate of stf-proxy is the one of the public name of MCloud, not of the loopback address
-  if ! answer="$(curl -fsS -k --max-time 20 -H "Authorization: Bearer ${token}" "${stf_api}/api/v1/devices?fields=${DEVICE_FIELDS}" 2>&1)"; then
+  # the certificate of stf-proxy is the one of the public name of MCloud, not of the loopback address; the token is in
+  # the configuration of curl on its stdin: the arguments of a container are seen by every user of the host
+  if ! answer="$(printf 'header = "Authorization: Bearer %s"\n' "$token" | curl -fsS -k --max-time 20 -K - "${stf_api}${RELAY_PATH}" 2>&1)"; then
     report_error "The STF API ${stf_api} failed, the relay keeps its devices: ${answer}"
     return
   fi
@@ -105,7 +105,7 @@ sync_devices() {
     log "INFO" "The STF API ${stf_api} answers with the devices again."
   fi
   last_error=""
-  report="$(relay_devices "$AGENT_HOSTS" "$relay_first" "$relay_last" "$reserved_ports" <<< "$devices")"
+  report="$(relay_devices "$relay_first" "$relay_last" "$reserved_ports" <<< "$devices")"
   conf="$(servers_of "$resolvers" <<< "$report")"
   previous="$(cat "$AUTO_CONF" 2> /dev/null)"
   if [[ "$conf" != "$previous" ]]; then
@@ -134,16 +134,16 @@ report_error() {
 
 # log_report <relay lines>: the devices the relay forwards and the ones it skips
 log_report() {
-  local kind port host serial reason relayed=0
-  while IFS='|' read -r kind port host serial reason; do
+  local kind port address serial label reason relayed=0
+  while IFS='|' read -r kind port address serial label reason; do
     if [[ "$kind" == "relay" ]]; then
       relayed=$((relayed + 1))
-      log "INFO" "Relays the remote debug port ${port} of the device ${serial} to ${host}:${port}."
+      log "INFO" "Relays the remote debug port ${port} of the device ${serial} of the node ${label} to ${address}:${port}."
     elif [[ "$kind" == "skip" ]]; then
-      log "WARN" "Skips the remote debug port ${port} of the device ${serial} of ${host}: ${reason}."
+      log "WARN" "Skips the remote debug port ${port:-(none)} of the device ${serial} of the node ${label} (${address}): ${reason}."
     fi
   done <<< "$1"
-  log "INFO" "Android devices of STF relayed: ${relayed}."
+  log "INFO" "Android devices of the nodes relayed: ${relayed}."
 }
 
 #### Main
@@ -177,7 +177,7 @@ main() {
   resolvers="$(awk '$1 == "nameserver" { printf "%s%s", sep, ($2 ~ /:/ ? "[" $2 "]" : $2); sep = " " }' /etc/resolv.conf)"
   last_error=""
   last_report="none"
-  log "INFO" "Relays the remote debug ports of the Android devices of STF (${stf_api}) of AGENT_HOSTS '${AGENT_HOSTS}' in ADB_RELAY_PORTS '${ADB_RELAY_PORTS:-any}', read every ${interval} seconds."
+  log "INFO" "Relays the remote debug ports of the Android devices of the nodes of STF (${stf_api}) in ADB_RELAY_PORTS '${ADB_RELAY_PORTS:-any}', read every ${interval} seconds."
 
   mkdir -p "$(dirname "$AUTO_CONF")"
   : > "$AUTO_CONF"

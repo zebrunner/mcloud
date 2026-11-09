@@ -56,7 +56,6 @@ services:
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
       - ./configuration/stf-proxy/htpasswd:/etc/nginx/htpasswd:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
-      - ./configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
     depends_on:
@@ -77,8 +76,9 @@ services:
     image: "nginx:${TAG_NGINX}"
     container_name: adb-relay
     profiles: [adb-relay]
-    # it listens on the remote debug ports of the devices on every address of the server, connects to the device hosts
-    # and reads the devices from stf-proxy on the port of the host: the network of the host instead of published ports
+    # it listens on the remote debug ports of the devices on every address of the server, connects to the nodes and
+    # reads the devices of the nodes from stf-proxy on the port of the host: the network of the host instead of published
+    # ports
     network_mode: host
     # nginx and, with ADB_RELAY=true, the sync of the devices of STF
     entrypoint: ["bash", "/opt/adb-relay/adb-relay.sh"]
@@ -88,7 +88,6 @@ services:
       - ADB_RELAY=${ADB_RELAY:-false}
       - ADB_RELAY_PORTS=${ADB_RELAY_PORTS:-}
       - ADB_RELAY_SYNC_SECONDS=${ADB_RELAY_SYNC_SECONDS:-300}
-      - AGENT_HOSTS=${AGENT_HOSTS:-}
       - STF_URL=${STF_URL}
       - STF_PORT=${STF_PORT}
     volumes:
@@ -117,6 +116,7 @@ services:
       - CHECK_APPIUM_STATUS=true
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
+    # the nodes register on AGENTS_ADDRESS:4446, the grid of the join string of ./zebrunner.sh node-invite
     ports:
       - "${AGENTS_ADDRESS}:4446:4444"
     # the healthcheck is the one of the image (/wd/hub/status)
@@ -196,7 +196,8 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7160, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
-    # the device hosts connect to the dealer only
+    # the nodes connect to the dealer only; their ZeroMQ ports are on AGENTS_ADDRESS, the host of the join string of
+    # ./zebrunner.sh node-invite
     ports:
       - "${AGENTS_ADDRESS}:7160:7160"
   stf-triproxy-dev:
@@ -221,6 +222,10 @@ services:
     <<: *stf
     container_name: stf-api
     healthcheck: *http-healthcheck
+    environment:
+      # the legacy nodes without enrollment (README.md#nodes): /api/v1/zebrunner/screen-auth allows the screens of their
+      # devices that are not bound to a node at these hosts only
+      - AGENT_HOSTS=${AGENT_HOSTS:-}
     command: >-
       stf api --port 3000
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170

@@ -143,9 +143,11 @@ artifacts_uploaded() {
 UPLOADER_IMAGE="public.ecr.aws/zebrunner/uploader:$(sed -n 's/^UPLOADER_VERSION: *//p' "${AGENT}/defaults/main.yml")"
 
 section "MCloud"
-# the answers: protocol, host, port, confirmation, admin name and email, confirmation, sign-in, device hosts, no start
-printf 'http\n%s\n80\ny\nadmin\nadmin@zebrunner.com\ny\nmock\n%s\nn\n' "$HOST_IP" "$HOST_IP" | mcloud setup
+# the answers: protocol, host, port, confirmation, admin name and email, confirmation, sign-in, no start
+printf 'http\n%s\n80\ny\nadmin\nadmin@zebrunner.com\ny\nmock\nn\n' "$HOST_IP" | mcloud setup
 check "setup" "0" "$?"
+# the device host is a legacy node (the manual keys and tokens, http): its screens are allowed by AGENT_HOSTS
+sed -i.bak "s/^AGENT_HOSTS=.*/AGENT_HOSTS=${HOST_IP}/" "${MCLOUD}/.env"
 run_check "start" mcloud start
 SIGN_IN="$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_USERNAME):$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 run_check "STF answers through stf-proxy" wait_for 300 stf_up

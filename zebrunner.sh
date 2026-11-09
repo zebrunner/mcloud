@@ -16,15 +16,15 @@ setup() {
   local adb_relay_hosts=""
   local relay_settings=""
   local setting
-  AGENT_HOSTS=""
+  local agent_hosts=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
   fi
-  # the addresses of the published ports of the previous setup (README.md#firewall)
+  # the addresses of the published ports of the previous setup (README.md#firewall), the legacy nodes
   if [[ -f .env ]]; then
     agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
-    AGENT_HOSTS="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
+    agent_hosts="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
     log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
     log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
     adb_relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
@@ -73,7 +73,6 @@ setup() {
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
     set_sign_in "$url"
     sign_in="$ZBR_MCLOUD_SIGN_IN"
-    set_agent_hosts
   fi
 
   # https: the certificate is checked before anything is written (README.md#https)
@@ -97,7 +96,7 @@ setup() {
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
-  replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
+  replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${agent_hosts}"
   replace .env "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=${adb_relay_hosts}"
   # the settings of the auto mode of adb-relay of the previous setup
   while read -r setting; do
@@ -107,7 +106,7 @@ setup() {
   done <<< "$relay_settings"
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
-  write_agent_hosts
+  check_agent_hosts
   write_adb_relay_hosts
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
@@ -204,14 +203,9 @@ setup() {
   protect_files
 
   echo "
-      Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only.
-
-      Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add
-      the public key of every device host (./zebrunner.sh curve-key of mcloud-agent) to variables.env, one line per host:
-      STF_ZMQ_CURVE_CLIENT_KEY_<HOST>=<key>, then restart: STF accepts the device hosts with these keys only.
-
-      Set NODE_REGISTRATION_TOKEN of variables.env as NODE_REGISTRATION_TOKEN of mcloud-agent: the grid registers the
-      Appium nodes with this token only."
+      Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env:
+      ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on
+      the node (README.md#nodes); https only."
   if [[ "$sign_in" == "mock" ]]; then
     echo "
       The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
@@ -269,7 +263,7 @@ start() {
 
   protect_files
   # AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
-  write_agent_hosts
+  check_agent_hosts
   write_adb_relay_hosts
   check_adb_relay_auto
   write_stf_token
@@ -402,6 +396,298 @@ version() {
   echo "mcloud: ${TAG_STF}"
 }
 
+#### Nodes
+
+# The port of the grid the nodes register on (docker-compose.yml: ${AGENTS_ADDRESS}:4446)
+GRID_PORT=4446
+
+# node_invite <label> <address> [<minutes>]: an invite of a node (README.md#nodes): prints the join string for
+# ./zebrunner.sh join of mcloud-agent on the node once, with the pin of the certificate of stf-proxy
+node_invite() {
+  local label="$1"
+  local address
+  local minutes="$3"
+  local pin host port invite expires body
+  if ! require_setup; then
+    return 1
+  fi
+  if [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]"
+    return 1
+  fi
+  address="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
+  if ! valid_label "$label" || ! node_address "$address"; then
+    return 1
+  fi
+  if [[ -n "$minutes" ]] && { [[ ! "$minutes" =~ ^[0-9]{1,4}$ ]] || ((10#$minutes < 1 || 10#$minutes > 1440)); }; then
+    echo_warning "The validity of the invite '${minutes}' is not a number of minutes from 1 to 1440 (60 by default)."
+    return 1
+  fi
+  if [[ "$(sed -n 's/^STF_URL=//p' .env)" != https://* || ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+    echo_warning "The enrollment needs https of stf-proxy: the node trusts the pin of its certificate only. Set up MCloud with https (README.md#https)."
+    return 1
+  fi
+  if ! pin="$(certificate_pin)"; then
+    echo_warning "The pin of configuration/stf-proxy/ssl/ssl.crt cannot be made: it needs openssl or python3 and a PEM certificate."
+    return 1
+  fi
+  body="{\"label\":\"${label}\",\"address\":\"${address}\"${minutes:+,\"ttlMinutes\":$((10#$minutes))}}"
+  if ! stf_api POST /api/v1/nodes/invites "$body"; then
+    api_error "The invite of the node ${label}"
+    return 1
+  fi
+  invite="$(json_value invite <<< "$api_body")"
+  expires="$(json_value expiresAt <<< "$api_body")"
+  if [[ ! "$invite" =~ ^mci1\.[A-Za-z0-9_-]+$ ]]; then
+    echo_warning "The STF API answered the invite without one (docker logs stf-api)."
+    return 1
+  fi
+  host="$(join_host)"
+  port="$(sed -n 's/^STF_PORT=//p' .env)"
+  echo "
+      The invite of the node ${label} at ${address}, valid ${minutes:-60} minutes (until ${expires:-?}), for one join:
+
+mcloud-join://${host}:${port}?label=${label}&grid=${host}:${GRID_PORT}&pin=$(url_encode "$pin")&token=${invite}
+
+      It is a secret, shown once: paste it into ./zebrunner.sh join of mcloud-agent on the node ${label} (it reads it
+      from stdin, never put it into the arguments), valid ${minutes:-60} minutes. A new invite of ${label} replaces it.
+      The node checks the certificate of stf-proxy by its pin (SHA-256 of its public key): ${pin}"
+}
+
+# nodes [list|revoke <label>|delete <label>|legacy-off]: the registry of the nodes of STF (README.md#nodes)
+nodes() {
+  if ! require_setup; then
+    return 1
+  fi
+  case "${1:-list}" in
+  list)
+    nodes_list
+    ;;
+  revoke)
+    if [[ $# -ne 2 ]] || ! valid_label "$2"; then
+      echo "Usage: ./zebrunner.sh nodes revoke <label>"
+      return 1
+    fi
+    if ! stf_api POST "/api/v1/nodes/${2}/revoke" '{}'; then
+      api_error "The revocation of the node ${2}"
+      return 1
+    fi
+    echo "The node ${2} is revoked: its token and its key are refused, its devices are not bound to it any more."
+    # the open ZeroMQ sessions of the node end with its triproxy connections, a new one is refused
+    if ! docker restart stf-triproxy-app stf-triproxy-dev > /dev/null; then
+      echo_warning "stf-triproxy-app and stf-triproxy-dev did not restart: the open ZeroMQ sessions of ${2} go on until ./zebrunner.sh restart."
+      return 1
+    fi
+    echo "The triproxies restarted: the open ZeroMQ sessions of ${2} ended. A new invite enrolls the node again."
+    ;;
+  delete)
+    if [[ $# -ne 2 ]] || ! valid_label "$2"; then
+      echo "Usage: ./zebrunner.sh nodes delete <label>"
+      return 1
+    fi
+    if ! stf_api DELETE "/api/v1/nodes/${2}"; then
+      api_error "The removal of the node ${2} (a revoked one only: ./zebrunner.sh nodes revoke ${2})"
+      return 1
+    fi
+    echo "The node ${2} is removed from the registry: its label and its address are free again."
+    ;;
+  legacy-off)
+    nodes_legacy_off
+    ;;
+  *)
+    echo "Usage: ./zebrunner.sh nodes [list|revoke <label>|delete <label>|legacy-off]"
+    return 1
+    ;;
+  esac
+}
+
+# nodes_list: the nodes of the registry of STF, a line per node
+nodes_list() {
+  local nodes line
+  if ! stf_api GET /api/v1/nodes; then
+    api_error "The list of the nodes"
+    return 1
+  fi
+  # a line per object of a node: they have no nested objects
+  nodes="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep '"label"')"
+  if [[ -z "$nodes" ]]; then
+    echo "No node is enrolled: ./zebrunner.sh node-invite <label> <address> (README.md#nodes)."
+    return 0
+  fi
+  printf '%-20s %-24s %-8s %-20s %-20s %s\n' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY
+  while read -r line; do
+    printf '%-20s %-24s %-8s %-20s %-20s %s\n' "$(json_value label <<< "$line")" "$(json_value address <<< "$line")" \
+      "$(json_value status <<< "$line")" "$(json_time lastSeenAt <<< "$line")" "$(json_time createdAt <<< "$line")" \
+      "$(json_value publicKey <<< "$line" | cut -c 1-16)..."
+  done <<< "$nodes"
+}
+
+# nodes_legacy_off: the end of the migration to the enrollment (README.md#migration-from-the-manual-settings): empties the
+# keys of the legacy nodes and AGENT_HOSTS, makes new NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN, restarts
+nodes_legacy_off() {
+  local keys
+  keys="$(sed -n 's/^\(STF_ZMQ_CURVE_CLIENT_KEYS\{0,1\}[A-Za-z0-9_]*\)=..*/\1/p' variables.env | tr '\n' ' ')"
+  echo_warning "legacy-off turns the manual settings of the nodes off: it empties STF_ZMQ_CURVE_CLIENT_KEYS and every
+      STF_ZMQ_CURVE_CLIENT_KEY_<HOST> of variables.env (set: ${keys:-none}) and AGENT_HOSTS of .env, makes new
+      NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN of variables.env and restarts the services. Every node that is not
+      enrolled stops working: STF refuses its key, the grid its registration and the storage its uploads. The enrolled
+      nodes go on with their own key and token:"
+  nodes_list
+  if ! confirm "" "      Turn the legacy settings off and restart?" "n"; then
+    echo "Nothing is changed."
+    return 0
+  fi
+  local content
+  content="$(LEGACY_GRID_TOKEN="$(random_string 48)" LEGACY_STORAGE_TOKEN="$(random_string 64)" awk '
+    /^STF_ZMQ_CURVE_CLIENT_KEYS=/ || /^STF_ZMQ_CURVE_CLIENT_KEY_[A-Za-z0-9_]*=/ { sub(/=.*/, "="); print; next }
+    /^NODE_REGISTRATION_TOKEN=/ { print "NODE_REGISTRATION_TOKEN=" ENVIRON["LEGACY_GRID_TOKEN"]; next }
+    /^STF_STORAGE_TOKEN=/ { print "STF_STORAGE_TOKEN=" ENVIRON["LEGACY_STORAGE_TOKEN"]; next }
+    { print }' variables.env)"
+  if [[ "$content" != *"NODE_REGISTRATION_TOKEN="?* || "$content" != *"STF_STORAGE_TOKEN="?* ]]; then
+    echo_warning "variables.env has no NODE_REGISTRATION_TOKEN or STF_STORAGE_TOKEN: run ./zebrunner.sh setup first, nothing is changed."
+    return 1
+  fi
+  # in place: variables.env keeps its mode
+  printf '%s\n' "$content" > variables.env
+  sed -i.orig 's/^AGENT_HOSTS=.*/AGENT_HOSTS=/' .env && rm -f .env.orig
+  protect_files
+  echo "The legacy settings are off: NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN of variables.env are new, the keys of
+      the legacy nodes and AGENT_HOSTS are empty. The services restart."
+  down
+  start
+}
+
+# require_setup: succeeds when MCloud is set up, warns otherwise
+require_setup() {
+  if [[ -f .env && -f variables.env ]]; then
+    return 0
+  fi
+  echo_warning "MCloud is not set up: run ./zebrunner.sh setup first."
+  return 1
+}
+
+# valid_label <label>: succeeds for a label of a node, warns otherwise
+valid_label() {
+  if [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]]; then
+    return 0
+  fi
+  echo_warning "'${1}' is not a label of a node: 1-40 lower case letters, digits and -, not - first."
+  return 1
+}
+
+# node_address <address>: succeeds for the address of a node, an IPv4 address or a host name the server connects to
+# (STF_PROVIDER_HOST of the node), not of the server itself or of the link; warns otherwise
+node_address() {
+  local octets=()
+  if relay_host "$1" && [[ "$1" != localhost && "$1" != *.localhost ]]; then
+    if [[ ! "$1" =~ ^[0-9.]+$ ]]; then
+      return 0
+    fi
+    IFS='.' read -r -a octets <<< "$1"
+    # 0/8, loopback, link-local (the metadata of the clouds), multicast and the broadcast
+    if ((10#${octets[0]} != 0 && 10#${octets[0]} != 127 && 10#${octets[0]} < 224)) &&
+      ! ((10#${octets[0]} == 169 && 10#${octets[1]} == 254)); then
+      return 0
+    fi
+  fi
+  echo_warning "'${1}' is not the address of a node: an IPv4 address or a host name without the protocol and the port, not a loopback, link-local or multicast one."
+  return 1
+}
+
+# certificate_pin: base64 of the SHA-256 of the public key (DER SPKI) of configuration/stf-proxy/ssl/ssl.crt, the pin of
+# curl --pinnedpubkey of the node: by openssl, by patch/spki_pin.py without it
+certificate_pin() {
+  local crt="configuration/stf-proxy/ssl/ssl.crt"
+  local pin=""
+  pin="$(openssl x509 -in "$crt" -noout -pubkey 2> /dev/null | openssl pkey -pubin -outform DER 2> /dev/null |
+    openssl dgst -sha256 -binary 2> /dev/null | openssl base64 -A 2> /dev/null)"
+  if [[ ! "$pin" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    pin="$(python3 "${BASEDIR}/patch/spki_pin.py" "$crt" 2> /dev/null)"
+  fi
+  if [[ ! "$pin" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    return 1
+  fi
+  echo "$pin"
+}
+
+# url_encode <base64>: the characters of base64 that are not URL-safe, percent-encoded
+url_encode() {
+  local value="${1//+/%2B}"
+  value="${value//\//%2F}"
+  echo "${value//=/%3D}"
+}
+
+# join_host: the host the nodes reach stf-proxy, the grid and ZeroMQ at: AGENTS_ADDRESS of .env (their ports are
+# published there), the host of STF_URL when it is every address of the server
+join_host() {
+  local address
+  address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
+  case "$address" in
+  "" | 0.0.0.0 | "::" | "[::]")
+    address="$(sed -n 's/^STF_URL=//p' .env)"
+    address="${address#*://}"
+    address="${address%%/*}"
+    echo "${address%:*}"
+    ;;
+  *)
+    echo "$address"
+    ;;
+  esac
+}
+
+# stf_api <method> <path> [<JSON body>]: a request to the STF API through stf-proxy on the loopback address of the
+# server with STF_TOKEN of variables.env; sets api_status (the HTTP status, 000 without an answer) and api_body; fails
+# unless the status is 2xx
+stf_api() {
+  local token url port answer
+  local args=(-sS -k --max-time 30 -X "$1" -H "Accept: application/json" -w '\n%{http_code}' -K -)
+  api_status="000"
+  api_body=""
+  token="$(stf_token)"
+  if [[ -z "$token" ]]; then
+    echo_warning "STF_TOKEN of variables.env is empty: set an access token of an admin of STF there (Settings, Keys) and run ./zebrunner.sh restart."
+    return 1
+  fi
+  url="$(sed -n 's/^STF_URL=//p' .env)"
+  port="$(sed -n 's/^STF_PORT=//p' .env)"
+  if [[ -n "$3" ]]; then
+    args+=(-H "Content-Type: application/json" --data-binary "$3")
+  fi
+  # the certificate of stf-proxy is the one of the public name, not of the loopback address; the token is in the
+  # configuration of curl on its stdin, the arguments are seen by every user of the server
+  answer="$(printf 'header = "Authorization: Bearer %s"\n' "$token" | curl "${args[@]}" "${url%%://*}://127.0.0.1:${port}${2}")"
+  api_status="${answer##*$'\n'}"
+  api_body="${answer%$'\n'*}"
+  [[ "$api_status" =~ ^2[0-9][0-9]$ ]]
+}
+
+# api_error <action>: why a request of stf_api failed; the API answers the details in the log of stf-api only
+api_error() {
+  local reason
+  case "$api_status" in
+  000) reason="stf-proxy does not answer on 127.0.0.1:$(sed -n 's/^STF_PORT=//p' .env) (./zebrunner.sh start)" ;;
+  401) reason="STF_TOKEN of variables.env is not a valid access token of STF" ;;
+  403) reason="refused: STF_TOKEN is not of an admin of STF, or the request is not allowed, see docker logs stf-api" ;;
+  404) reason="not found: an unknown node, or the STF of TAG_STF has no registry of the nodes" ;;
+  400) reason="refused as invalid (a label or an address of another node?), see docker logs stf-api" ;;
+  *) reason="the STF API answered ${api_status}, see docker logs stf-api" ;;
+  esac
+  echo_warning "${1} failed: ${reason}."
+}
+
+# json_value <name>: the value of a field of a flat JSON object (stdin), a string without its quotes; empty for null
+json_value() {
+  sed -nE "s/.*\"$1\"[[:space:]]*:[[:space:]]*(\"([^\"]*)\"|([^,}\"]*)).*/\2\3/p" | head -1 | sed 's/^null$//'
+}
+
+# json_time <name>: a time of a flat JSON object (stdin) to the second, - for none
+json_time() {
+  local time
+  time="$(json_value "$1")"
+  time="${time%%.*}"
+  echo "${time:--}"
+}
+
 #### Helpers
 
 # protect_files: the files the commands write belong to the owner of this folder, also after a sudo ./zebrunner.sh, and
@@ -414,7 +700,7 @@ protect_files() {
     owner="$(stat -c '%u:%g' . 2> /dev/null || stat -f '%u:%g' .)"
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
-    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/agent-hosts.conf \
+    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
     configuration/adb-relay/relay-hosts.conf configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
@@ -524,45 +810,20 @@ ask_secret() {
   printf -v "$name" '%s' "$answer"
 }
 
-# set_agent_hosts: asks the device hosts of the interactive setup, AGENT_HOSTS of .env (README.md#screens-of-the-devices)
-set_agent_hosts() {
-  local answer
-  while true; do
-    read -r -p "Device hosts, STF_PROVIDER_HOST of mcloud-agent separated by commas (stf-proxy serves the screens of their devices) [${AGENT_HOSTS}]: " answer
-    answer="${answer:-$AGENT_HOSTS}"
-    answer="${answer// /}"
-    if [[ "$answer" =~ ^[A-Za-z0-9.,-]*$ ]]; then
-      AGENT_HOSTS="$answer"
-      break
-    fi
-    echo "Host names and addresses separated by commas only."
-  done
-}
-
-# write_agent_hosts: configuration/stf-proxy/agent-hosts.conf of nginx from AGENT_HOSTS of .env: the device hosts whose
-# screens stf-proxy serves; warns when there is none
-write_agent_hosts() {
+# check_agent_hosts: warns about the entries of AGENT_HOSTS of .env, the legacy nodes without enrollment whose screens
+# stf-api allows (README.md#nodes), that are not a host name or an address; removes agent-hosts.conf, the list of
+# stf-proxy of an earlier MCloud
+check_agent_hosts() {
   local hosts=()
   local host
+  rm -f configuration/stf-proxy/agent-hosts.conf 2> /dev/null
   IFS=',' read -r -a hosts <<< "$(sed -n 's/^AGENT_HOSTS=//p' .env)"
-  # a file of root (e.g. of `sudo ./zebrunner.sh`) cannot be written, stf-proxy keeps the device hosts it has
-  if ! : 2> /dev/null > configuration/stf-proxy/agent-hosts.conf; then
-    echo_warning "configuration/stf-proxy/agent-hosts.conf is not writable for $(id -un): remove it (rm -f configuration/stf-proxy/agent-hosts.conf) and run ./zebrunner.sh restart (README.md#troubleshooting)."
-    return
-  fi
   for host in "${hosts[@]}"; do
     host="${host// /}"
-    if [[ -z "$host" ]]; then
-      continue
-    elif [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]]; then
-      echo "\"${host}\" 1;" >> configuration/stf-proxy/agent-hosts.conf
-    else
-      echo_warning "'${host}' of AGENT_HOSTS of .env is not a host name or address, it is skipped."
+    if [[ -n "$host" && ! "$host" =~ ^[A-Za-z0-9.-]+$ ]]; then
+      echo_warning "'${host}' of AGENT_HOSTS of .env is not a host name or address: stf-api ignores it."
     fi
   done
-  if [[ ! -s configuration/stf-proxy/agent-hosts.conf ]]; then
-    echo_warning "AGENT_HOSTS of .env is empty: stf-proxy serves no screen of a device, set the device hosts there (README.md#screens-of-the-devices)."
-  fi
 }
 
 # relay_host <host>: succeeds for a host name or an IPv4 address the relay connects to
@@ -708,9 +969,6 @@ check_adb_relay_auto() {
   seconds="$(sed -n 's/^ADB_RELAY_SYNC_SECONDS=//p' .env)"
   if [[ -n "$seconds" && ! "$seconds" =~ ^[1-9][0-9]*$ ]]; then
     echo_warning "ADB_RELAY_SYNC_SECONDS of .env '${seconds}' is not a number of seconds: adb-relay reads the devices every 300 seconds."
-  fi
-  if [[ -z "$(sed -n 's/^AGENT_HOSTS=//p' .env)" ]]; then
-    echo_warning "AGENT_HOSTS of .env is empty: adb-relay (ADB_RELAY=true) relays no device of STF."
   fi
   if [[ -z "$(stf_token)" ]]; then
     echo_warning "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF. Set an access token of STF there (Settings, Keys) and run ./zebrunner.sh start: adb-relay reads it on its next sync."
@@ -926,7 +1184,10 @@ echo_help() {
           shutdown       Stop and remove container, clear volumes
           backup         Backup container
           restore        Restore container
-          version        Version of container"
+          version        Version of container
+          node-invite    <label> <address> [<minutes>]: the join string of a new node, a secret shown once
+          nodes          [list]: the enrolled nodes; revoke <label>, delete <label>; legacy-off: the end of the manual
+                         keys and tokens of the nodes (README.md#nodes)"
   echo_telegram
 }
 
@@ -976,6 +1237,20 @@ restore)
   ;;
 version)
   version
+  ;;
+node-invite)
+  if [[ -f .disabled ]]; then
+    exit 0
+  fi
+  node_invite "${@:2}"
+  exit
+  ;;
+nodes)
+  if [[ -f .disabled ]]; then
+    exit 0
+  fi
+  nodes "${@:2}"
+  exit
   ;;
 --help | -h)
   echo_help
