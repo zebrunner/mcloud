@@ -149,6 +149,16 @@ The screen of a device is a WebSocket of its STF provider on the device host, wh
 
 The setup asks `AGENT_HOSTS` and writes `configuration/stf-proxy/agent-hosts.conf` from it, so does `./zebrunner.sh start`: change `AGENT_HOSTS` of `.env` and run `./zebrunner.sh restart` for a new device host (also in Zebrunner CE).
 
+### Device hosts in a private network
+
+The device hosts may be in a private network (LAN) with the MCloud server, only the server is public. Set `STF_PROVIDER_HOST` of every mcloud-agent to its LAN address (or a LAN host name) and add all of them to `AGENT_HOSTS` of `.env`:
+
+- the screens: browser -> `wss://<public host>/d/<STF_PROVIDER_HOST>/...` -> `stf-proxy` -> the device host over the LAN;
+- the tests: client -> `mcloud-grid` -> the Appium node of the device host over the LAN; the hub registers a node only when it reaches `http://<STF_PROVIDER_HOST>:<Appium port>`, otherwise it answers the registration with `500` and logs `Node <url> is not reachable from the hub`;
+- ZeroMQ of STF, the storage and S3 are outbound connections of the device host.
+
+The device hosts reach the server by its public host name: resolve it to the LAN address of the server on every device host (e.g. `/etc/hosts`, the docker containers use it through the stub resolver of systemd-resolved) or use the LAN address in `STF_PROVIDER_CONNECT_*` and `SELENIUM_HUB_HOST` of mcloud-agent. A public address of a device host as `STF_PROVIDER_HOST` often fails inside the LAN (no NAT hairpin): neither the hub nor `stf-proxy` connects to it. Only the remote ADB of a user (`adb connect <STF_PROVIDER_HOST>:<port>`) needs a direct route from the user to the device host.
+
 ### Firewall
 
 The ports of the host and who needs them; close the others:
@@ -218,7 +228,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | the pull fails with `manifest unknown` | the tag of `TAG_*` of `.env` is not published: the tags of `.env.original` of the current MCloud |
 | the devices are in STF, not in `/mcloud/grid/console`; `mcloud-grid` logs `Could not get the device '<udid>' from STF (HTTP 401), the node is not registered.` | `STF_TOKEN` of `variables.env` is empty or not an access token of STF: generate one (STF, Settings, Keys), set it and `./zebrunner.sh restart` (`start` warns while it is empty) |
 | `mcloud-grid` logs `Node <url> has no or another NODE_REGISTRATION_TOKEN than the hub, so it is not registered.` | `NODE_REGISTRATION_TOKEN` of the device host differs from `variables.env`: set the one of `variables.env` in mcloud-agent and run its `./zebrunner.sh ansible`, `zebrunner-farm restart` |
-| `mcloud-grid` logs `Node <url> is not reachable from the hub` | the hub does not reach the Appium port of the device host: `STF_PROVIDER_HOST` of mcloud-agent and the firewall of the device host |
+| the nodes of a device host are not in the grid: Appium logs a registration answered with `500`, `mcloud-grid` logs `Node <url> is not reachable from the hub` | the hub does not reach `http://<STF_PROVIDER_HOST>:<Appium port>` of the device host: `STF_PROVIDER_HOST` of mcloud-agent must be reachable from the MCloud server (and its firewall open); in a private network use the LAN address of the device host and add it to `AGENT_HOSTS` of `.env`, see [Device hosts in a private network](#device-hosts-in-a-private-network) |
 | the device host is up, its devices are not in STF (the `stf` container of an Android device restarts after `Providing all 0 of 1 device(s)`); `stf-triproxy-app` or `stf-triproxy-dev` logs `Refused the ZeroMQ client <address> with the unknown key "<key>"` | the public key of the device host is not in `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` (or `STF_ZMQ_CURVE_CLIENT_KEYS`) of the running services: add the one `./zebrunner.sh curve-key` of mcloud-agent prints to `variables.env` as `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>=<key>` and `./zebrunner.sh restart` (a change of `variables.env` needs it), then `zebrunner-farm restart` on the device host for its iOS devices; a device host with another `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` than `variables.env` is not let in either, see [Authentication of the device hosts](#authentication-of-the-device-hosts) |
 | the screen of a device stays gray, `/d/<device host>/...` answers `403` | the device host is not in `AGENT_HOSTS` of `.env`: add it and `./zebrunner.sh restart`, see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in) |
 | the screenshots or the app installs of the devices fail with `401` / `403` | `STF_STORAGE_TOKEN` of the device host differs from `variables.env` |
