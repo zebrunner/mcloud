@@ -139,6 +139,12 @@ setup() {
     STF_STORAGE_TOKEN="$(random_string 64)"
   fi
 
+  # the variables added to variables.env (e.g. STF_ZMQ_CURVE_CLIENT_KEY_<HOST> of the device hosts) are added again
+  local added=""
+  if [[ "$is_new" -eq 0 ]]; then
+    added="$(awk -F '=' 'NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) known[$1] = 1; next }
+      /^[A-Za-z_][A-Za-z0-9_]*=/ && !($1 in known)' variables.env.original variables.env)"
+  fi
   cp variables.env.original variables.env
   replace variables.env "http://localhost:8082" "${url}"
   replace variables.env "localhost" "${ZBR_HOSTNAME}"
@@ -178,6 +184,9 @@ setup() {
     replace variables.env "ZEBRUNNER_LOGIN_URL=" "ZEBRUNNER_LOGIN_URL=${url}/api/iam/v1/auth/login"
     replace variables.env "ZEBRUNNER_USERINFO_URL=" "ZEBRUNNER_USERINFO_URL=${url}/api/iam/v1/users"
   fi
+  if [[ -n "$added" ]]; then
+    printf '%s\n' "$added" >> variables.env
+  fi
 
   cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
   replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '${ZBR_HOSTNAME}'"
@@ -197,9 +206,9 @@ setup() {
   echo "
       Set STF_STORAGE_TOKEN of variables.env as STF_STORAGE_TOKEN of mcloud-agent: the STF storage accepts the devices with this token only.
 
-      Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add the
-      public key mcloud-agent prints to STF_ZMQ_CURVE_CLIENT_KEYS of variables.env (separated by commas), then restart:
-      STF accepts the device hosts with these keys only.
+      Set STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env as STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of mcloud-agent and add
+      the public key of every device host (./zebrunner.sh curve-key of mcloud-agent) to variables.env, one line per host:
+      STF_ZMQ_CURVE_CLIENT_KEY_<HOST>=<key>, then restart: STF accepts the device hosts with these keys only.
 
       Set NODE_REGISTRATION_TOKEN of variables.env as NODE_REGISTRATION_TOKEN of mcloud-agent: the grid registers the
       Appium nodes with this token only."
