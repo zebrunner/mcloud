@@ -22,7 +22,7 @@ OLD_STF='{
     },
     {
       "serial": "R58M\"x",
-      "present": true,
+      "present": false,
       "platform": "Android",
       "display": {"url": "ws:\/\/mcloud.example.com:80\/d\/agent1.lan\/R58M\/7460\/"}
     }
@@ -35,18 +35,18 @@ NEW_STF="$(printf '%s' '{"success":true,"description":"Devices Information","dev
   '{"serial":"ipad","present":true,"platform":"iOS","display":{"url":"ws://m/d/192.168.30.2/ipad/7600/"},' \
   '"screenPort":7600,"connectPort":7601}]}')"
 
-# device <serial> <present> <platform> <display url> [<screenPort> <connectPort>]: a line of devices_of_json
+# device <serial> <platform> <display url> [<screenPort> <connectPort>]: a line of devices_of_json
 device() {
-  echo "$1|$2|$3|$4|${5:-}|${6:-}"
+  echo "$1|$2|$3|${4:-}|${5:-}"
 }
 
 section "devices of the STF API"
 check "an STF without the ports: the device lines, the escapes of JSON" \
-  "emulator-5554|true|Android|wss://mcloud.example.com:443/d/192.168.30.2/emulator-5554/7404/||
-R58M_x|true|Android|ws://mcloud.example.com:80/d/agent1.lan/R58M/7460/||" "$(devices_of_json <<< "$OLD_STF")"
-check "an STF with the ports" "a|true|Android|ws://m/d/192.168.30.2/a/7404/|7404|7420
-b|true|Android||7500|7501
-ipad|true|iOS|ws://m/d/192.168.30.2/ipad/7600/|7600|7601" "$(devices_of_json <<< "$NEW_STF")"
+  "emulator-5554|Android|wss://mcloud.example.com:443/d/192.168.30.2/emulator-5554/7404/||
+R58M_x|Android|ws://mcloud.example.com:80/d/agent1.lan/R58M/7460/||" "$(devices_of_json <<< "$OLD_STF")"
+check "an STF with the ports" "a|Android|ws://m/d/192.168.30.2/a/7404/|7404|7420
+b|Android||7500|7501
+ipad|iOS|ws://m/d/192.168.30.2/ipad/7600/|7600|7601" "$(devices_of_json <<< "$NEW_STF")"
 check "no device" "0:" "$(
   devices="$(devices_of_json <<< '{"success":true,"devices":[]}')"
   echo "$?:${devices}"
@@ -73,29 +73,27 @@ relay|7461|agent1.lan|R58M_x" "$(devices_of_json <<< "$OLD_STF" | relay_devices 
 check "an STF with connectPort: connectPort, never the screen port" "relay|7420|192.168.30.2|a
 skip|7501||b|no device host in its display URL" \
   "$(devices_of_json <<< "$NEW_STF" | relay_devices "$hosts" "" "" "")"
-check "iOS and absent devices are not relayed and not reported" "" "$(
-  {
-    device ipad true iOS ws://m/d/192.168.30.2/ipad/7600/ 7600 7601
-    device gone false Android ws://m/d/192.168.30.2/gone/7700/
-  } | relay_devices "$hosts" "" "" ""
-)"
+check "iOS devices are not relayed and not reported" "" \
+  "$(device ipad iOS ws://m/d/192.168.30.2/ipad/7600/ 7600 7601 | relay_devices "$hosts" "" "" "")"
+check "an absent device is relayed too (R58M of the answer): its device host refuses the port" "relay|7461|agent1.lan|R58M_x" \
+  "$(devices_of_json <<< "$OLD_STF" | relay_devices "$hosts" "" "" "" | grep R58M)"
 check "a device host out of AGENT_HOSTS is skipped" \
   "skip|7501|192.168.30.9|x|its device host 192.168.30.9 is not in AGENT_HOSTS" \
-  "$(device x true Android ws://m/d/192.168.30.9/x/7500/ | relay_devices "$hosts" "" "" "")"
+  "$(device x Android ws://m/d/192.168.30.9/x/7500/ | relay_devices "$hosts" "" "" "")"
 check "AGENT_HOSTS match whole names only" \
   "skip|7501|192.168.30.20|x|its device host 192.168.30.20 is not in AGENT_HOSTS" \
-  "$(device x true Android ws://m/d/192.168.30.20/x/7500/ | relay_devices "$hosts" "" "" "")"
+  "$(device x Android ws://m/d/192.168.30.20/x/7500/ | relay_devices "$hosts" "" "" "")"
 check "no device host without AGENT_HOSTS" "skip|7501|192.168.30.2|x|its device host 192.168.30.2 is not in AGENT_HOSTS" \
-  "$(device x true Android ws://m/d/192.168.30.2/x/7500/ | relay_devices "" "" "" "")"
+  "$(device x Android ws://m/d/192.168.30.2/x/7500/ | relay_devices "" "" "" "")"
 check "the ports of ADB_RELAY_PORTS only" "relay|7400|192.168.30.2|first
 relay|7499|192.168.30.2|last
 skip|7500|192.168.30.2|out|the port is not in ADB_RELAY_PORTS 7400-7499
 skip|7399|192.168.30.2|below|the port is not in ADB_RELAY_PORTS 7400-7499" "$(
   {
-    device first true Android ws://m/d/192.168.30.2/first/7399/
-    device last true Android ws://m/d/192.168.30.2/last/7498/
-    device out true Android ws://m/d/192.168.30.2/out/7499/
-    device below true Android ws://m/d/192.168.30.2/below/7400/ 7400 7399
+    device first Android ws://m/d/192.168.30.2/first/7399/
+    device last Android ws://m/d/192.168.30.2/last/7498/
+    device out Android ws://m/d/192.168.30.2/out/7499/
+    device below Android ws://m/d/192.168.30.2/below/7400/ 7400 7399
   } | relay_devices "$hosts" 7400 7499 ""
 )"
 check "the ports of MCloud and of ADB_RELAY_HOSTS are skipped" \
@@ -104,29 +102,32 @@ skip|7404|192.168.30.2|single|the port is one of MCloud or of ADB_RELAY_HOSTS
 skip|7465|192.168.30.3|range|the port is one of MCloud or of ADB_RELAY_HOSTS
 relay|7471|192.168.30.3|free" "$(
     {
-      device stf true Android ws://m/d/192.168.30.2/stf/8081/
-      device single true Android ws://m/d/192.168.30.2/single/7403/
-      device range true Android ws://m/d/192.168.30.3/range/7464/
-      device free true Android ws://m/d/192.168.30.3/free/7470/
+      device stf Android ws://m/d/192.168.30.2/stf/8081/
+      device single Android ws://m/d/192.168.30.2/single/7403/
+      device range Android ws://m/d/192.168.30.3/range/7464/
+      device free Android ws://m/d/192.168.30.3/free/7470/
     } | relay_devices "$hosts" "" "" "8082 4446 7404 7460-7469"
   )"
-check "a port of two devices is skipped for both" "skip|7405|192.168.30.2|a|the port is the one of another device too
+conflict="the port is the one of the devices a, c of STF, none of them is relayed: remove the gone one in STF (Settings,\
+ Devices) or change connect_port of mcloud-agent"
+check "a port of two devices is skipped for both" "skip|7405|192.168.30.2|a|${conflict}
 relay|7411|192.168.30.2|b
-skip|7405|192.168.30.3|c|the port is the one of another device too" "$(
+skip|7405|192.168.30.3|c|${conflict}" "$(
   {
-    device a true Android ws://m/d/192.168.30.2/a/7404/
-    device b true Android ws://m/d/192.168.30.2/b/7410/
-    device c true Android ws://m/d/192.168.30.3/c/7400/ 7400 7405
+    device a Android ws://m/d/192.168.30.2/a/7404/
+    device b Android ws://m/d/192.168.30.2/b/7410/
+    device c Android ws://m/d/192.168.30.3/c/7400/ 7400 7405
   } | relay_devices "$hosts" "" "" ""
 )"
-check "a port of an absent device is no conflict" "relay|7405|192.168.30.2|a" "$(
-  {
-    device a true Android ws://m/d/192.168.30.2/a/7404/
-    device gone false Android ws://m/d/192.168.30.3/gone/7404/
-  } | relay_devices "$hosts" "" "" ""
-)"
+check_contains "a stale registration with the port of a new device is a conflict too" \
+  "skip|7405|192.168.30.3|stale|the port is the one of the devices new, stale of STF" "$(
+    {
+      device new Android ws://m/d/192.168.30.2/new/7404/
+      device stale Android ws://m/d/192.168.30.3/stale/7404/
+    } | relay_devices "$hosts" "" "" ""
+  )"
 check "a port below 1024 is skipped" "skip|81|192.168.30.2|low|the port is not 1024-65535" \
-  "$(device low true Android ws://m/d/192.168.30.2/low/80/ | relay_devices "$hosts" "" "" "")"
+  "$(device low Android ws://m/d/192.168.30.2/low/80/ | relay_devices "$hosts" "" "" "")"
 
 section "servers of nginx"
 # shellcheck disable=SC2016 # $server_port of nginx
@@ -142,7 +143,7 @@ server {
   proxy_pass agent1.lan:$server_port;
 }' "$(devices_of_json <<< "$OLD_STF" | relay_devices "$hosts" "" "" "" | servers_of "10.0.0.53 [fd00::53]")"
 check "no server of a skipped device" "" \
-  "$(device x true Android ws://m/d/192.168.30.9/x/7500/ | relay_devices "$hosts" "" "" "" | servers_of "")"
+  "$(device x Android ws://m/d/192.168.30.9/x/7500/ | relay_devices "$hosts" "" "" "" | servers_of "")"
 
 section "settings"
 check "a port range" "7400 7499" "$(port_range 7400-7499)"
@@ -199,7 +200,7 @@ reset_calls
 output="$(sync_devices)"
 sync_devices > /dev/null
 check "the STF API through stf-proxy with STF_TOKEN" \
-  "-fsS|-k|--max-time|20|-H|Authorization: Bearer token1|https://127.0.0.1:8082/api/v1/devices?fields=serial,present,platform,display.url,screenPort,connectPort" \
+  "-fsS|-k|--max-time|20|-H|Authorization: Bearer token1|https://127.0.0.1:8082/api/v1/devices?fields=serial,platform,display.url,screenPort,connectPort" \
   "$(calls curl | head -1)"
 check_contains "the servers of the devices" "listen 7461 so_keepalive=on;" "$(cat "$AUTO_CONF")"
 check "nginx checks and reloads" "-HUP|4242" "$(calls kill)"

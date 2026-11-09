@@ -62,20 +62,21 @@ talk() {
     "exec 3<> /dev/tcp/127.0.0.1/$1 && echo '$2' >&3 && timeout 5 head -1 <&3" 2>&1
 }
 
-# devices <device...>: the answer of the fake STF API, a device is <serial>:<device host>:<screen port>[:<connect port>]
+# devices <device...>: the answer of the fake STF API, a device is
+# <serial>:<device host>:<screen port>[:<connect port>[:<present>]], present by default
 devices() {
-  local device serial host screen connect sep=""
+  local device serial host screen connect present sep=""
   local fields
   {
     printf '{"success":true,"description":"Devices Information","devices":['
     for device in "$@"; do
-      IFS=':' read -r serial host screen connect <<< "$device"
+      IFS=':' read -r serial host screen connect present <<< "$device"
       fields=""
       if [[ -n "$connect" ]]; then
         fields=",\"screenPort\":${screen},\"connectPort\":${connect}"
       fi
-      printf '%s{"serial":"%s","present":true,"platform":"Android","display":{"url":"ws://mcloud.example.com:80/d/%s/%s/%s/"}%s}' \
-        "$sep" "$serial" "$host" "$serial" "$screen" "$fields"
+      printf '%s{"serial":"%s","present":%s,"platform":"Android","display":{"url":"ws://mcloud.example.com:80/d/%s/%s/%s/"}%s}' \
+        "$sep" "$serial" "${present:-true}" "$host" "$serial" "$screen" "$fields"
       sep=","
     done
     printf ']}\n'
@@ -121,8 +122,9 @@ http {
   }
 }
 EOF
-devices "old:${host}:17400" "new:${host}:17405:17411" "manual:${host}:17449" "other:10.255.255.1:17430" \
-  "out:${host}:17599"
+# absent: a device of STF that is not connected, its device host refuses the port
+devices "old:${host}:17400" "new:${host}:17405:17411" "absent:${host}:17430:17431:false" "manual:${host}:17449" \
+  "other:10.255.255.1:17430" "out:${host}:17599"
 # published like stf-proxy: adb-relay reads it on 127.0.0.1 of the network of the host
 run_check "the fake STF API" docker run -d --name adb-relay-test-api --network adb-relay-test -p 18082:18082 -v "${API}:/data:ro" \
   -v "${API}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
@@ -141,7 +143,7 @@ sed -i.orig -e "s|^STF_PORT=.*|STF_PORT=18082|" -e "s|^STF_URL=.*|STF_URL=http:/
 printf 'server {\n  listen 17450 so_keepalive=on;\n  proxy_pass %s:$server_port;\n}\n' "$host" \
   > "${MCLOUD}/configuration/adb-relay/relay-hosts.conf"
 run_check "adb-relay starts" bash -c "cd '${MCLOUD}' && docker compose --profile adb-relay up -d adb-relay"
-run_check "adb-relay reads the devices of STF" wait_for 60 relay_log_has "Android devices of STF relayed: 2."
+run_check "adb-relay reads the devices of STF" wait_for 60 relay_log_has "Android devices of STF relayed: 3."
 log="$(docker logs adb-relay 2>&1)"
 check_contains "the device of an older STF: the screen port + 1" \
   "Relays the remote debug port 17401 of the device old to ${host}:17401." "$log"
@@ -153,6 +155,10 @@ check_contains "a port out of ADB_RELAY_PORTS is skipped" "Skips the remote debu
 check "the remote debug port of the older STF" "17401 hi" "$(talk 17401 hi)"
 check "the remote debug port of the newer STF" "17411 hi" "$(talk 17411 hi)"
 check "the port of ADB_RELAY_HOSTS" "17450 hi" "$(talk 17450 hi)"
+check_contains "an absent device is relayed too" "Relays the remote debug port 17431 of the device absent to ${host}:17431." "$log"
+check_not_contains "the port of the absent device reaches no device" "17431 hi" "$(talk 17431 hi)"
+check_contains "the device host refuses the port of the absent device (502 of the relay)" "17431 -> ${host}:17431 502" \
+  "$(docker logs adb-relay 2>&1)"
 check_contains "the screen port is not relayed" "Connection refused" "$(talk 17405 hi)"
 run_check "adb-relay is healthy" wait_for 60 \
   bash -c "test \"\$(docker inspect --format '{{.State.Health.Status}}' adb-relay)\" == healthy"
@@ -167,7 +173,7 @@ devices "old:${host}:17400" "added:${host}:17415:17421"
 run_check "adb-relay reloads with the devices of STF" wait_for 30 relay_log_has \
   "Relays the remote debug port 17421 of the device added to ${host}:17421."
 check "the added device" "17421 hi" "$(talk 17421 hi)"
-check_contains "a gone device is not relayed" "Connection refused" "$(talk 17411 hi)"
+check_contains "a device removed from STF is not relayed" "Connection refused" "$(talk 17411 hi)"
 docker wait adb-relay-test-client > /dev/null
 check "an open session goes on over the reload" "17401 one
 17401 two" "$(docker logs adb-relay-test-client 2>&1)"

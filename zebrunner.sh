@@ -698,7 +698,7 @@ check_adb_relay_auto() {
   fi
   seconds="$(sed -n 's/^ADB_RELAY_SYNC_SECONDS=//p' .env)"
   if [[ -n "$seconds" && ! "$seconds" =~ ^[1-9][0-9]*$ ]]; then
-    echo_warning "ADB_RELAY_SYNC_SECONDS of .env '${seconds}' is not a number of seconds: adb-relay reads the devices every 30 seconds."
+    echo_warning "ADB_RELAY_SYNC_SECONDS of .env '${seconds}' is not a number of seconds: adb-relay reads the devices every 300 seconds."
   fi
   if [[ -z "$(sed -n 's/^AGENT_HOSTS=//p' .env)" ]]; then
     echo_warning "AGENT_HOSTS of .env is empty: adb-relay (ADB_RELAY=true) relays no device of STF."

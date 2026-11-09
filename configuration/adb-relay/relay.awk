@@ -1,5 +1,5 @@
-# What adb-relay does with the device lines of devices.awk (relay_devices of adb-relay.sh): a line per present Android
-# device, `relay|<port>|<host>|<serial>` or `skip|<port>|<host>|<serial>|<reason>`; the variables agent_hosts, first,
+# What adb-relay does with the device lines of devices.awk (relay_devices of adb-relay.sh): a line per Android device of
+# STF, present or not (the device host refuses the port of an absent one), `relay|<port>|<host>|<serial>` or `skip|<port>|<host>|<serial>|<reason>`; the variables agent_hosts, first,
 # last and reserved are the arguments of relay_devices. mawk and BSD awk run it.
 
 BEGIN {
@@ -17,12 +17,12 @@ function reserved_port(port, k, bounds) {
   }
   return 0
 }
-$2 != "true" || $3 != "Android" { next }
+$2 != "Android" { next }
 {
   serial = $1
-  url = $4
-  screen = $5
-  connect = $6
+  url = $3
+  screen = $4
+  connect = $5
   host = ""
   if (match(url, /\/d\/[^\/]+\//)) host = substr(url, RSTART + 3, RLENGTH - 4)
   if (screen !~ /^[0-9]+$/) {
@@ -44,12 +44,19 @@ $2 != "true" || $3 != "Android" { next }
   lines++
   line[lines] = port "|" host "|" serial
   why[lines] = reason
-  if (reason == "") devices[port]++
+  if (reason == "") {
+    devices[port]++
+    owners[port] = owners[port] (owners[port] == "" ? "" : ", ") serial
+  }
 }
 END {
   for (k = 1; k <= lines; k++) {
     split(line[k], fields, "|")
-    if (why[k] == "" && devices[fields[1]] > 1) why[k] = "the port is the one of another device too"
+    # e.g. a stale device of STF and a new one with its port: the relay cannot tell which one is meant
+    if (why[k] == "" && devices[fields[1]] > 1) {
+      why[k] = "the port is the one of the devices " owners[fields[1]] " of STF, none of them is relayed: remove the gone" \
+        " one in STF (Settings, Devices) or change connect_port of mcloud-agent"
+    }
     if (why[k] == "") print "relay|" line[k]
     else print "skip|" line[k] "|" why[k]
   }

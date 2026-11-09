@@ -2,7 +2,8 @@
 # The entrypoint of adb-relay (README.md#remote-debug-through-the-adb-relay), it runs in the nginx image: nginx relays the
 # remote debug ports of the Android devices of the device hosts in a private network. ADB_RELAY_HOSTS of .env is a fixed
 # list (relay-hosts.conf of ./zebrunner.sh); with ADB_RELAY=true this script also reads the devices of STF from its API
-# every ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on).
+# every ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on): the
+# devices of STF, present or not, so only a new, a removed or a moved device changes them.
 # tests/adb_relay_test.sh sources it: keep the functions compatible with the macOS system bash 3.2, mawk and BSD awk.
 
 # the configuration of nginx (configuration/adb-relay/nginx.conf includes stream-conf.d), the file of ./zebrunner.sh
@@ -14,7 +15,7 @@ TOKEN_FILE="${TOKEN_FILE:-/opt/adb-relay/stf-token}"
 # the awk programs next to this script
 AWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the fields of the devices of GET /api/v1/devices: screenPort and connectPort are missing in older STF images
-DEVICE_FIELDS="serial,present,platform,display.url,screenPort,connectPort"
+DEVICE_FIELDS="serial,platform,display.url,screenPort,connectPort"
 
 #### Helpers
 
@@ -38,13 +39,13 @@ port_range() {
 }
 
 # devices_of_json: the devices of a JSON answer of GET /api/v1/devices of STF (stdin), a line per device:
-# <serial>|<present>|<platform>|<display.url>|<screenPort>|<connectPort>; fails when the answer has no devices
+# <serial>|<platform>|<display.url>|<screenPort>|<connectPort>; fails when the answer has no devices
 devices_of_json() {
   awk -f "${AWK_DIR}/devices.awk"
 }
 
 # relay_devices <agent hosts> <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin)
-# with what the relay does with them, a line per present Android device: `relay|<port>|<host>|<serial>` or
+# with what the relay does with them, a line per Android device, present or not: `relay|<port>|<host>|<serial>` or
 # `skip|<port>|<host>|<serial>|<reason>`. The remote debug port is connectPort, the screen port + 1 of an older STF
 # (STF takes the screen port, then the remote debug port); the host is the device host of display.url,
 # <proto>://<host of MCloud>/d/<device host>/<serial>/<screen port>/, one of AGENT_HOSTS (separated by commas); an empty
@@ -155,8 +156,8 @@ main() {
   local interval="$ADB_RELAY_SYNC_SECONDS"
   local range
   if [[ ! "$interval" =~ ^[1-9][0-9]*$ ]]; then
-    log "WARN" "ADB_RELAY_SYNC_SECONDS '${interval}' is not a number of seconds, the devices are read every 30 seconds."
-    interval=30
+    log "WARN" "ADB_RELAY_SYNC_SECONDS '${interval}' is not a number of seconds, the devices are read every 300 seconds."
+    interval=300
   fi
   relay_first=""
   relay_last=""

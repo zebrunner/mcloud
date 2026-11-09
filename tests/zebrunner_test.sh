@@ -382,7 +382,7 @@ section "adb relay of the devices of STF"
 relay_setting() {
   sed -i.orig "s|^$1=.*|$1=$2|" "${MCLOUD}/.env"
 }
-check "the auto mode is off by default" "false:30:" \
+check "the auto mode is off by default" "false:300:" \
   "$(sed -n 's/^ADB_RELAY=//p' "${REPO}/.env.original"):$(value .env ADB_RELAY_SYNC_SECONDS):$(value .env ADB_RELAY_PORTS)"
 relay_setting ADB_RELAY true
 reset_calls
@@ -420,7 +420,7 @@ done
 relay_setting ADB_RELAY_PORTS ""
 relay_setting ADB_RELAY_SYNC_SECONDS 0
 check_contains "an invalid ADB_RELAY_SYNC_SECONDS is reported" \
-  "ADB_RELAY_SYNC_SECONDS of .env '0' is not a number of seconds: adb-relay reads the devices every 30 seconds." "$(zbr "" start)"
+  "ADB_RELAY_SYNC_SECONDS of .env '0' is not a number of seconds: adb-relay reads the devices every 300 seconds." "$(zbr "" start)"
 relay_setting ADB_RELAY_SYNC_SECONDS 30
 replace "${MCLOUD}/variables.env" "STF_TOKEN=api-token" "STF_TOKEN="
 replace "${MCLOUD}/.env" "AGENT_HOSTS=agent1.example.com" "AGENT_HOSTS="
