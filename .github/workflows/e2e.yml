@@ -18,7 +18,7 @@ on:
         default: develop
       refs:
         description: The branches of single repositories (E2E_REFS), e.g. STF_REF=fix/x MCLOUD_AGENT_REF=feat/y
-        default: "STF_REF=feat/node-enrollment MCLOUD_GRID_REF=feat/node-tokens MCLOUD_AGENT_REF=feat/node-enrollment"
+        default: "STF_REF=feat/node-enrollment MCLOUD_GRID_REF=feat/node-tokens MCLOUD_AGENT_REF=feat/node-enrollment MCLOUD_DEVICE_REF=feat/remote-connect-host"
 # a new push to a pull request cancels its outdated run, runs of the branches themselves are kept
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,9 +37,9 @@ jobs:
       id-token: write
     env:
       E2E_REF: ${{ inputs.ref || 'develop' }}
-      # the node enrollment of STF, the grid and mcloud-agent until zebrunner/stf#1124, zebrunner/mcloud-grid#216 and
-      # zebrunner/mcloud-agent#460 are merged: remove it then
-      E2E_REFS: ${{ inputs.refs || 'STF_REF=feat/node-enrollment MCLOUD_GRID_REF=feat/node-tokens MCLOUD_AGENT_REF=feat/node-enrollment' }}
+      # the node enrollment of STF, the grid, mcloud-agent and mcloud-device until zebrunner/stf#1124,
+      # zebrunner/mcloud-grid#216, zebrunner/mcloud-agent#460 and zebrunner/mcloud-device#230 are merged: remove it then
+      E2E_REFS: ${{ inputs.refs || 'STF_REF=feat/node-enrollment MCLOUD_GRID_REF=feat/node-tokens MCLOUD_AGENT_REF=feat/node-enrollment MCLOUD_DEVICE_REF=feat/remote-connect-host' }}
     steps:
       - uses: actions/checkout@v7
       - name: The directories of the run
