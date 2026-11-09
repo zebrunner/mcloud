@@ -67,6 +67,7 @@ The commands of `./zebrunner.sh`:
 | `STF_PORT` | `8082` | the port of `stf-proxy` on the host |
 | `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the device hosts connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); the value of the previous setup is kept |
 | `AGENT_HOSTS` | | the device hosts (`STF_PROVIDER_HOST` of mcloud-agent) separated by commas, see [Screens of the devices](#screens-of-the-devices); the setup asks it, the value of the previous setup is kept |
+| `ADB_RELAY_HOSTS` | | the device hosts in a private network with the port range of their devices, `<host>:<first>-<last>` separated by commas (e.g. `192.168.30.2:7400-7699,192.168.30.3:7700-7999`): `adb-relay` relays these ports of the server to them for the remote debug of STF, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); empty: no relay; the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
@@ -142,6 +143,22 @@ The screen of a device is a WebSocket of its STF provider on the device host, wh
 
 The setup asks `AGENT_HOSTS` and writes `configuration/stf-proxy/agent-hosts.conf` from it, so does `./zebrunner.sh start`: change `AGENT_HOSTS` of `.env` and run `./zebrunner.sh restart` for a new device host (also in Zebrunner CE).
 
+### Remote debug through the adb relay
+
+STF shows the remote debug of an Android device as `adb connect <host>:<port>`: the port is one of the ports of the device (`min_port`-`max_port` of mcloud-agent) on its device host, the host is `STF_PROVIDER_HOST` of mcloud-agent. A device host in a private network, where only the server of MCloud is public, works through the server (the screens through `stf-proxy`, the tests through the grid, ZeroMQ and the storage are connections of the device host to the server), but the users do not reach the ports of its devices. The optional `adb-relay` relays them through the server:
+
+1. Set `ADB_RELAY_HOSTS` of `.env`: every such device host with the port range of its devices, `<host>:<first>-<last>` separated by commas, e.g. `ADB_RELAY_HOSTS=192.168.30.2:7400-7699,192.168.30.3:7700-7999`. The range of a device host holds `min_port`-`max_port` of all its devices, the ranges of the device hosts do not overlap: the server relays a port to one device host. The host is an IPv4 address or a host name of the device host in the network of the server, the ports are 1024-65535 without the ones of MCloud (`STF_PORT`, `4446`, `7160`, `7250`, `7260`, `7270`).
+2. Run `./zebrunner.sh restart`: it writes `configuration/adb-relay/relay-hosts.conf` from `ADB_RELAY_HOSTS` (an invalid entry, a range that overlaps an earlier one or holds a port of MCloud is reported and skipped) and starts `adb-relay` with it.
+3. Set `REMOTE_CONNECT_HOST` of mcloud-agent of these device hosts to the public name of MCloud (the host of `STF_URL`) and deploy it again: STF shows `adb connect <REMOTE_CONNECT_HOST>:<port>` then (mcloud-agent passes it to [mcloud-device](https://github.com/zebrunner/mcloud-device)), `STF_PROVIDER_HOST` without it.
+4. Open the ranges in the firewall of the server for the users, see [Firewall](#firewall), and the ports of the devices of the device hosts for the server.
+
+`adb-relay` is the nginx of `stf-proxy` (`TAG_NGINX`) in the network of the host (`network_mode: host`: hundreds of ports, not published one by one): it listens on every port of the ranges on every address of the server and connects to the same port of the device host of the range; an idle session ends after 24 hours. `./zebrunner.sh` starts it (the compose profile `adb-relay`) only when `ADB_RELAY_HOSTS` has a valid entry, `stop`, `down`, `restart` and `shutdown` take it along also after `ADB_RELAY_HOSTS` is cleared: run `./zebrunner.sh restart` after a change of `ADB_RELAY_HOSTS` (also in Zebrunner CE). `docker logs adb-relay` shows every session: the client, the port, the device host, the bytes and the duration. On macOS the network of the host of Docker Desktop is the one of its VM: the ports need its host networking (Settings, Resources, Network).
+
+The relay has no authentication of its own, it makes every port of the ranges public as it is:
+
+- the remote debug port of a device listens only while a user of STF uses the device (the Remote debug of its dashboard starts it) and accepts an adb client with an adb key of that user only (STF, Settings, ADB keys): an unknown key makes STF ask that user to add it, add only your own keys;
+- the screen of a device (its `min_port`) is a WebSocket without an authentication of its own: `stf-proxy` serves it to the signed-in users only (see [Screens of the devices](#screens-of-the-devices)), the relay to anyone. Open the ranges in the firewall to the networks of the users only (the office, a VPN), or relay only the remote debug ports, `min_port` + 1 of every Android device: e.g. `192.168.30.2:7476-7476,192.168.30.2:7486-7486`.
+
 ### Firewall
 
 The ports of the host and who needs them; close the others:
@@ -151,8 +168,9 @@ The ports of the host and who needs them; close the others:
 | `STF_PORT` | `stf-proxy` | the users, the tests, the device hosts (the storage, the screens) |
 | `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the device hosts |
 | `4446` (`AGENTS_ADDRESS`) | `mcloud-grid` | the device hosts (Appium registers to the grid); the tests use `/mcloud/wd/hub` of `STF_PORT` |
+| the ranges of `ADB_RELAY_HOSTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the device hosts in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
-`AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts. A device host publishes the ports of its devices for the server (`stf-proxy` serves the screens to the users) and for the remote ADB of the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
+`AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts. A device host publishes the ports of its devices for the server (`stf-proxy` serves the screens to the users) and for the remote ADB of the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent); `adb-relay` relays them to the users from a device host in a private network.
 
 ### Basic authentication of the grid
 
@@ -164,7 +182,7 @@ See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.m
 
 ## Services
 
-All the services are in the external docker network `infra`, which `./zebrunner.sh start` creates.
+All the services but `adb-relay` (the network of the host) are in the external docker network `infra`, which `./zebrunner.sh start` creates.
 
 | Service | Image | What it does |
 | --- | --- | --- |
@@ -176,8 +194,9 @@ All the services are in the external docker network `infra`, which `./zebrunner.
 | `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events, the heartbeats and the groups of STF |
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; protected by `STF_STORAGE_TOKEN` |
+| `adb-relay` | `nginx` | optional, with `ADB_RELAY_HOSTS` only: the TCP relay of the port ranges of the device hosts in a private network for the remote debug of STF, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
-Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
+Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `adb-relay` (nginx listens on every port of its ranges), `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
 
 ## Endpoints
 
@@ -216,6 +235,9 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | the screen of a device stays gray, `/d/<device host>/...` answers `403` | the device host is not in `AGENT_HOSTS` of `.env`: add it and `./zebrunner.sh restart`, see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in) |
 | the screenshots or the app installs of the devices fail with `401` / `403` | `STF_STORAGE_TOKEN` of the device host differs from `variables.env` |
 | `configuration/stf-proxy/agent-hosts.conf is not writable` (`Permission denied`) | the file was written by root (`sudo ./zebrunner.sh ...`): `rm -f configuration/stf-proxy/agent-hosts.conf` and `./zebrunner.sh restart`; run `zebrunner.sh` as the user of the deployment |
+| `configuration/adb-relay/relay-hosts.conf is not writable` | the file was written by root (`sudo ./zebrunner.sh ...`): `rm -f configuration/adb-relay/relay-hosts.conf` and `./zebrunner.sh restart`; `adb-relay` keeps the servers it has until then |
+| `adb connect` of STF to a device of a device host in a private network times out or fails | `REMOTE_CONNECT_HOST` of mcloud-agent is not the public name of MCloud, the port is not in the range of the device host in `ADB_RELAY_HOSTS` of `.env` (then `./zebrunner.sh restart`) or the firewall of the server closes it, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); `docker logs adb-relay` shows the sessions and why the device host refused one |
+| `adb-relay` restarts, `docker logs adb-relay` shows `bind() to 0.0.0.0:<port> failed (98: Address already in use)` | another program of the server listens on a port of the ranges of `ADB_RELAY_HOSTS`: move the range of the device host (and the ports of its devices) |
 | `The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied` | the key of Zebrunner CE is readable for root only (e.g. written by certbot): make it readable for the user of the setup (its group and `chmod 640`) instead of `sudo ./zebrunner.sh setup` |
 | a device of a gone device host is not removed by Settings, Devices of STF (nothing happens) | the removing filters of the page skip the devices that are controlled, booked or annotated, and a device whose host went away during a session stays controlled: set *Controlled* (and the others) of the filters to *Any* |
 | macOS (Docker Desktop): `./zebrunner.sh start` hangs, `stf-proxy` stays `Created`, `docker inspect stf-proxy` does not answer | the port forwarding of Docker Desktop hangs (seen after a failed start): `docker desktop restart` (or quit and start Docker Desktop), then `./zebrunner.sh start` |
@@ -234,9 +256,9 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | Target | What it checks | Needs |
 | --- | --- | --- |
 | `make check` | everything below, as CI runs it | |
-| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings | Python 3; on macOS `brew install hadolint` |
+| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings, also with the profile `adb-relay` | Python 3; on macOS `brew install hadolint` |
 | `make test` | `tests/zebrunner_test.sh` and `tests/utility_test.sh`: the commands of `zebrunner.sh` on a copy of the repository with a `docker` stub | bash |
-| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, then their shutdown; `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
+| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, `adb-relay` with a stand-in device host, then their shutdown; `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
 
 The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflows/ci.yml`) runs the jobs `lint`, `tests` (Linux and macOS) and `docker` on the pushes and pull requests.
 

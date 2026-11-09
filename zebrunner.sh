@@ -13,6 +13,7 @@ setup() {
   local agents_address=""
   local log_max_size=""
   local log_max_file=""
+  local adb_relay_hosts=""
   AGENT_HOSTS=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
@@ -24,6 +25,7 @@ setup() {
     AGENT_HOSTS="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
     log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
     log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
+    adb_relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -93,9 +95,11 @@ setup() {
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
   replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
+  replace .env "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=${adb_relay_hosts}"
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
   write_agent_hosts
+  write_adb_relay_hosts
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
   case "$sign_in" in
@@ -216,13 +220,14 @@ shutdown() {
     fi
   fi
 
-  docker compose down -v
+  docker compose --profile adb-relay down -v
 
   rm -f backup/settings.env
   rm -f .env
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf
   rm -f configuration/stf-proxy/agent-hosts.conf
+  rm -f configuration/adb-relay/relay-hosts.conf
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
 }
@@ -243,9 +248,15 @@ start() {
   fi
 
   protect_files
-  # AGENT_HOSTS of .env may have changed since the setup
+  # AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
   write_agent_hosts
-  docker compose up -d || return
+  write_adb_relay_hosts
+  # adb-relay runs with relay hosts only (README.md#remote-debug-through-the-adb-relay)
+  if [[ -n "$adb_relay" ]]; then
+    docker compose --profile adb-relay up -d || return
+  else
+    docker compose up -d || return
+  fi
 
   # the next steps of a deployment without Zebrunner CE (README.md#run)
   if [[ "$ZBR_INSTALLER" -ne 1 ]]; then
@@ -265,7 +276,8 @@ stop() {
     exit 0
   fi
 
-  docker compose stop
+  # with the profile: adb-relay stops also when ADB_RELAY_HOSTS was cleared after its start
+  docker compose --profile adb-relay stop
 }
 
 # down: stops and removes the containers, the data is kept
@@ -274,7 +286,8 @@ down() {
     exit 0
   fi
 
-  docker compose down
+  # with the profile: adb-relay is removed also when ADB_RELAY_HOSTS was cleared after its start
+  docker compose --profile adb-relay down
 }
 
 # backup: copies the settings to *.bak and the database into backup/rethinkdb.tar.gz
@@ -380,8 +393,8 @@ protect_files() {
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/agent-hosts.conf \
-    configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.key \
-    configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
+    configuration/adb-relay/relay-hosts.conf configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak \
+    configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
     fi
@@ -526,6 +539,121 @@ write_agent_hosts() {
   done
   if [[ ! -s configuration/stf-proxy/agent-hosts.conf ]]; then
     echo_warning "AGENT_HOSTS of .env is empty: stf-proxy serves no screen of a device, set the device hosts there (README.md#screens-of-the-devices)."
+  fi
+}
+
+# relay_host <host>: succeeds for a host name or an IPv4 address the relay connects to
+relay_host() {
+  local octets=()
+  local octet
+  if [[ "$1" =~ ^[0-9.]+$ ]]; then
+    if [[ ! "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+      return 1
+    fi
+    IFS='.' read -r -a octets <<< "$1"
+    for octet in "${octets[@]}"; do
+      if ((10#$octet > 255)); then
+        return 1
+      fi
+    done
+    return 0
+  fi
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]
+}
+
+# write_adb_relay_hosts: configuration/adb-relay/relay-hosts.conf of nginx from ADB_RELAY_HOSTS of .env: a server of
+# adb-relay for the port range of every device host (README.md#remote-debug-through-the-adb-relay); an invalid entry, a
+# range that overlaps an earlier one or holds a port of MCloud is skipped; sets adb_relay to 1 when adb-relay has servers
+write_adb_relay_hosts() {
+  local file="configuration/adb-relay/relay-hosts.conf"
+  local relay_hosts
+  local entries=()
+  local hosts=()
+  local firsts=()
+  local lasts=()
+  local entry host first last port i conflict
+  local resolver=""
+  local servers=""
+  relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
+  relay_hosts="${relay_hosts// /}"
+  # the ports MCloud publishes on the host (docker-compose.yml): nginx would not start with one of them
+  local mcloud_ports=("$(sed -n 's/^STF_PORT=//p' .env)" 4446 7160 7250 7260 7270)
+  adb_relay=""
+  # a file of root (e.g. of `sudo ./zebrunner.sh`) cannot be written, adb-relay keeps the servers it has
+  if ! : 2> /dev/null > "$file"; then
+    echo_warning "${file} is not writable for $(id -un): remove it (rm -f ${file}) and run ./zebrunner.sh restart (README.md#troubleshooting)."
+    if [[ -n "$relay_hosts" && -s "$file" ]]; then
+      adb_relay=1
+    fi
+    return
+  fi
+  IFS=',' read -r -a entries <<< "$relay_hosts"
+  for entry in "${entries[@]}"; do
+    if [[ -z "$entry" ]]; then
+      continue
+    fi
+    if [[ "$entry" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})-([0-9]{1,5})$ ]]; then
+      host="${BASH_REMATCH[1]}"
+      first=$((10#${BASH_REMATCH[2]}))
+      last=$((10#${BASH_REMATCH[3]}))
+    else
+      host=""
+    fi
+    if [[ -z "$host" ]] || ! relay_host "$host"; then
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<first port>-<last port> with a host name or an IPv4 address, it is skipped."
+      continue
+    fi
+    if ((first < 1024 || last > 65535 || first > last)); then
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env: the ports are 1024-65535 and the first one is not greater than the last one, it is skipped."
+      continue
+    fi
+    conflict=""
+    i=0
+    while [[ "$i" -lt "${#firsts[@]}" ]]; do
+      if ((first <= lasts[i] && last >= firsts[i])); then
+        conflict="${hosts[i]}:${firsts[i]}-${lasts[i]}"
+        break
+      fi
+      i=$((i + 1))
+    done
+    if [[ -n "$conflict" ]]; then
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env overlaps '${conflict}': the ranges of the device hosts are unique, it is skipped."
+      continue
+    fi
+    for port in "${mcloud_ports[@]}"; do
+      if [[ "$port" =~ ^[0-9]+$ ]] && ((port >= first && port <= last)); then
+        conflict="$port"
+        break
+      fi
+    done
+    if [[ -n "$conflict" ]]; then
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env holds the port ${conflict} of MCloud, it is skipped."
+      continue
+    fi
+    hosts+=("$host")
+    firsts+=("$first")
+    lasts+=("$last")
+    # a host name is resolved by nginx on every connection: the resolvers of the host, the image fills them in
+    if [[ ! "$host" =~ ^[0-9.]+$ ]]; then
+      # shellcheck disable=SC2016 # the variable of the template of the nginx image, not of this script
+      resolver='resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;'
+    fi
+    if [[ "$first" -eq "$last" ]]; then
+      port="$first"
+    else
+      port="${first}-${last}"
+    fi
+    # shellcheck disable=SC2016 # $server_port is the variable of nginx: the port the user connected to
+    servers+="$(printf 'server {\n  listen %s so_keepalive=on;\n  proxy_pass %s:$server_port;\n}' "$port" "$host")"$'\n'
+  done
+  if [[ -n "$servers" ]]; then
+    if [[ -n "$resolver" ]]; then
+      echo "$resolver" >> "$file"
+    fi
+    printf '%s' "$servers" >> "$file"
+    adb_relay=1
+  elif [[ -n "$relay_hosts" ]]; then
+    echo_warning "ADB_RELAY_HOSTS of .env has no valid entry: adb-relay does not run (README.md#remote-debug-through-the-adb-relay)."
   fi
 }
 

@@ -70,6 +70,30 @@ services:
       start_period: 30s
     logging: *logging
     restart: always
+  # the TCP relay of the remote debug of STF (adb connect) for the device hosts in a private network: ./zebrunner.sh
+  # starts it with the profile adb-relay when ADB_RELAY_HOSTS of .env is set (README.md#remote-debug-through-the-adb-relay)
+  adb-relay:
+    image: "nginx:${TAG_NGINX}"
+    container_name: adb-relay
+    profiles: [adb-relay]
+    # it listens on the port ranges of the device hosts (hundreds of ports) on every address of the server and connects
+    # to the device hosts: the network of the host instead of published ports
+    network_mode: host
+    environment:
+      # the resolvers of the host for the device hosts given by name (NGINX_LOCAL_RESOLVERS of the template)
+      - NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+    volumes:
+      - ./configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configuration/adb-relay/relay-hosts.conf:/etc/nginx/templates/relay-hosts.conf.stream-template:ro
+    healthcheck:
+      # nginx writes its pid once it listens on every port of the ranges
+      test: ["CMD", "sh", "-c", "kill -0 $$(cat /run/nginx.pid)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+    restart: always
   mcloud-grid:
     image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid

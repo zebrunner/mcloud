@@ -96,6 +96,9 @@ check "the mock sign-in by default" "auth-mock:auth/mock/" "$(value .env AUTH_SY
 check "no device host by default" "" "$(value .env AGENT_HOSTS)"
 check "stf-proxy serves no screen without the device hosts" "" "$(cat "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf")"
 check_contains "the missing device hosts are reported" "AGENT_HOSTS of .env is empty" "$output"
+check "no adb relay by default" "" "$(value .env ADB_RELAY_HOSTS)"
+check "adb-relay has no server without the relay hosts" "" "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
+check_not_contains "no warning of the optional adb relay" "ADB_RELAY_HOSTS" "$output"
 check "the mock sign-in is behind the basic authentication" "true" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
 check "the user of the basic authentication" "'mcloud'" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_USERNAME)"
 mock_password="$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
@@ -126,6 +129,7 @@ replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
 replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
+replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=192.168.30.2:7400-7799"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
@@ -136,6 +140,10 @@ check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(val
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
 check "the size of the log files is kept" "200m" "$(value .env LOG_MAX_SIZE)"
 check "the default number of the log files" "5" "$(value .env LOG_MAX_FILE)"
+check "the relay hosts are kept" "192.168.30.2:7400-7799" "$(value .env ADB_RELAY_HOSTS)"
+check_contains "the setup writes the relay of the relay hosts" "proxy_pass 192.168.30.2:" \
+  "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
+replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=192.168.30.2:7400-7799" "ADB_RELAY_HOSTS="
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
@@ -241,6 +249,93 @@ if [[ "$(id -u)" -ne 0 ]]; then
 else
   skip_check "a file of the device hosts that is not writable" "root writes any file"
 fi
+
+section "adb relay"
+relay="${MCLOUD}/configuration/adb-relay/relay-hosts.conf"
+# relay_hosts <value>: ADB_RELAY_HOSTS of .env
+relay_hosts() {
+  sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=$1|" "${MCLOUD}/.env"
+}
+reset_calls
+zbr "" start > /dev/null
+check "start without the relay hosts starts no adb-relay" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
+relay_hosts "192.168.30.2:7400-7699, 192.168.30.3:7700-7999"
+reset_calls
+output="$(zbr "" start)"
+check "start with the relay hosts starts adb-relay too" "network|inspect|infra
+compose|--profile|adb-relay|up|-d" "$(calls docker)"
+# shellcheck disable=SC2016 # $server_port of nginx
+check "a server of adb-relay for every device host" 'server {
+  listen 7400-7699 so_keepalive=on;
+  proxy_pass 192.168.30.2:$server_port;
+}
+server {
+  listen 7700-7999 so_keepalive=on;
+  proxy_pass 192.168.30.3:$server_port;
+}' "$(cat "$relay")"
+check_not_contains "no warning with valid relay hosts" "ADB_RELAY_HOSTS" "$output"
+relay_hosts "agent1.lan:9000-9000"
+zbr "" start > /dev/null
+# shellcheck disable=SC2016 # the variables of nginx and of the template of its image
+check "a host name with the resolvers of the host, a single port" 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
+server {
+  listen 9000 so_keepalive=on;
+  proxy_pass agent1.lan:$server_port;
+}' "$(cat "$relay")"
+stf_port="$(value .env STF_PORT)"
+stf_ports="$((stf_port - 1))-$((stf_port + 1))"
+relay_hosts "192.168.30.2:7400-7799,bad,10.0.0.1:7400,host/x:9000-9001,999.1.1.1:9000-9001,1.2.3:9000-9001,\
+10.0.0.1:80-90,10.0.0.1:7500-7400,10.0.0.1:65000-70000,10.0.0.9:7700-7900,10.0.0.9:7100-7200,10.0.0.9:${stf_ports},\
+10.0.0.9:4440-4450,10.0.0.10:9000-9001"
+reset_calls
+output="$(zbr "" start)"
+for entry in bad 10.0.0.1:7400 host/x:9000-9001 999.1.1.1:9000-9001 1.2.3:9000-9001; do
+  check_contains "${entry} is not a relay host" "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<first port>-<last port>" "$output"
+done
+for entry in 10.0.0.1:80-90 10.0.0.1:7500-7400 10.0.0.1:65000-70000; do
+  check_contains "the ports of ${entry} are invalid" "'${entry}' of ADB_RELAY_HOSTS of .env: the ports are 1024-65535" "$output"
+done
+check_contains "an overlapping range is skipped" \
+  "'10.0.0.9:7700-7900' of ADB_RELAY_HOSTS of .env overlaps '192.168.30.2:7400-7799'" "$output"
+check_contains "a range with a port of ZeroMQ of STF is skipped" "'10.0.0.9:7100-7200' of ADB_RELAY_HOSTS of .env holds the port 7160 of MCloud" "$output"
+check_contains "a range with STF_PORT is skipped" \
+  "'10.0.0.9:${stf_ports}' of ADB_RELAY_HOSTS of .env holds the port ${stf_port} of MCloud" "$output"
+check_contains "a range with the port of the grid is skipped" "'10.0.0.9:4440-4450' of ADB_RELAY_HOSTS of .env holds the port 4446 of MCloud" "$output"
+check "only the valid relay hosts are written" "192.168.30.2:\$server_port;
+10.0.0.10:\$server_port;" "$(sed -n 's/^  proxy_pass //p' "$relay")"
+check "adb-relay starts with the valid relay hosts" "network|inspect|infra
+compose|--profile|adb-relay|up|-d" "$(calls docker)"
+relay_hosts "bad,10.0.0.1:80-90"
+reset_calls
+output="$(zbr "" start)"
+check "no valid relay host: no server" "" "$(cat "$relay")"
+check_contains "no valid relay host is reported" "ADB_RELAY_HOSTS of .env has no valid entry: adb-relay does not run" "$output"
+check "no valid relay host: no adb-relay" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
+relay_hosts ""
+zbr "" start > /dev/null
+check "cleared relay hosts: no server" "" "$(cat "$relay")"
+relay_hosts "192.168.30.2:7400-7799"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the setup keeps the relay hosts" "192.168.30.2:7400-7799" "$(value .env ADB_RELAY_HOSTS)"
+check_contains "the setup writes the servers of adb-relay" "listen 7400-7799 so_keepalive=on;" "$(cat "$relay")"
+# a file of root (sudo ./zebrunner.sh): root writes any file, so the check runs for another user only
+if [[ "$(id -u)" -ne 0 ]]; then
+  chmod 444 "$relay"
+  reset_calls
+  output="$(zbr "" start)"
+  chmod 644 "$relay"
+  check_contains "a file of adb-relay that is not writable is reported" \
+    "configuration/adb-relay/relay-hosts.conf is not writable" "$output"
+  check_not_contains "no shell error for adb-relay" "Permission denied" "$output"
+  check "adb-relay keeps the servers it has" "network|inspect|infra
+compose|--profile|adb-relay|up|-d" "$(calls docker)"
+else
+  skip_check "a file of adb-relay that is not writable" "root writes any file"
+fi
+relay_hosts ""
+zbr "" start > /dev/null
 
 section "sign-in"
 # the answers: the sign-in, its settings with a secret, a scope, a domain of the users, no start; the secret is literal
@@ -370,6 +465,11 @@ section "compose"
 if docker compose version > /dev/null 2>&1; then
   run_check "docker compose config of the settings of the setup" \
     bash -c "cd '${MCLOUD}' && test -z \"\$(docker compose config --quiet 2>&1)\""
+  run_check "docker compose config with adb-relay" \
+    bash -c "cd '${MCLOUD}' && test -z \"\$(docker compose --profile adb-relay config --quiet 2>&1)\""
+  check "adb-relay runs with its profile only" "adb-relay" \
+    "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) \
+      <(docker compose --profile adb-relay config --services | sort))"
 else
   skip_check "docker compose config of the settings of the setup" "requires docker compose"
 fi
@@ -422,19 +522,29 @@ owner="$(stat -c '%u:%g' "$MCLOUD" 2> /dev/null || stat -f '%u:%g' "$MCLOUD")"
 check_contains "root gives variables.env back to the owner of the folder" "${owner}|variables.env" "$(calls chown)"
 check_contains "root gives agent-hosts.conf back to the owner of the folder" \
   "${owner}|configuration/stf-proxy/agent-hosts.conf" "$(calls chown)"
+check_contains "root gives relay-hosts.conf back to the owner of the folder" \
+  "${owner}|configuration/adb-relay/relay-hosts.conf" "$(calls chown)"
 
 section "stop, down, restart"
+# with the profile of adb-relay: it stops and goes also when ADB_RELAY_HOSTS was cleared after its start
 reset_calls
 zbr "" stop > /dev/null
-check "stop" "compose|stop" "$(calls docker)"
+check "stop" "compose|--profile|adb-relay|stop" "$(calls docker)"
 reset_calls
 zbr "" down > /dev/null
-check "down" "compose|down" "$(calls docker)"
+check "down" "compose|--profile|adb-relay|down" "$(calls docker)"
 reset_calls
 zbr "" restart > /dev/null
-check "restart" "compose|down
+check "restart" "compose|--profile|adb-relay|down
 network|inspect|infra
 compose|up|-d" "$(calls docker)"
+sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=192.168.30.2:7400-7799/" "${MCLOUD}/.env"
+reset_calls
+zbr "" restart > /dev/null
+check "restart with the relay hosts" "compose|--profile|adb-relay|down
+network|inspect|infra
+compose|--profile|adb-relay|up|-d" "$(calls docker)"
+sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=/" "${MCLOUD}/.env"
 
 section "version"
 check "the version is the STF tag" "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
@@ -467,10 +577,10 @@ echo "changed" > "${MCLOUD}/variables.env"
 reset_calls
 zbr "" restore > /dev/null
 check "restore brings variables.env back" "same" "$(cmp -s "${MCLOUD}/variables.env" "${MCLOUD}/variables.env.bak" && echo same)"
-check_contains "restore stops the services first" "compose|stop" "$(calls docker | head -1)"
+check_contains "restore stops the services first" "compose|--profile|adb-relay|stop" "$(calls docker | head -1)"
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
 check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
-check "restore removes the containers at the end" "compose|down" "$(calls docker | tail -1)"
+check "restore removes the containers at the end" "compose|--profile|adb-relay|down" "$(calls docker | tail -1)"
 
 section "disabled"
 touch "${MCLOUD}/.disabled"
@@ -492,8 +602,9 @@ check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" 
 zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
-check "shutdown removes the services and their volumes" "compose|down|-v" "$(calls docker)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/agent-hosts.conf; do
+check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(calls docker)"
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/agent-hosts.conf \
+  configuration/adb-relay/relay-hosts.conf; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"

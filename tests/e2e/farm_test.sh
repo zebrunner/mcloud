@@ -192,8 +192,6 @@ devices:
     address: %s
     appium_port: 7401
     adb_port: 7402
-    proxy_port: 7403
-    server_proxy_port: 7404
     min_port: 7405
     max_port: 7410
 """ % address

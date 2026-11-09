@@ -7,7 +7,7 @@ source "$(dirname "$0")/lib.sh"
 require_cmd docker
 docker info > /dev/null 2>&1 || skip "requires a running docker"
 docker compose version > /dev/null 2>&1 || skip "requires docker compose"
-if [[ -n "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app)$')" ]]; then
+if [[ -n "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app|adb-relay|adb-relay-target)$')" ]]; then
   skip "the containers of MCloud exist on this machine"
 fi
 
@@ -22,8 +22,9 @@ docker network inspect infra > /dev/null 2>&1 || network_created=1
 # the EXIT trap of tests/lib.sh runs it
 # shellcheck disable=SC2329
 cleanup() {
+  docker rm -f adb-relay-target > /dev/null 2>&1
   if [[ -f "${MCLOUD}/.env" ]]; then
-    (cd "$MCLOUD" && docker compose down -v > /dev/null 2>&1)
+    (cd "$MCLOUD" && docker compose --profile adb-relay down -v > /dev/null 2>&1)
   fi
   if [[ -n "$network_created" ]]; then
     docker network rm infra > /dev/null 2>&1
@@ -245,6 +246,32 @@ running="$(cd "$MCLOUD" && docker compose ps --services --status running | sort 
 check "the services run again after the backup" "$expected" "$running"
 run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
 
+section "adb relay"
+# a device host of the private network: a container of the infra network whose port 17431 answers; adb-relay of the
+# network of the host relays the ports 17431-17432 of the host to it
+nginx_image="nginx:$(sed -n 's/^TAG_NGINX=//p' "${MCLOUD}/.env")"
+docker run -d --name adb-relay-target --network infra "$stf_image" \
+  node -e "require('net').createServer((s) => s.end('relay ok\\n')).listen(17431)" > /dev/null
+target="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' adb-relay-target)"
+sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=${target}:17431-17432|" "${MCLOUD}/.env"
+run_check "start with ADB_RELAY_HOSTS" zbr "" start
+# shellcheck disable=SC2329 # called through wait_for
+healthy_relay() {
+  [[ "$(status adb-relay)" == "healthy" ]]
+}
+run_check "adb-relay is healthy" wait_for 60 healthy_relay
+check "adb-relay is in the network of the host" "host" "$(docker inspect --format '{{.HostConfig.NetworkMode}}' adb-relay)"
+# the client is in the network of the host too: the one of Docker Desktop is its VM, not the one of macOS
+check "a port of the range reaches the device host" "relay ok" \
+  "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17431 && timeout 5 cat <&3' 2>&1)"
+check_contains "adb-relay logs the session" "17431 -> ${target}:17431" "$(docker logs adb-relay 2>&1)"
+check "another port of the range relays to the same port of the device host" "" \
+  "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17432 && timeout 5 cat <&3' 2>&1)"
+check_contains "the device host refuses the other port" "17432 -> ${target}:17432" "$(docker logs adb-relay 2>&1)"
+docker rm -f adb-relay-target > /dev/null
+# adb-relay goes with the services also when ADB_RELAY_HOSTS is cleared (the shutdown below)
+sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=|" "${MCLOUD}/.env"
+
 section "https"
 HTTPS="${WORK}/https"
 copy_repo "$HTTPS"
@@ -256,10 +283,20 @@ run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
+# the servers of adb-relay with an address and a host name (the resolvers of the template of the image)
+sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=192.168.30.2:7400-7699,agent.example.com:7700-7700|" "${HTTPS}/.env"
+printf 'https\nlocalhost\n443\ny\n\n\ny\n\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
+check_contains "the setup writes the servers of adb-relay" "proxy_pass agent.example.com:" \
+  "$(cat "${HTTPS}/configuration/adb-relay/relay-hosts.conf")"
+run_check "the configuration of adb-relay" \
+  docker run --rm -e NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
+  -v "${HTTPS}/configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "${HTTPS}/configuration/adb-relay/relay-hosts.conf:/etc/nginx/templates/relay-hosts.conf.stream-template:ro" \
+  "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 
 section "shutdown"
 SHUTDOWN_CONFIRMED=1 zbr "" shutdown > /dev/null
-check "shutdown removes the containers" "" "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app)$')"
+check "shutdown removes the containers" "" "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app|adb-relay)$')"
 check "shutdown removes the settings" "no" "$([[ -f "${MCLOUD}/.env" ]] && echo yes || echo no)"
 
 finish

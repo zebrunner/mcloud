@@ -27,6 +27,7 @@ project_checks() {
   done < <(grep -oE 'TAG_[A-Z_]+' docker-compose.yml | sort -u)
   if docker compose version > /dev/null 2>&1; then
     run_check "docker compose config with .env.original and variables.env.original" compose_config
+    run_check "docker compose config with the profile adb-relay" compose_config --profile adb-relay
   else
     skip_check "docker compose config" "requires docker compose"
   fi
