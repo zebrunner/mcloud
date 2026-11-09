@@ -1,0 +1,202 @@
+#!/bin/bash
+# The entrypoint of adb-relay (README.md#remote-debug-through-the-adb-relay), it runs in the nginx image: nginx relays the
+# remote debug ports of the Android devices of the device hosts in a private network. ADB_RELAY_HOSTS of .env is a fixed
+# list (relay-hosts.conf of ./zebrunner.sh); with ADB_RELAY=true this script also reads the devices of STF from its API
+# every ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on).
+# tests/adb_relay_test.sh sources it: keep the functions compatible with the macOS system bash 3.2, mawk and BSD awk.
+
+# the configuration of nginx (configuration/adb-relay/nginx.conf includes stream-conf.d), the file of ./zebrunner.sh
+AUTO_CONF="${AUTO_CONF:-/etc/nginx/stream-conf.d/adb-relay-auto.conf}"
+MANUAL_TEMPLATE="${MANUAL_TEMPLATE:-/etc/nginx/templates/relay-hosts.conf.stream-template}"
+# variables.env of MCloud: STF_TOKEN is read on every sync, a new token needs no restart
+VARIABLES_ENV="${VARIABLES_ENV:-/opt/mcloud/variables.env}"
+# the awk programs next to this script
+AWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# the fields of the devices of GET /api/v1/devices: screenPort and connectPort are missing in older STF images
+DEVICE_FIELDS="serial,present,platform,display.url,screenPort,connectPort"
+
+#### Helpers
+
+# log <level> <message>: a line of the log of the container
+log() {
+  echo "[$(date '+%d/%m/%Y %H:%M:%S')] [$1] $2"
+}
+
+# port_range <first>-<last>: prints `<first> <last>` of a range of the ports 1024-65535, fails for another value
+port_range() {
+  local first last
+  if [[ ! "$1" =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]]; then
+    return 1
+  fi
+  first=$((10#${BASH_REMATCH[1]}))
+  last=$((10#${BASH_REMATCH[2]}))
+  if ((first < 1024 || last > 65535 || first > last)); then
+    return 1
+  fi
+  echo "$first $last"
+}
+
+# devices_of_json: the devices of a JSON answer of GET /api/v1/devices of STF (stdin), a line per device:
+# <serial>|<present>|<platform>|<display.url>|<screenPort>|<connectPort>; fails when the answer has no devices
+devices_of_json() {
+  awk -f "${AWK_DIR}/devices.awk"
+}
+
+# relay_devices <agent hosts> <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin)
+# with what the relay does with them, a line per present Android device: `relay|<port>|<host>|<serial>` or
+# `skip|<port>|<host>|<serial>|<reason>`. The remote debug port is connectPort, the screen port + 1 of an older STF
+# (STF takes the screen port, then the remote debug port); the host is the device host of display.url,
+# <proto>://<host of MCloud>/d/<device host>/<serial>/<screen port>/, one of AGENT_HOSTS (separated by commas); an empty
+# first port takes any port; the ports not to relay (of MCloud, of ADB_RELAY_HOSTS) are separated by spaces, a range as
+# <first>-<last>; a port of two devices is not relayed
+relay_devices() {
+  awk -v agent_hosts="$1" -v first="$2" -v last="$3" -v reserved="$4" -f "${AWK_DIR}/relay.awk"
+}
+
+# servers_of <resolvers>: the servers of nginx of the relay lines of relay_devices (stdin), the resolvers (of
+# /etc/resolv.conf) for the device hosts given by name
+servers_of() {
+  awk -v resolvers="$1" '
+    BEGIN { FS = "|" }
+    $1 == "relay" {
+      print "# " $4
+      print "server {"
+      print "  listen " $2 " so_keepalive=on;"
+      if ($3 !~ /^[0-9.]+$/ && resolvers != "") print "  resolver " resolvers " valid=30s ipv6=off;"
+      print "  proxy_pass " $3 ":$server_port;"
+      print "}"
+    }
+  '
+}
+
+# manual_ports: the ports of ADB_RELAY_HOSTS (the listen of relay-hosts.conf of ./zebrunner.sh), separated by spaces
+manual_ports() {
+  sed -n 's/^ *listen \([0-9-]*\) .*/\1/p' "$MANUAL_TEMPLATE" 2> /dev/null | tr '\n' ' '
+}
+
+# stf_token: STF_TOKEN of variables.env of MCloud, without the quotes
+stf_token() {
+  sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$VARIABLES_ENV" 2> /dev/null | tail -1
+}
+
+#### Sync
+
+# sync_devices: the devices of the STF API to the servers of AUTO_CONF; nginx reloads when they change; a failure keeps
+# the servers the relay has
+sync_devices() {
+  local token answer devices report conf previous
+  token="$(stf_token)"
+  if [[ -z "$token" ]]; then
+    report_error "STF_TOKEN of variables.env is empty: no device is relayed, set an access token of STF there (README.md#remote-debug-through-the-adb-relay)."
+    return
+  fi
+  # the certificate of stf-proxy is the one of the public name of MCloud, not of the loopback address
+  if ! answer="$(curl -fsS -k --max-time 20 -H "Authorization: Bearer ${token}" "${stf_api}/api/v1/devices?fields=${DEVICE_FIELDS}" 2>&1)"; then
+    report_error "The STF API ${stf_api} failed, the relay keeps its devices: ${answer}"
+    return
+  fi
+  if ! devices="$(devices_of_json <<< "$answer")"; then
+    report_error "The STF API ${stf_api} answered without devices, the relay keeps its devices: ${answer:0:200}"
+    return
+  fi
+  last_error=""
+  report="$(relay_devices "$AGENT_HOSTS" "$relay_first" "$relay_last" "$reserved_ports" <<< "$devices")"
+  conf="$(servers_of "$resolvers" <<< "$report")"
+  previous="$(cat "$AUTO_CONF" 2> /dev/null)"
+  if [[ "$conf" != "$previous" ]]; then
+    printf '%s\n' "$conf" > "$AUTO_CONF"
+    if nginx -t -q 2> /dev/null; then
+      kill -HUP "$nginx_pid"
+    else
+      log "ERROR" "nginx refuses the servers of the devices, the relay keeps its devices: $(nginx -t 2>&1 | tr '\n' ' ')"
+      printf '%s\n' "$previous" > "$AUTO_CONF"
+      return
+    fi
+  fi
+  if [[ "$report" != "$last_report" ]]; then
+    last_report="$report"
+    log_report "$report"
+  fi
+}
+
+# report_error <message>: logs an error once, until the next one or a successful sync
+report_error() {
+  if [[ "$1" != "$last_error" ]]; then
+    last_error="$1"
+    log "ERROR" "$1"
+  fi
+}
+
+# log_report <relay lines>: the devices the relay forwards and the ones it skips
+log_report() {
+  local kind port host serial reason relayed=0
+  while IFS='|' read -r kind port host serial reason; do
+    if [[ "$kind" == "relay" ]]; then
+      relayed=$((relayed + 1))
+      log "INFO" "Relays the remote debug port ${port} of the device ${serial} to ${host}:${port}."
+    elif [[ "$kind" == "skip" ]]; then
+      log "WARN" "Skips the remote debug port ${port} of the device ${serial} of ${host}: ${reason}."
+    fi
+  done <<< "$1"
+  log "INFO" "Android devices of STF relayed: ${relayed}."
+}
+
+#### Main
+
+# main: nginx, with ADB_RELAY=true also the sync of the devices of STF
+main() {
+  if [[ "$ADB_RELAY" != "true" ]]; then
+    exec /docker-entrypoint.sh nginx -g 'daemon off;'
+  fi
+  local interval="$ADB_RELAY_SYNC_SECONDS"
+  local range
+  if [[ ! "$interval" =~ ^[1-9][0-9]*$ ]]; then
+    log "WARN" "ADB_RELAY_SYNC_SECONDS '${interval}' is not a number of seconds, the devices are read every 30 seconds."
+    interval=30
+  fi
+  relay_first=""
+  relay_last=""
+  if [[ -n "$ADB_RELAY_PORTS" ]]; then
+    if range="$(port_range "$ADB_RELAY_PORTS")"; then
+      relay_first="${range% *}"
+      relay_last="${range#* }"
+    else
+      log "ERROR" "ADB_RELAY_PORTS '${ADB_RELAY_PORTS}' is not <first>-<last> of the ports 1024-65535: no device of STF is relayed."
+      relay_first=1
+      relay_last=0
+    fi
+  fi
+  # stf-proxy on the published port of the host: the scheme of STF_URL is the one of stf-proxy (README.md#https)
+  stf_api="${STF_URL%%://*}://127.0.0.1:${STF_PORT}"
+  reserved_ports="${STF_PORT} 4446 7160 7250 7260 7270 $(manual_ports)"
+  resolvers="$(awk '$1 == "nameserver" { printf "%s%s", sep, ($2 ~ /:/ ? "[" $2 "]" : $2); sep = " " }' /etc/resolv.conf)"
+  last_error=""
+  last_report="none"
+  log "INFO" "Relays the remote debug ports of the Android devices of STF (${stf_api}) of AGENT_HOSTS '${AGENT_HOSTS}' in ADB_RELAY_PORTS '${ADB_RELAY_PORTS:-any}', read every ${interval} seconds."
+
+  mkdir -p "$(dirname "$AUTO_CONF")"
+  : > "$AUTO_CONF"
+  # the pid file of an earlier run of the container: nginx is ready once it writes its own
+  rm -f /run/nginx.pid
+  /docker-entrypoint.sh nginx -g 'daemon off;' &
+  nginx_pid=$!
+  # docker stop: nginx stops at once, an adb session cannot be waited for
+  trap 'kill -TERM "$nginx_pid" 2> /dev/null; wait "$nginx_pid"; exit 0' TERM INT
+  until [[ -s /run/nginx.pid ]]; do
+    if ! kill -0 "$nginx_pid" 2> /dev/null; then
+      exit 1
+    fi
+    sleep 1
+  done
+  while kill -0 "$nginx_pid" 2> /dev/null; do
+    sync_devices
+    sleep "$interval" &
+    wait $!
+  done
+  log "ERROR" "nginx stopped."
+  exit 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

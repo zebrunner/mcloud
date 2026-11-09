@@ -14,6 +14,8 @@ setup() {
   local log_max_size=""
   local log_max_file=""
   local adb_relay_hosts=""
+  local relay_settings=""
+  local setting
   AGENT_HOSTS=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
@@ -26,6 +28,7 @@ setup() {
     log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
     log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
     adb_relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
+    relay_settings="$(grep -E '^ADB_RELAY(_PORTS|_SYNC_SECONDS)?=' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -96,6 +99,12 @@ setup() {
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
   replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${AGENT_HOSTS}"
   replace .env "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=${adb_relay_hosts}"
+  # the settings of the auto mode of adb-relay of the previous setup
+  while read -r setting; do
+    if [[ -n "$setting" ]]; then
+      replace .env "$(grep "^${setting%%=*}=" .env)" "$setting"
+    fi
+  done <<< "$relay_settings"
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
   write_agent_hosts
@@ -251,7 +260,8 @@ start() {
   # AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
   write_agent_hosts
   write_adb_relay_hosts
-  # adb-relay runs with relay hosts only (README.md#remote-debug-through-the-adb-relay)
+  check_adb_relay_auto
+  # adb-relay runs with relay hosts or in the auto mode only (README.md#remote-debug-through-the-adb-relay)
   if [[ -n "$adb_relay" ]]; then
     docker compose --profile adb-relay up -d || return
   else
@@ -658,6 +668,52 @@ write_adb_relay_hosts() {
   elif [[ -n "$relay_hosts" ]]; then
     echo_warning "ADB_RELAY_HOSTS of .env has no valid entry: adb-relay does not run (README.md#remote-debug-through-the-adb-relay)."
   fi
+}
+
+# check_adb_relay_auto: the auto mode of adb-relay, ADB_RELAY=true of .env (README.md#remote-debug-through-the-adb-relay):
+# sets adb_relay to 1 and warns about the settings it needs
+check_adb_relay_auto() {
+  local auto
+  local ports
+  local seconds
+  auto="$(sed -n 's/^ADB_RELAY=//p' .env)"
+  case "$auto" in
+  true) ;;
+  "" | false)
+    return
+    ;;
+  *)
+    echo_warning "ADB_RELAY of .env is '${auto}', not true or false: the auto mode of adb-relay is off."
+    return
+    ;;
+  esac
+  adb_relay=1
+  ports="$(sed -n 's/^ADB_RELAY_PORTS=//p' .env)"
+  if [[ -n "$ports" ]] && ! valid_port_range "$ports"; then
+    echo_warning "ADB_RELAY_PORTS of .env '${ports}' is not <first>-<last> of the ports 1024-65535: adb-relay relays no device of STF."
+  fi
+  seconds="$(sed -n 's/^ADB_RELAY_SYNC_SECONDS=//p' .env)"
+  if [[ -n "$seconds" && ! "$seconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo_warning "ADB_RELAY_SYNC_SECONDS of .env '${seconds}' is not a number of seconds: adb-relay reads the devices every 30 seconds."
+  fi
+  if [[ -z "$(sed -n 's/^AGENT_HOSTS=//p' .env)" ]]; then
+    echo_warning "AGENT_HOSTS of .env is empty: adb-relay (ADB_RELAY=true) relays no device of STF."
+  fi
+  if [[ -z "$(sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" variables.env 2> /dev/null)" ]]; then
+    echo_warning "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF. Set an access token of STF there (Settings, Keys): adb-relay reads it on its next sync."
+  fi
+}
+
+# valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535
+valid_port_range() {
+  local first
+  local last
+  if [[ ! "$1" =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]]; then
+    return 1
+  fi
+  first=$((10#${BASH_REMATCH[1]}))
+  last=$((10#${BASH_REMATCH[2]}))
+  ((first >= 1024 && last <= 65535 && first <= last))
 }
 
 # set_sign_in <url> [zebrunner]: asks the sign-in of STF of the interactive setup and its settings (README.md#sign-in),

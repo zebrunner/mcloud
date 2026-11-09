@@ -369,6 +369,71 @@ fi
 relay_hosts ""
 zbr "" start > /dev/null
 
+section "adb relay of the devices of STF"
+# relay_setting <name> <value>: a setting of the auto mode of adb-relay in .env
+relay_setting() {
+  sed -i.orig "s|^$1=.*|$1=$2|" "${MCLOUD}/.env"
+}
+check "the auto mode is off by default" "false:30:" \
+  "$(sed -n 's/^ADB_RELAY=//p' "${REPO}/.env.original"):$(value .env ADB_RELAY_SYNC_SECONDS):$(value .env ADB_RELAY_PORTS)"
+relay_setting ADB_RELAY true
+reset_calls
+output="$(zbr "" start)"
+check "the auto mode starts adb-relay without relay hosts" "network|inspect|infra
+compose|--profile|adb-relay|up|-d" "$(calls docker)"
+check "no server of ADB_RELAY_HOSTS" "" "$(cat "$relay")"
+check_not_contains "no warning of the auto mode with its settings" "adb-relay" "$output"
+relay_setting ADB_RELAY_PORTS 7400-7799
+relay_setting ADB_RELAY_SYNC_SECONDS 10
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the setup keeps the settings of the auto mode" "true:7400-7799:10" \
+  "$(value .env ADB_RELAY):$(value .env ADB_RELAY_PORTS):$(value .env ADB_RELAY_SYNC_SECONDS)"
+for value in 7400 80-90 7799-7400 x; do
+  relay_setting ADB_RELAY_PORTS "$value"
+  check_contains "ADB_RELAY_PORTS '${value}' is reported" \
+    "ADB_RELAY_PORTS of .env '${value}' is not <first>-<last> of the ports 1024-65535: adb-relay relays no device of STF." \
+    "$(zbr "" start)"
+done
+relay_setting ADB_RELAY_PORTS ""
+relay_setting ADB_RELAY_SYNC_SECONDS 0
+check_contains "an invalid ADB_RELAY_SYNC_SECONDS is reported" \
+  "ADB_RELAY_SYNC_SECONDS of .env '0' is not a number of seconds: adb-relay reads the devices every 30 seconds." "$(zbr "" start)"
+relay_setting ADB_RELAY_SYNC_SECONDS 30
+replace "${MCLOUD}/variables.env" "STF_TOKEN=api-token" "STF_TOKEN="
+replace "${MCLOUD}/.env" "AGENT_HOSTS=agent1.example.com" "AGENT_HOSTS="
+output="$(zbr "" start)"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
+replace "${MCLOUD}/.env" "AGENT_HOSTS=" "AGENT_HOSTS=agent1.example.com"
+check_contains "the auto mode without STF_TOKEN is reported" \
+  "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF." "$output"
+check_contains "the auto mode without AGENT_HOSTS is reported" \
+  "AGENT_HOSTS of .env is empty: adb-relay (ADB_RELAY=true) relays no device of STF." "$output"
+relay_setting ADB_RELAY yes
+reset_calls
+output="$(zbr "" start)"
+check_contains "an invalid ADB_RELAY is reported" "ADB_RELAY of .env is 'yes', not true or false: the auto mode of adb-relay is off." "$output"
+check "an invalid ADB_RELAY starts no adb-relay" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
+relay_setting ADB_RELAY false
+reset_calls
+zbr "" start > /dev/null
+check "ADB_RELAY=false starts no adb-relay" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
+if docker compose version > /dev/null 2>&1; then
+  relay_setting ADB_RELAY true
+  relay_setting ADB_RELAY_PORTS 7400-7799
+  check "docker compose passes the settings of the auto mode to adb-relay" "ADB_RELAY: \"true\"
+ADB_RELAY_PORTS: 7400-7799
+ADB_RELAY_SYNC_SECONDS: \"30\"
+AGENT_HOSTS: agent1.example.com" \
+    "$(cd "$MCLOUD" && docker compose --profile adb-relay config 2> /dev/null |
+      sed -n '/^  adb-relay:/,/^  [a-z]/p' | grep -E '^      (ADB_RELAY|AGENT_HOSTS)' | sed 's/^ *//')"
+  relay_setting ADB_RELAY false
+  relay_setting ADB_RELAY_PORTS ""
+else
+  skip_check "docker compose passes the settings of the auto mode to adb-relay" "requires docker compose"
+fi
+
 section "sign-in"
 # the answers: the sign-in, its settings with a secret, a scope, a domain of the users, no start; the secret is literal
 # shellcheck disable=SC2016
