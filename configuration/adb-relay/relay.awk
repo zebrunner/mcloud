@@ -38,7 +38,7 @@ function node_address(address, octets) {
   else if (!node_address(address)) reason = "the address " address " of its node is not one to relay to"
   else if (port < 1024 || port > 65535) reason = "the port is not 1024-65535"
   else if (first != "" && (port < first + 0 || port > last + 0)) reason = "the port is not in ADB_RELAY_PORTS " first "-" last
-  else if (reserved_port(port)) reason = "the port is one of MCloud or of ADB_RELAY_HOSTS"
+  else if (reserved_port(port)) reason = "the port is one of MCloud"
   lines++
   line[lines] = port "|" address "|" serial "|" label
   why[lines] = reason

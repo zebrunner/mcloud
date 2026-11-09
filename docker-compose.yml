@@ -69,9 +69,8 @@ services:
       start_period: 30s
     logging: *logging
     restart: always
-  # the TCP relay of the remote debug of STF (adb connect) for the device hosts in a private network: ./zebrunner.sh
-  # starts it with the profile adb-relay when ADB_RELAY of .env is true or ADB_RELAY_HOSTS is set
-  # (README.md#remote-debug-through-the-adb-relay)
+  # the TCP relay of the remote debug of STF (adb connect) for the nodes in a private network: ./zebrunner.sh starts it
+  # with the profile adb-relay when ADB_RELAY of .env is true (README.md#remote-debug-through-the-adb-relay)
   adb-relay:
     image: "nginx:${TAG_NGINX}"
     container_name: adb-relay
@@ -80,11 +79,9 @@ services:
     # reads the devices of the nodes from stf-proxy on the port of the host: the network of the host instead of published
     # ports
     network_mode: host
-    # nginx and, with ADB_RELAY=true, the sync of the devices of STF
+    # nginx and the sync of the devices of STF
     entrypoint: ["bash", "/opt/adb-relay/adb-relay.sh"]
     environment:
-      # the resolvers of the host for the device hosts given by name (NGINX_LOCAL_RESOLVERS of the template)
-      - NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
       - ADB_RELAY=${ADB_RELAY:-false}
       - ADB_RELAY_PORTS=${ADB_RELAY_PORTS:-}
       - ADB_RELAY_SYNC_SECONDS=${ADB_RELAY_SYNC_SECONDS:-300}
@@ -92,7 +89,6 @@ services:
       - STF_PORT=${STF_PORT}
     volumes:
       - ./configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./configuration/adb-relay/relay-hosts.conf:/etc/nginx/templates/relay-hosts.conf.stream-template:ro
       # adb-relay.sh, its awk programs and stf-token (STF_TOKEN of variables.env only, written by ./zebrunner.sh)
       - ./configuration/adb-relay:/opt/adb-relay:ro
     healthcheck:
@@ -222,10 +218,6 @@ services:
     <<: *stf
     container_name: stf-api
     healthcheck: *http-healthcheck
-    environment:
-      # the legacy nodes without enrollment (README.md#nodes): /api/v1/zebrunner/screen-auth allows the screens of their
-      # devices that are not bound to a node at these hosts only
-      - AGENT_HOSTS=${AGENT_HOSTS:-}
     # --nodes-connect-*: the ZeroMQ endpoints of the answer of the enrollment, the published ports of the triproxies at
     # NODES_HOST (the host of the join string); --nodes-stf-url is STF_URL of variables.env, the public URL
     command: >-

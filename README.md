@@ -21,42 +21,48 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 - Docker v27+ with the Docker compose plugin
 - git 2.20.0+
-- openssl with X25519 (OpenSSL 1.1.1+) or Python 3: the setup makes the [CURVE keys](#authentication-of-the-device-hosts) with them (the LibreSSL of macOS has no X25519, Python 3 is used there); `./zebrunner.sh node-invite` makes the pin of the certificate with openssl (LibreSSL too) or Python 3
-- curl: the [node commands](#nodes) call the STF API with it
+- openssl with X25519 (OpenSSL 1.1.1+) or Python 3: the setup makes the [CURVE keys](#authentication-of-the-nodes) of the server with them (the LibreSSL of macOS has no X25519, Python 3 is used there); `./zebrunner.sh node-invite` makes the pin of the certificate with openssl (LibreSSL too) or Python 3
+- curl: the [node commands](#commands-of-the-nodes) call the STF API with it
+- a certificate of the host for https (`configuration/stf-proxy/ssl`, see [https](#https)): the nodes are enrolled over https only
 
 ## Run
 
-1. Clone [mcloud](https://github.com/zebrunner/mcloud) and set it up, provide valid protocol, hostname and port:
+The server:
+
+1. Clone [mcloud](https://github.com/zebrunner/mcloud), put the certificate of the host into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` ([https](#https)) and set it up with the protocol `https`, the host name and the port:
 
    ```bash
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
    ```
 
-2. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
-3. Open `http://hostname:80/stf` (the protocol, host and port of the setup).
-4. Sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then any name and email; the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
-5. Sign in as the admin of STF (`STF_ADMIN_*`), go to Settings, Keys and generate a new Access Token.
-6. Paste the generated token into `variables.env` as `STF_TOKEN`: the grid reserves the devices with it, the [node commands](#nodes) manage the nodes with it.
-7. Restart the services: `./zebrunner.sh restart`.
-8. Set up the servers with Android and iOS devices (the nodes) according to [mcloud-agent](https://github.com/zebrunner/mcloud-agent), the same on Linux and macOS, and enroll every one of them: `./zebrunner.sh node-invite <label> <address>` here prints a join string, `./zebrunner.sh join` of mcloud-agent on the node takes it, see [Nodes](#nodes) (https only).
-9. Use `http://hostname:80/mcloud/grid/console` to see the connected devices and `http://hostname:80/mcloud/wd/hub` as the Selenium/Appium hub URL for test automation.
+2. Set `AGENTS_ADDRESS` of `.env` to the address of the server the nodes reach (its LAN address for the nodes in its network or on the server itself, see [Nodes in a private network](#nodes-in-a-private-network) and [Devices on the MCloud server](#devices-on-the-mcloud-server)); `0.0.0.0`, the default, lets the nodes use the public name of `STF_URL`.
+3. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
+4. Open `https://<host>:<port>/stf` and sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then the name and the email of the admin (`STF_ADMIN_*`); the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
+5. Go to Settings, Keys, generate an access token of the admin and set it as `STF_TOKEN` of `variables.env`: the grid reserves the devices with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it.
+6. Restart the services: `./zebrunner.sh restart`.
 
-Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
+Every node (a Linux or macOS host with Android and iOS devices, [mcloud-agent](https://github.com/zebrunner/mcloud-agent)):
+
+1. On the server: `./zebrunner.sh node-invite <label> <address>` prints the join string of the node once, see [Enrollment](#enrollment).
+2. On the node: `./zebrunner.sh setup` of mcloud-agent, then `./zebrunner.sh join` with the join string, the devices of the node in its settings, `./zebrunner.sh ansible` and `zebrunner-farm start`, as mcloud-agent describes; `./zebrunner.sh doctor` of mcloud-agent checks the node.
+3. On the server: `./zebrunner.sh nodes check <label>` shows the node, its devices in STF and whether the server reaches their screens, see [Diagnostics](#diagnostics).
+
+Use `https://<host>:<port>/mcloud/grid/console` to see the devices of the grid and `https://<host>:<port>/mcloud/wd/hub` as the Selenium/Appium hub URL for test automation. Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
 The commands of `./zebrunner.sh`:
 
 | Command | What it does |
 | --- | --- |
 | `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept |
-| `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty; the first start runs `setup` |
+| `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty and while `AGENTS_ADDRESS` is `0.0.0.0`; the first start runs `setup` |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
 | `down` | stops and removes the containers, the data is kept |
 | `shutdown` | removes the containers, the data and the settings |
 | `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently |
 | `version` | the version of MCloud, the tag of the STF image |
-| `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string for `./zebrunner.sh join` of mcloud-agent once, see [Nodes](#nodes) |
-| `nodes [list]`, `nodes revoke <label>`, `nodes delete <label>`, `nodes legacy-off` | the enrolled nodes; the revocation of a node; the removal of a revoked node; the end of the manual keys and tokens of the nodes, see [Nodes](#nodes) |
+| `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
+| `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
 
 ## Configuration
 
@@ -68,13 +74,11 @@ The commands of `./zebrunner.sh`:
 | --- | --- | --- |
 | `STF_URL` | `http://localhost:8082` | the public URL of MCloud: the protocol, host and port of the setup |
 | `STF_PORT` | `8082` | the port of `stf-proxy` on the host |
-| `AGENTS_ADDRESS` | `0.0.0.0` | the host address of the ports the nodes connect to: ZeroMQ of STF and the grid, see [Firewall](#firewall); also the host of the join string of `./zebrunner.sh node-invite` (the host of `STF_URL` for `0.0.0.0`); the value of the previous setup is kept |
-| `NODES_HOST` | `localhost` | written by `./zebrunner.sh setup` and `start`: the host the nodes reach the ports of `AGENTS_ADDRESS` at, `AGENTS_ADDRESS` or the host of `STF_URL` for `0.0.0.0`; the host of the join string and of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) |
-| `AGENT_HOSTS` | | legacy: the nodes without enrollment (`STF_PROVIDER_HOST` of their mcloud-agent) separated by commas, `stf-api` allows the screens of their devices, see [Nodes](#nodes); not asked by the setup, the value of the previous setup is kept, `nodes legacy-off` empties it |
-| `ADB_RELAY` | `false` | `true`: `adb-relay` relays the remote debug ports of the Android devices of the enrolled nodes (the auto mode), see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); the value of the previous setup is kept |
-| `ADB_RELAY_PORTS` | | the auto mode relays the ports of this range only, `<first>-<last>` (e.g. `7400-7999`): the range opened in the firewall; empty: any port; the value of the previous setup is kept |
-| `ADB_RELAY_SYNC_SECONDS` | `300` | the auto mode reads the devices of STF every these seconds: a new device is relayed within this time (at once after `./zebrunner.sh restart`); the value of the previous setup is kept |
-| `ADB_RELAY_HOSTS` | | the ports `adb-relay` relays in addition (or without the auto mode), `<host>:<port>` separated by commas, e.g. `192.168.30.2:7404,192.168.30.3:7704` (`<host>:<first>-<last>` relays a range, the screens too); the value of the previous setup is kept |
+| `AGENTS_ADDRESS` | `0.0.0.0` | the address of the host the ports of the nodes are published on (ZeroMQ of STF and the grid, see [Firewall](#firewall)) and the host of the join string: the LAN address of the server for the nodes in its network or on the server itself; `0.0.0.0` publishes them on every address and gives the nodes the host of `STF_URL`, `start` warns about it; the value of the previous setup is kept |
+| `NODES_HOST` | `localhost` | written by `setup` and `start`, not set by hand: `AGENTS_ADDRESS`, the host of `STF_URL` for `0.0.0.0`; the host of the join string and of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) |
+| `ADB_RELAY` | `false` | `true`: `adb-relay` relays the remote debug ports of the Android devices of the nodes, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); the value of the previous setup is kept |
+| `ADB_RELAY_PORTS` | | `adb-relay` relays the ports of this range only, `<first>-<last>` (e.g. `7400-7999`): the range opened in the firewall; empty: any port; the value of the previous setup is kept |
+| `ADB_RELAY_SYNC_SECONDS` | `300` | `adb-relay` reads the devices of the nodes every these seconds: a new device is relayed within this time (at once after `./zebrunner.sh restart`); the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
@@ -88,10 +92,9 @@ The commands of `./zebrunner.sh`:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SECRET` | generated | the secret of the sessions and the access tokens of STF; the setup generates it once, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
-| `STF_STORAGE_TOKEN` | generated | the token of the STF units for the storage routes; legacy: the same value as `STF_STORAGE_TOKEN` of the mcloud-agent of a node without enrollment, `nodes legacy-off` makes a new one |
-| `STF_TOKEN` | | the access token of the STF user the grid reserves the devices with; an admin of STF for the [node commands](#nodes) and the auto mode of `adb-relay` |
-| `NODE_REGISTRATION_TOKEN` | generated | legacy: the secret the Appium nodes of the nodes without enrollment register in the grid with, the same value as `NODE_REGISTRATION_TOKEN` of their mcloud-agent; `nodes legacy-off` makes a new one |
-| `STF_URL` | `http://localhost:8082` | the public URL of MCloud |
+| `STF_STORAGE_TOKEN` | generated | the internal token of the STF units: the storage, the triproxies and the internal routes of the registry of the nodes; the nodes use their own tokens |
+| `STF_TOKEN` | | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it |
+| `STF_URL` | `http://localhost:8082` | the public URL of MCloud, also the one the enrollment gives the nodes |
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
 | `STF_ADMIN_NAME`, `STF_ADMIN_EMAIL` | `admin`, `admin@zebrunner.com` | the administrator of STF, the owner of the root group |
 | `ZEBRUNNER_LOGIN_URL`, `ZEBRUNNER_USERINFO_URL` | | the endpoints of Zebrunner IAM for `auth-zebrunner`, set by the setup of Zebrunner CE |
@@ -102,9 +105,7 @@ The commands of `./zebrunner.sh`:
 | `RETHINKDB_ENV_AUTHKEY` | generated | the password of the `admin` of RethinkDB the STF units connect with, `stf-migrate` sets it in the database |
 | `STF_ZMQ_CURVE_SERVER_SECRET_KEY`, `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` | generated | the CURVE key pair of the triproxies of STF, the enrollment gives the public key to the node |
 | `STF_ZMQ_CURVE_SECRET_KEY` | generated | the CURVE key of the STF units |
-| `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` | | legacy: the public key of one node without enrollment (`./zebrunner.sh curve-key` of mcloud-agent), one variable per node, `<HOST>` is a free label of letters, digits and `_` (e.g. `STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01`): the triproxies accept these keys and the ones of the enrolled nodes; an empty value is ignored, an invalid one stops STF with an error naming the variable; `nodes legacy-off` empties them |
-| `STF_ZMQ_CURVE_CLIENT_KEYS` | | legacy: the public keys of the nodes without enrollment separated by commas, kept for compatibility: the triproxies accept them too |
-| `STF_NODES_API_URL` | `http://stf-api:3000` | the API the triproxies and the storage read the keys and the tokens of the enrolled nodes from (every 5 seconds), with `STF_STORAGE_TOKEN`; its internal routes `/api/v1/zebrunner/nodes/` are refused by `stf-proxy` |
+| `STF_NODES_API_URL` | `http://stf-api:3000` | the API the triproxies and the storage read the keys and the tokens of the nodes from (every 5 seconds) with `STF_STORAGE_TOKEN`; `stf-proxy` refuses its internal routes (`/api/v1/zebrunner/nodes`) |
 
 More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session, or `STF_STORAGE_TEMP_DOWNLOAD_ALLOW`, the private networks the apps may be installed from by URL) are described in [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#configuration). The settings of the grid (e.g. `NODE_ALLOWED_NETWORKS`, `MAX_NEW_COMMAND_TIMEOUT`, `MCLOUD_LOG_LEVEL`) are described in [mcloud-grid](https://github.com/zebrunner/mcloud-grid#configuration), they go to `environment` of `mcloud-grid` in `docker-compose.yml`.
 
@@ -130,71 +131,50 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 `stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`.
 
-### Authentication of the device hosts
+### Authentication of the nodes
 
-The device hosts (the nodes, mcloud-agent) connect to ZeroMQ of STF (the triproxies), their Appium nodes register in the grid. Neither has an authentication of its own: anyone who reaches their ports reads the events of all the devices or sends commands to them, and a node registered in the grid gets the sessions of its device with their capabilities (the personal `zebrunner:STF_TOKEN` too). So `./zebrunner.sh setup` turns the authentication on:
+The nodes connect to ZeroMQ of STF (the triproxies), their Appium nodes register in the grid, their devices upload to the storage of STF. None of them has an authentication of its own: anyone who reaches their ports reads the events of all the devices or sends commands to them, and an Appium node registered in the grid gets the sessions of its device with their capabilities (the personal `zebrunner:STF_TOKEN` too). So every node has an identity of its own, given by its [enrollment](#enrollment) and kept by STF in its registry of the nodes:
 
-- the triproxies accept only the clients with a known CURVE key ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)): the STF units, the active [enrolled nodes](#nodes) and the legacy keys of `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` (and `STF_ZMQ_CURVE_CLIENT_KEYS`), never the key of a revoked node; the traffic is encrypted. `./zebrunner.sh setup` makes the keys of the server (X25519, as `stf curve-keygen`) with openssl or, where it has no X25519, with `patch/curve_keygen.py`, the same as of mcloud-agent;
-- RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published: only the STF units of the server use the database;
-- the grid registers only the Appium nodes with the token of an enrolled node, verified by STF for the address of the node, or (legacy) with `NODE_REGISTRATION_TOKEN` of `variables.env` ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)), and sends it with its requests to them: the Appium of a device answers the grid only, the devices are used through `/mcloud/wd/hub` and reserved in STF;
-- the storage of STF accepts the uploads of the devices with the token of an enrolled node or (legacy) `STF_STORAGE_TOKEN`.
+- the triproxies let in the STF units and the CURVE keys of the active nodes only ([ZeroMQ of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#zeromq)), the traffic is encrypted; `./zebrunner.sh setup` makes the keys of the server (X25519, as `stf curve-keygen`) with openssl or, where it has no X25519, with `patch/curve_keygen.py`;
+- the grid registers an Appium node only with the token of an active node, which STF verifies for the address of that node ([Node registration of mcloud-grid](https://github.com/zebrunner/mcloud-grid#node-registration)), and sends the token with its requests to it: the Appium of a device answers the grid only, the devices are used through `/mcloud/wd/hub` and reserved in STF;
+- STF binds a device to its node only with a proof of the token of the node from the address of the node, and refuses the registration of any other device;
+- the storage of STF accepts the uploads of the devices with the token of an active node only;
+- RethinkDB has a password, `RETHINKDB_ENV_AUTHKEY`, its web console is off and its port is not published: only the STF units of the server use the database.
 
-A node gets its key, its token and the settings of MCloud by its [enrollment](#nodes). The manual settings of the earlier releases still work for the nodes that are not enrolled yet, until `./zebrunner.sh nodes legacy-off` ([Migration from the manual settings](#migration-from-the-manual-settings)): the node makes its own key pair, `./zebrunner.sh curve-key` of mcloud-agent prints its public key, it goes to `variables.env` as one line per node, the suffix is a free label of the node (letters, digits and `_`), then `./zebrunner.sh restart`:
-
-```bash
-STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01=<the public key of the node, 64 hex characters>
-```
-
-An empty value is ignored, an invalid key stops the STF units with an error naming the variable. The removal of a line disconnects its node. `./zebrunner.sh setup` keeps these lines. `STF_ZMQ_CURVE_CLIENT_KEYS`, the public keys separated by commas, is kept for compatibility: the triproxies accept the keys of both. Such a node needs `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY`, `NODE_REGISTRATION_TOKEN` and `STF_STORAGE_TOKEN` of `variables.env` in its mcloud-agent and its address in `AGENT_HOSTS` of `.env` for the screens.
-
-The nodes need mcloud-agent of the same MCloud release; the others cannot connect.
+The nodes need mcloud-agent, mcloud-grid and STF of the same MCloud release.
 
 ### Screens of the devices
 
-The screen of a device is a WebSocket of its STF provider on the node, which the browser opens through `stf-proxy`: `/d/<address of the node>/<serial>/<port>/`, on a port 1024-65535. `stf-proxy` asks `stf-api` first (`auth_request` of `/api/v1/zebrunner/screen-auth` with the session cookie or the access token of the request and its URI in `X-Original-URI`, no other header of the user); `stf-api` allows it (`204`) only when:
+The screen of a device is a WebSocket of its STF provider on the node, which the browser opens through `stf-proxy`: `/d/<address of the node>/<serial>/<port>/`, on a port 1024-65535. `stf-proxy` asks `stf-api` first (`auth_request` of `/api/v1/zebrunner/screen-auth` with the session cookie or the access token of the request and its URI in `X-Original-URI`, no other header of the user); `stf-api` allows it (`204`) only when the user is signed in (`401` otherwise) and uses the device (or is an admin of STF), the device is bound to an active node whose registered address is `<address of the node>` and `<port>` is the screen port of the device; anything else gets `403`. `stf-proxy` passes only the headers of the WebSocket to the node: never the session cookie, the `Authorization` header, `X-Stf-Internal-Token` or another `X-Stf-*` header of the user.
 
-- the user is signed in (`401` otherwise) and uses the device (or is an admin of STF);
-- the device is bound to an active enrolled node whose registered address is `<address of the node>`, and `<port>` is the screen port of the device;
-- or, legacy, the device is bound to no node, `<address of the node>` is in `AGENT_HOSTS` of `.env` (`stf-api` gets it) and is not the address of an enrolled node.
+### Nodes in a private network
 
-Anything else gets `403`. `stf-proxy` passes only the headers of the WebSocket to the node: never the session cookie, the `Authorization` header or the `X-Stf-*` headers of the user, the node is not trusted with them.
+The nodes may be in a private network (LAN) with the MCloud server, only the server is public. The address of the invite of a node is its LAN address (or a LAN host name), its `STF_PROVIDER_HOST`, and `AGENTS_ADDRESS` of `.env` is the LAN address of the server:
 
-### Device hosts in a private network
+- the screens: browser -> `wss://<public host>/d/<address of the node>/...` -> `stf-proxy` -> the node over the LAN;
+- the tests: client -> `mcloud-grid` -> the Appium node of the node over the LAN; the hub registers an Appium node only when it reaches `http://<address of the node>:<Appium port>`, otherwise it answers the registration with `500` and logs `Node <url> is not reachable from the hub`;
+- the enrollment, ZeroMQ of STF, the grid registration, the storage and S3 are outbound connections of the node, to the host of the join string (`AGENTS_ADDRESS`).
 
-The device hosts may be in a private network (LAN) with the MCloud server, only the server is public. The address of the invite of a node (`./zebrunner.sh node-invite <label> <address>`) is its LAN address (or a LAN host name), its `STF_PROVIDER_HOST`; a node without enrollment (legacy) sets it in its mcloud-agent and needs it in `AGENT_HOSTS` of `.env`:
-
-- the screens: browser -> `wss://<public host>/d/<STF_PROVIDER_HOST>/...` -> `stf-proxy` -> the device host over the LAN;
-- the tests: client -> `mcloud-grid` -> the Appium node of the device host over the LAN; the hub registers a node only when it reaches `http://<STF_PROVIDER_HOST>:<Appium port>`, otherwise it answers the registration with `500` and logs `Node <url> is not reachable from the hub`;
-- ZeroMQ of STF, the storage and S3 are outbound connections of the device host.
-
-The nodes reach the server at the host of the join string: `AGENTS_ADDRESS` of `.env` when it is set (e.g. the LAN address of the server), the public host name of `STF_URL` otherwise; resolve that name to the LAN address of the server on every node (e.g. `/etc/hosts`, the docker containers use it through the stub resolver of systemd-resolved) or set `AGENTS_ADDRESS`. A public address of a device host as `STF_PROVIDER_HOST` often fails inside the LAN (no NAT hairpin): neither the hub nor `stf-proxy` connects to it. Only the remote ADB of a user (`adb connect <STF_PROVIDER_HOST>:<port>`) needs a direct route from the user to the device host.
+A public address of a node as its address, or a public name of the server for the node, often fails inside the LAN (no NAT hairpin): neither the hub nor `stf-proxy` connects to it, or the node does not reach the server. Only the remote debug of a user (`adb connect`) needs a route from the user to the node, or [the adb relay](#remote-debug-through-the-adb-relay).
 
 ### Remote debug through the adb relay
 
-STF shows the remote debug of an Android device as `adb connect <host>:<port>`: the host is `STF_PROVIDER_HOST` of mcloud-agent, the port is the remote debug port of the device on its device host, `connect_port` of the device in mcloud-agent or `min_port` + 1 by default (its `min_port` is its screen). A device host in a private network, where only the server of MCloud is public, works through the server (the screens through `stf-proxy`, the tests through the grid, ZeroMQ and the storage are connections of the device host to the server), but the users do not reach the ports of its devices. The optional `adb-relay` relays the remote debug ports through the server.
+STF shows the remote debug of an Android device as `adb connect <host>:<port>`: the host is the address of its node (or `REMOTE_CONNECT_HOST` of mcloud-agent), the port is the remote debug port of the device on its node, `connect_port` of the device in mcloud-agent or `min_port` + 1 by default (its `min_port` is its screen). A node in a private network, where only the server of MCloud is public, works through the server, but the users do not reach the ports of its devices. The optional `adb-relay` relays the remote debug ports through the server:
 
-The auto mode, the recommended setup:
-
-1. Set `ADB_RELAY=true` of `.env` and `ADB_RELAY_PORTS` to the range of the remote debug ports the server relays, the one opened in its firewall (e.g. `ADB_RELAY_PORTS=7400-7999`). The devices are the ones of the enrolled nodes.
+1. Set `ADB_RELAY=true` of `.env` and `ADB_RELAY_PORTS` to the range of the remote debug ports the server relays, the one opened in its firewall (e.g. `ADB_RELAY_PORTS=7400-7999`).
 2. Run `./zebrunner.sh restart`: it starts `adb-relay` and warns about an empty `STF_TOKEN` of `variables.env` and the invalid settings.
-3. Set `REMOTE_CONNECT_HOST` of mcloud-agent of these device hosts to the public name of MCloud (the host of `STF_URL`) and deploy it again: STF shows `adb connect <REMOTE_CONNECT_HOST>:<port>` then (mcloud-agent passes it to [mcloud-device](https://github.com/zebrunner/mcloud-device)), `STF_PROVIDER_HOST` without it. `connect_port` of a device in mcloud-agent is optional: it sets the remote debug port, e.g. to keep the ports of the devices in `ADB_RELAY_PORTS`.
-4. Open `ADB_RELAY_PORTS` in the firewall of the server for the users, see [Firewall](#firewall), and the remote debug ports of the devices of the device hosts for the server.
+3. Set `REMOTE_CONNECT_HOST` of mcloud-agent of these nodes to the public name of MCloud (the host of `STF_URL`) and deploy it again: STF shows `adb connect <REMOTE_CONNECT_HOST>:<port>` then (mcloud-agent passes it to [mcloud-device](https://github.com/zebrunner/mcloud-device)). `connect_port` of a device in mcloud-agent is optional: it sets the remote debug port, e.g. to keep the ports of the devices in `ADB_RELAY_PORTS`.
+4. Open `ADB_RELAY_PORTS` in the firewall of the server for the users, see [Firewall](#firewall), and the remote debug ports of the devices of the nodes for the server.
 
-`adb-relay` reads the Android devices of the enrolled nodes from the STF API (`GET /api/v1/nodes/relay`: the devices bound to an active node) every `ADB_RELAY_SYNC_SECONDS` (`300`) and relays the remote debug port of every one of them (`connectPort` of the device in STF) to the same port of the registered address of its node, present or not (the node refuses the port of an absent device): the address the admin gave in the invite, never an address the node or the device reports. It skips an address of the server itself or of the link (loopback, link-local, multicast), a port out of `ADB_RELAY_PORTS` and a port of MCloud or of `ADB_RELAY_HOSTS`; the screen ports are never relayed. A port of two devices is relayed for neither of them, the log names both: change `connect_port` of one of the devices in mcloud-agent.
+`adb-relay` reads the Android devices of the active nodes from the STF API (`GET /api/v1/nodes/relay`) every `ADB_RELAY_SYNC_SECONDS` (`300`) and relays the remote debug port of every one of them (`connectPort` of the device in STF) to the same port of the registered address of its node, present or not (the node refuses the port of an absent device): the address the admin gave in the invite, never an address the node or the device reports. It skips an address of the server itself or of the link (loopback, link-local, multicast), a port out of `ADB_RELAY_PORTS` and a port of MCloud (`STF_PORT`, `4446`, `7160`, `7250`, `7260`, `7270`); the screen ports are never relayed. A port of two devices is relayed for neither of them, the log names both: change `connect_port` of one of the devices in mcloud-agent. As the absent devices stay relayed, the servers of nginx change only when a device is added to STF, removed from it or gets another port: then `adb-relay` reloads nginx, the open adb sessions go on. `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason whenever they change, and every session: the client, the port, the node, the bytes and the duration.
 
-The devices of the nodes without enrollment (legacy) are not relayed by the auto mode: their address comes from the node itself, which the relay in the network of the host does not trust. Relay them with `ADB_RELAY_HOSTS` (below) until they are enrolled. As the absent devices stay relayed, the servers of nginx change only when a device is added to STF, removed from it or gets another port: then `adb-relay` reloads nginx, the open adb sessions go on. `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason whenever they change.
+STF is the single source of truth of the nodes and of their devices: the nodes need no channel and no secret to the relay, and after a restart of the relay, of STF or of a node the relay comes back to the devices of STF by itself. A new device is relayed within `ADB_RELAY_SYNC_SECONDS`, or at once after `./zebrunner.sh restart` (or `docker restart adb-relay`).
 
-Why the relay polls STF: STF is the single source of truth of the nodes and of their devices, mcloud-agent already registers every device with its ports there and the relay only reads them. The nodes need no channel and no secret to the relay, and after a restart of the relay, of STF or of a node the relay comes back to the devices of STF by itself. A new device is relayed within `ADB_RELAY_SYNC_SECONDS`, or at once after `./zebrunner.sh restart` (or `docker restart adb-relay`): the relay reads the devices when it starts.
+The relay reads the API with `STF_TOKEN` of `variables.env`, an access token of an admin: `./zebrunner.sh setup`, `start` and `restart` copy only this token into `configuration/adb-relay/stf-token` (readable for its owner only, empty with `ADB_RELAY=false`), the only secret of MCloud the relay on the network of the host gets, given to curl on its stdin; the relay reads it on every sync, so a new token needs `./zebrunner.sh start`, not a restart of the relay. It reaches the API through `stf-proxy` on `127.0.0.1:STF_PORT` of the server with the scheme of `STF_URL` (the certificate of the public name is not checked on the loopback address); when the API fails, the relay keeps its devices.
 
-The relay reads the API with `STF_TOKEN` of `variables.env`, the access token of the grid (its user sees the devices): `./zebrunner.sh setup`, `start` and `restart` copy only this token into `configuration/adb-relay/stf-token` (readable for its owner only, empty without the auto mode), the only secret of MCloud the relay on the network of the host gets, given to curl on its stdin; the relay reads it on every sync, so a new token needs `./zebrunner.sh start`, not a restart of the relay. The registry of the nodes needs an admin of STF. It reaches the API through `stf-proxy` on `127.0.0.1:STF_PORT` of the server with the scheme of `STF_URL` (`stf-proxy` has the certificate of the public name, it is not checked on the loopback address); when the API fails, the relay keeps its devices.
-
-A fixed list instead of the auto mode, or in addition to it: `ADB_RELAY_HOSTS` of `.env`, the remote debug ports of the devices, `<host>:<port>` separated by commas, e.g. `ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464,192.168.30.3:7704`; `./zebrunner.sh doctor` of mcloud-agent prints the entries of its host. The host is an IPv4 address or a host name of the device host in the network of the server, a host is in an entry for every device; the ports are 1024-65535, unique (the server relays a port to one device host) and not the ones of MCloud (`STF_PORT`, `4446`, `7160`, `7250`, `7260`, `7270`). `./zebrunner.sh restart` writes `configuration/adb-relay/relay-hosts.conf` from it (an invalid entry, a port of an earlier entry or of MCloud is reported and skipped) and starts `adb-relay`; `REMOTE_CONNECT_HOST` and the firewall as in the auto mode.
-
-`adb-relay` is the nginx of `stf-proxy` (`TAG_NGINX`) in the network of the host (`network_mode: host`: a port per device, not published one by one) with `configuration/adb-relay/adb-relay.sh`, the sync of the auto mode: it listens on every relayed port on every address of the server and connects to the same port of the device host; an idle session ends after 24 hours. `./zebrunner.sh` starts it (the compose profile `adb-relay`) only when `ADB_RELAY=true` or `ADB_RELAY_HOSTS` has a valid entry, `stop`, `down`, `restart` and `shutdown` take it along also after they are cleared: run `./zebrunner.sh restart` after a change of the `ADB_RELAY*` settings (also in Zebrunner CE). `docker logs adb-relay` also shows every session: the client, the port, the device host, the bytes and the duration. On macOS the network of the host of Docker Desktop is the one of its VM: the ports need its host networking (Settings, Resources, Network).
+`adb-relay` is the nginx of `stf-proxy` (`TAG_NGINX`) in the network of the host (`network_mode: host`: a port per device, not published one by one) with `configuration/adb-relay/adb-relay.sh`, the sync: it listens on every relayed port on every address of the server and connects to the same port of the node; an idle session ends after 24 hours. `./zebrunner.sh` starts it (the compose profile `adb-relay`) only with `ADB_RELAY=true`; `stop`, `down`, `restart` and `shutdown` take it along also after it is turned off: run `./zebrunner.sh restart` after a change of the `ADB_RELAY*` settings (also in Zebrunner CE). On macOS the network of the host of Docker Desktop is the one of its VM: the ports need its host networking (Settings, Resources, Network).
 
 The relay has no authentication of its own, it makes its ports public as they are. The remote debug port of a device listens only while a user of STF uses the device (the Remote debug of its dashboard starts it) and accepts an adb client with an adb key of that user only (STF, Settings, ADB keys): an unknown key makes STF ask that user to add it, add only your own keys.
-
-An entry `<host>:<first>-<last>` of `ADB_RELAY_HOSTS` relays a whole range, e.g. `min_port`-`max_port` of all the devices of a device host. It is accepted, but `./zebrunner.sh` warns: the range also makes the screens of the devices public (their `min_port`), WebSockets without an authentication of their own that `stf-proxy` serves to the signed-in users only (see [Screens of the devices](#screens-of-the-devices)), the relay to anyone. Use a range only behind a firewall that opens it to the networks of the users (the office, a VPN); the auto mode relays no screen.
 
 ### Firewall
 
@@ -202,12 +182,12 @@ The ports of the host and who needs them; close the others:
 
 | Port | Service | Clients |
 | --- | --- | --- |
-| `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the screens) |
+| `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the diagnostics) |
 | `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the nodes |
 | `4446` (`AGENTS_ADDRESS`) | `mcloud-grid` | the nodes (Appium registers to the grid); the tests use `/mcloud/wd/hub` of `STF_PORT` |
-| `ADB_RELAY_PORTS`, the ports of `ADB_RELAY_HOSTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the device hosts in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
+| `ADB_RELAY_PORTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the nodes in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
-`AGENTS_ADDRESS` publishes these ports on one address of the host, e.g. the one of the network of the device hosts; the join string of `./zebrunner.sh node-invite` gives the nodes this address (the host of `STF_URL` for `0.0.0.0`) for `STF_PORT`, the grid and ZeroMQ. A device host publishes the ports of its devices for the server (`stf-proxy` serves the screens to the users) and for the remote ADB of the users, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent); `adb-relay` relays them to the users from a device host in a private network.
+`AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
 ### Basic authentication of the grid
 
@@ -219,21 +199,21 @@ See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.m
 
 ## Nodes
 
-A node is a device host of [mcloud-agent](https://github.com/zebrunner/mcloud-agent). Every node is enrolled: the admin invites it by its label and its address, the node joins with the invite and gets an identity of its own, its CURVE key for ZeroMQ and its token for the grid and the storage, which STF keeps in its registry of the nodes. The devices of a node are bound to it, the screens and the remote debug of them go to its registered address only, and a node is revoked alone. The manual keys and tokens of the earlier releases are legacy, see [Migration from the manual settings](#migration-from-the-manual-settings).
+A node is a host of [mcloud-agent](https://github.com/zebrunner/mcloud-agent) with its devices. The admin invites a node by its label and its address, the node joins with the invite and gets an identity of its own: its CURVE key for ZeroMQ and its token for the grid and the storage, kept by STF in its registry of the nodes. The devices of a node are bound to it, the screens and the remote debug of them go to its registered address only, and a node is revoked alone.
 
 ### Enrollment
 
-The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and the STF of this MCloud release (`TAG_STF`) with the registry of the nodes ([zebrunner/stf](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md)), `mcloud-grid` and mcloud-agent of the same release.
+The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and `AGENTS_ADDRESS` of `.env` the nodes reach ([Run](#run)).
 
 1. On the server: `./zebrunner.sh node-invite <label> <address> [<minutes>]`, e.g. `./zebrunner.sh node-invite lab-1 192.168.30.2`:
    - the label is the name of the node, unique, 1-40 lower case letters, digits and `-`; `enroll`, `invites`, `relay` and `verify` are reserved by STF;
-   - the address is the one the server connects to (the screens, Appium), the `STF_PROVIDER_HOST` of the node: an IPv4 address or a host name without the protocol and the port, not a loopback, link-local or multicast one, unique among the nodes;
+   - the address is the one the server connects to (the screens, Appium), the `STF_PROVIDER_HOST` of the node: an IPv4 address or a host name without the protocol and the port, not a loopback (`127.x`, `localhost`), `0.0.0.0`, link-local or multicast one, unique among the nodes; a node on the server itself has the LAN address of the server, see [Devices on the MCloud server](#devices-on-the-mcloud-server);
    - the invite is valid 60 minutes, `<minutes>` sets 1-1440, and enrolls once.
 2. It prints the join string once, a secret: copy it to the node over a trusted channel.
-3. On the node: `./zebrunner.sh join` of mcloud-agent reads the join string from stdin or a hidden prompt (never from its arguments), checks the certificate of `stf-proxy` by the pin, enrolls the key of the node with the invite and writes the settings of MCloud into mcloud-agent; then deploy the node as mcloud-agent describes.
-4. `./zebrunner.sh nodes` shows the node `active`, with the time it was last seen by the grid.
+3. On the node: `./zebrunner.sh join` of mcloud-agent reads the join string from stdin or a hidden prompt (never from its arguments), checks the certificate of `stf-proxy` by the pin, enrolls the key of the node with the invite and writes the token and the settings of MCloud into the settings of mcloud-agent; then `./zebrunner.sh ansible` and `zebrunner-farm restart` deploy them.
+4. `./zebrunner.sh nodes` shows the node `active`, with the time the grid last saw it; `./zebrunner.sh nodes check <label>` checks it and its devices ([Diagnostics](#diagnostics)).
 
-A new invite of an enrolled label enrolls the node again: its new key and token replace the old ones at once, the regular way to rotate them. A new invite of a label also cancels the earlier invites of that label that are not used yet.
+A new invite of an enrolled label enrolls the node again: its new key and token replace the old ones at once, the regular way to rotate them (the devices bind to it again on their next registration, after `zebrunner-farm restart`). A new invite of a label also cancels the earlier invites of that label that are not used yet.
 
 ### The join string
 
@@ -243,39 +223,49 @@ mcloud-join://<host>:<port>?label=<label>&grid=<grid host>:<grid port>&pin=<pin>
 
 | Part | Value |
 | --- | --- |
-| `<host>` | the host the node reaches the server at: `AGENTS_ADDRESS` of `.env`, the host of `STF_URL` when it is `0.0.0.0` (every address) |
+| `<host>` | `NODES_HOST`: `AGENTS_ADDRESS` of `.env`, the host of `STF_URL` when it is `0.0.0.0` (every address) |
 | `<port>` | `STF_PORT`, the port of `stf-proxy`: the enrollment, the storage, the API |
 | `label` | the label of the node |
 | `grid` | `<host>:4446`, the published port of the grid (`docker-compose.yml`) |
 | `pin` | base64 of the SHA-256 of the public key (DER SubjectPublicKeyInfo) of `configuration/stf-proxy/ssl/ssl.crt`, as `curl --pinnedpubkey 'sha256//<pin>'` takes it, with `+`, `/` and `=` percent-encoded (`%2B`, `%2F`, `%3D`); `node-invite` also prints it as it is |
 | `token` | the invite, `mci1.<secret>` |
 
-The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`, `NODES_HOST` of `.env` is the host of the join string) and their host from the join string: the triproxies publish `7160`, `7250`, `7260` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
+The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`) and their host from the join string: the triproxies publish `7160`, `7250`, `7260` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
 
-### Commands
+### Commands of the nodes
 
 | Command | What it does |
 | --- | --- |
 | `./zebrunner.sh node-invite <label> <address> [<minutes>]` | an invite of a node, the join string is printed once |
 | `./zebrunner.sh nodes`, `nodes list` | the nodes of the registry: the label, the address, `active` or `revoked`, the time the grid last saw it, the time of its enrollment, the first characters of its key |
+| `./zebrunner.sh nodes check <label>` | the diagnostics of a node, see [Diagnostics](#diagnostics) |
 | `./zebrunner.sh nodes revoke <label>` | revokes a node and restarts `stf-triproxy-app` and `stf-triproxy-dev`, which ends its open ZeroMQ sessions (the other nodes reconnect at once) |
 | `./zebrunner.sh nodes delete <label>` | removes a revoked node from the registry: its label and its address are free again |
-| `./zebrunner.sh nodes legacy-off` | the end of the manual keys and tokens, see [Migration from the manual settings](#migration-from-the-manual-settings) |
 
 They call the STF API through `stf-proxy` on `127.0.0.1:STF_PORT` of the server (with the scheme of `STF_URL`, the certificate is not checked on the loopback address) with `STF_TOKEN` of `variables.env`, which goes to curl on its stdin and is never printed. The API answers an error without details, `docker logs stf-api` has them.
 
+### Diagnostics
+
+`./zebrunner.sh nodes check <label>` on the server shows:
+
+- the record of the node: `active` or `revoked`, its address, the time of its enrollment and the time the grid last saw it (`-`: no Appium of the node registered with its token yet);
+- the devices STF binds to the node, with the platform, present or not, the screen port and the remote debug port;
+- for every present device, whether `stf-proxy` connects to `<address of the node>:<screen port>` (from inside the container, the path of the screens): `reachable` or `NOT REACHABLE`.
+
+It exits with `1` and a hint when something is wrong: an unknown or revoked node, a node the grid has not seen, no device bound to the node (the devices register with the token of the node from its address, `docker logs stf-processor001` names the refused registrations), `stf-proxy` not running, a screen the server does not reach (the address of the invite is not the one the server reaches the node at, the firewall of the node, a public address inside the LAN, NAT hairpin). `./zebrunner.sh doctor` of mcloud-agent checks the same from the node with its token (`GET /api/v1/nodes/self`, limited by `stf-proxy` to 30 a minute per address): the enrollment, the address, the devices STF knows and the deployed devices that are missing in STF.
+
 ### Revocation
 
-Revoke a node that is lost or given away, whose host or settings may be read by others, or that is not needed any more: `./zebrunner.sh nodes revoke <label>`. At once the triproxies refuse its key (a revoked key is refused even when it is one of the legacy keys), the storage and STF its token, its devices lose their binding (no screen, no remote debug relay); the grid drops its Appium nodes on the next check of their token (every 60 seconds). A new invite of the label enrolls it again with a new key and token; `nodes delete` removes it.
+Revoke a node that is lost or given away, whose host or settings may be read by others, or that is not needed any more: `./zebrunner.sh nodes revoke <label>`. At once the triproxies refuse its key, the storage and STF its token, its devices lose their binding (no screen, no remote debug relay); the grid drops its Appium nodes on the next check of their token (every 60 seconds). A new invite of the label enrolls it again with a new key and token; `nodes delete` removes it.
 
-### Migration from the manual settings
+### Devices on the MCloud server
 
-The earlier releases authenticated the device hosts with shared settings: the keys of `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` and `STF_ZMQ_CURVE_CLIENT_KEYS`, `NODE_REGISTRATION_TOKEN` and `STF_STORAGE_TOKEN` of `variables.env` in every mcloud-agent, the device hosts of `AGENT_HOSTS` of `.env` for the screens. They keep working next to the enrolled nodes until `nodes legacy-off`:
+The server of MCloud may be a node too: mcloud-agent on the same machine, its device containers in the docker network `infra` of MCloud.
 
-1. Update the server and the nodes ([Upgrade](#upgrade)). `stf-proxy` has no list of the device hosts any more: `AGENT_HOSTS` goes to `stf-api`, which allows the screens of the devices of a legacy node at these hosts only while they are bound to no node and the host is not the address of an enrolled node; `./zebrunner.sh start` removes `configuration/stf-proxy/agent-hosts.conf` of the earlier releases and the setup does not ask `AGENT_HOSTS` any more (it keeps the value).
-2. Enroll every node with its current `STF_PROVIDER_HOST` as the address ([Enrollment](#enrollment)); its line of `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>`, its entry of `AGENT_HOSTS` and its ports in `ADB_RELAY_HOSTS` are not needed any more (the auto mode of `adb-relay` relays the enrolled nodes).
-3. `./zebrunner.sh nodes` lists every node `active`.
-4. `./zebrunner.sh nodes legacy-off`: it warns that every node that is not enrolled stops working, shows the nodes and asks (no by default); then it empties `STF_ZMQ_CURVE_CLIENT_KEYS` and every `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` of `variables.env` and `AGENT_HOSTS` of `.env`, makes new random `NODE_REGISTRATION_TOKEN` and `STF_STORAGE_TOKEN` (not shown, the STF units use the new storage token) and restarts the services.
+1. Set `AGENTS_ADDRESS` of `.env` to the LAN address of the machine (not `127.0.0.1`, not `0.0.0.0`) and run `./zebrunner.sh restart`: the ports of the nodes are published on it and the join string has it; the device containers reach `stf-proxy`, the grid and the triproxies there. With `0.0.0.0` the node gets the public name of `STF_URL`, which the machine often does not reach from inside (NAT hairpin): `start` warns about it.
+2. Invite the node with the same LAN address: `./zebrunner.sh node-invite <label> <LAN address>`; a loopback address, `localhost` or `0.0.0.0` is refused, the server connects to the screens and Appium of the node at that address.
+3. The ports of the devices in mcloud-agent (`appium_port`, `adb_port`, `min_port`-`max_port`, `connect_port`) must not be the ports of MCloud: `STF_PORT`, `4446`, `7160`, `7250`, `7260`, `7270` and the ports of `ADB_RELAY_PORTS` (with `ADB_RELAY=true`); `./zebrunner.sh doctor` of mcloud-agent checks the collisions.
+4. `./zebrunner.sh nodes check <label>` shows whether `stf-proxy` reaches the screens of the devices.
 
 ### Security
 
@@ -287,15 +277,14 @@ What the enrollment gives:
 - the address of a node is the one of the admin, never one the node reports: the grid takes a node token only for an Appium node at that address, a device is bound to the node only with a proof of the token of the node (an HMAC) and at that address, the screens and the remote debug relay go to the registered address only, so a node cannot point the server at another host;
 - the screens are served to the user of the device only, and `stf-proxy` never passes the session cookie, the access token or the `X-Stf-*` headers of the user to the node;
 - `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` gets it alone;
-- the internal routes of the registry (`/api/v1/zebrunner/nodes/`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) are refused by `stf-proxy` (`403`), also for the holders of the legacy `STF_STORAGE_TOKEN`.
+- `stf-proxy` refuses the internal routes of the registry (`/api/v1/zebrunner/nodes`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) with `403`.
 
 The risks that stay:
 
 - the join string is a secret until it is used or expires: whoever uses it first enrolls as that node (still bound to its address). Send it over a trusted channel, keep the validity short and revoke a node enrolled by surprise (`nodes` shows the key and the time it was last seen);
 - whoever is root on a node, or in its docker group, has its key and token and acts as that node (its devices, the sessions of its devices, its uploads) until it is revoked, not as another node;
 - the server reaches the screens and Appium of a node over plain HTTP and WebSocket at its address; only ZeroMQ is encrypted. Someone who takes the address of a node in its network (ARP or DNS spoofing) sees that traffic: keep the nodes in a trusted network or a VPN;
-- the legacy settings keep their weaknesses (shared secrets, the device hosts of `AGENT_HOSTS`) until `nodes legacy-off`;
-- the limit of the enrollment is per client address: behind another proxy all the clients share one, and many addresses only slow down; the 256 bits of an invite keep the guessing hopeless anyway;
+- the limits of `stf-proxy` are per client address: behind another proxy all the clients share one, and many addresses only slow down; the 256 bits of an invite keep the guessing hopeless anyway;
 - a revocation ends the open ZeroMQ sessions by a restart of the triproxies (all the nodes reconnect), the grid drops a revoked node within 60 seconds and the storage may accept its token for up to 60 seconds (its cache);
 - `STF_TOKEN` of `variables.env` is a token of an admin of STF: `variables.env` is readable for its owner only, see [Files and secrets](#files-and-secrets).
 
@@ -305,15 +294,15 @@ All the services but `adb-relay` (the network of the host) are in the external d
 
 | Service | Image | What it does |
 | --- | --- | --- |
-| `stf-proxy` | `nginx` | the entry point on `STF_PORT`: STF, the grid under `/mcloud`, the static files of the grid console |
+| `stf-proxy` | `nginx` | the entry point on `STF_PORT`: STF, the grid under `/mcloud`, the static files of the grid console, the screens of the devices |
 | `mcloud-grid` | `public.ecr.aws/zebrunner/mcloud-grid` | the Selenium/Appium hub of the devices, also on the port `4446` of the host (`AGENTS_ADDRESS`) |
 | `rethinkdb` | `rethinkdb` | the database of STF, the volume `stf-db-volume`, with the password `RETHINKDB_ENV_AUTHKEY` and without its web console, not published on the host |
-| `stf-migrate` | `public.ecr.aws/zebrunner/stf` | creates and updates the tables of the database, the other STF units start after it |
-| `stf-app`, `stf-auth`, `stf-api`, `stf-websocket` | `public.ecr.aws/zebrunner/stf` | the UI, the sign-in, the REST API and the websocket of STF |
-| `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events, the heartbeats and the groups of STF |
+| `stf-migrate` | `public.ecr.aws/zebrunner/stf` | creates and updates the tables of the database (the registry of the nodes too), the other STF units start after it |
+| `stf-app`, `stf-auth`, `stf-api`, `stf-websocket` | `public.ecr.aws/zebrunner/stf` | the UI, the sign-in, the REST API (the registry of the nodes too) and the websocket of STF |
+| `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events (the binding of the devices to their nodes), the heartbeats and the groups of STF |
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
-| `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; protected by `STF_STORAGE_TOKEN` |
-| `adb-relay` | `nginx` | optional, with `ADB_RELAY=true` or `ADB_RELAY_HOSTS` only: the TCP relay of the remote debug ports of the devices of the device hosts in a private network, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
+| `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; for the STF units and the tokens of the nodes only |
+| `adb-relay` | `nginx` | optional, with `ADB_RELAY=true` only: the TCP relay of the remote debug ports of the devices of the nodes in a private network, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
 Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `adb-relay` (nginx listens on its ports), `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
 
@@ -324,6 +313,8 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 | `/stf` | the UI of STF |
 | `/api/v1/` | the REST API of STF, with an access token |
 | `POST /api/v1/nodes/enroll` | the enrollment of a node with its invite, limited to 6 a minute per address (a burst of 3, then `429`), see [Nodes](#nodes) |
+| `GET /api/v1/nodes/self` | the record of a node and its devices, with the token of the node (`./zebrunner.sh doctor` of mcloud-agent), limited to 30 a minute per address (a burst of 10, then `429`) |
+| `/d/<address of the node>/<serial>/<port>/` | the screen of a device, see [Screens of the devices](#screens-of-the-devices) |
 | `/mcloud/wd/hub` | the Selenium/Appium hub URL |
 | `/mcloud/grid/console` | the grid console with the devices |
 | `/mcloud/grid/admin/DevicesServlet` | the devices of the grid as JSON: their status and sessions |
@@ -333,37 +324,38 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 
 ## Upgrade
 
-An MCloud release works with mcloud-agent of the same release only (the images of the device hosts, the authentication of the device hosts): update the server and all the device hosts together.
+An MCloud release works with mcloud-agent of the same release only (the images of the nodes, the enrollment): update the server and all the nodes together.
 
 1. Update the repository: `git pull`.
 2. Run `./zebrunner.sh setup`: it keeps the settings of the previous setup and generates the missing ones.
-3. Update mcloud-agent of every device host to the same release, see its README.
-4. Restart the services: `./zebrunner.sh restart`; `stf-migrate` updates the tables of the database.
-5. Enroll the nodes and turn the manual settings off: [Migration from the manual settings](#migration-from-the-manual-settings).
+3. Restart the services: `./zebrunner.sh restart`; `stf-migrate` updates the tables of the database.
+4. Update mcloud-agent of every node to the same release, see its README; a node of a release without the enrollment is enrolled as a new one ([Enrollment](#enrollment)).
 
 ## Troubleshooting
 
-`docker logs <service>` shows the log of a service, `docker ps` the unhealthy ones (see [Services](#services)).
+`docker logs <service>` shows the log of a service, `docker ps` the unhealthy ones (see [Services](#services)); `./zebrunner.sh nodes check <label>` on the server and `./zebrunner.sh doctor` of mcloud-agent on the node check a node ([Diagnostics](#diagnostics)).
 
 | Symptom | Cause and fix |
 | --- | --- |
 | `./zebrunner.sh start` fails to pull: `denied: Your authorization token has expired` or `403 Forbidden` from `public.ecr.aws` | an expired login to public.ecr.aws in `~/.docker/config.json` of the user: the images are public, `docker logout public.ecr.aws` (or log in again: `aws ecr-public get-login-password --region us-east-1 \| docker login --username AWS --password-stdin public.ecr.aws`) |
 | the pull fails with `manifest unknown` | the tag of `TAG_*` of `.env` is not published: the tags of `.env.original` of the current MCloud |
-| the devices are in STF, not in `/mcloud/grid/console`; `mcloud-grid` logs `Could not get the device '<udid>' from STF (HTTP 401), the node is not registered.` | `STF_TOKEN` of `variables.env` is empty or not an access token of STF: generate one (STF, Settings, Keys), set it and `./zebrunner.sh restart` (`start` warns while it is empty) |
-| `mcloud-grid` logs `Node <url> has no or another NODE_REGISTRATION_TOKEN than the hub, so it is not registered.` | an enrolled node: its token is revoked or of an earlier enrollment, or the host of its URL is not its registered address (`./zebrunner.sh nodes`); enroll it again (`node-invite`, `join`). A legacy node: `NODE_REGISTRATION_TOKEN` of the node differs from `variables.env` (or `nodes legacy-off` made a new one): enroll it |
-| the nodes of a device host are not in the grid: Appium logs a registration answered with `500`, `mcloud-grid` logs `Node <url> is not reachable from the hub` | the hub does not reach `http://<STF_PROVIDER_HOST>:<Appium port>` of the device host: `STF_PROVIDER_HOST` of mcloud-agent must be reachable from the MCloud server (and its firewall open); in a private network use the LAN address of the device host and add it to `AGENT_HOSTS` of `.env`, see [Device hosts in a private network](#device-hosts-in-a-private-network) |
-| the node is up, its devices are not in STF (the `stf` container of an Android device restarts after `Providing all 0 of 1 device(s)`); `stf-triproxy-app` or `stf-triproxy-dev` logs `Refused the ZeroMQ client <address> with the unknown key "<key>"` | the key of the node is not of an active enrolled node (`./zebrunner.sh nodes`: revoked, or a key of an earlier enrollment): enroll it again; a legacy node: its key is not in `STF_ZMQ_CURVE_CLIENT_KEY_<HOST>` (or `STF_ZMQ_CURVE_CLIENT_KEYS`) of the running services, or `nodes legacy-off` emptied them; a node with another `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` than `variables.env` is not let in either, see [Authentication of the device hosts](#authentication-of-the-device-hosts) |
-| the screen of a device stays gray, `/d/<node>/...` answers `403` | `stf-api` refuses it: the user does not use the device, the node is revoked or the device is not bound to it (its `STF_NODE_TOKEN`, its `STF_PROVIDER_HOST` is not the registered address), or a legacy node is not in `AGENT_HOSTS` of `.env` (or its address is the one of an enrolled node), see [Screens of the devices](#screens-of-the-devices) (`401`: the user is not signed in); `500`: the STF of `TAG_STF` has no `/api/v1/zebrunner/screen-auth` |
-| the screenshots or the app installs of the devices fail with `401` / `403` | the node is revoked or its token is of an earlier enrollment; a legacy node: its `STF_STORAGE_TOKEN` differs from `variables.env` (or `nodes legacy-off` made a new one) |
 | `./zebrunner.sh node-invite` or `nodes` fails: `stf-proxy does not answer`, `not a valid access token`, `not of an admin`, `no registry of the nodes` | the commands call the STF API through `stf-proxy` on `127.0.0.1:STF_PORT` of the server with `STF_TOKEN` of `variables.env`: the services run (`./zebrunner.sh start`), `STF_TOKEN` is an access token of an admin of STF, `TAG_STF` is the STF of this MCloud release; the API answers the details in `docker logs stf-api` only |
 | `./zebrunner.sh node-invite` fails with `The enrollment needs https of stf-proxy` | the node trusts the certificate of `stf-proxy` by its pin only: set MCloud up with https and its certificate, see [https](#https) |
-| `./zebrunner.sh join` of the node fails with `429` | the enrollment is limited to 6 a minute per address: wait a minute; behind another proxy (e.g. the nginx of Zebrunner CE) every node has its address, the join string points to `stf-proxy` itself (`STF_PORT`) |
-| `configuration/adb-relay/relay-hosts.conf is not writable` (or `stf-token`) | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f configuration/adb-relay/<file>`) and `./zebrunner.sh restart`; `adb-relay` keeps the servers and the token it has until then |
-| `adb connect` of STF to a device of a device host in a private network times out or fails | `REMOTE_CONNECT_HOST` of mcloud-agent is not the public name of MCloud, the relay skips the port or the firewall of the server closes it, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay): `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason (e.g. a port out of `ADB_RELAY_PORTS`, a port of two devices of STF; a legacy node is not relayed by the auto mode, its ports go to `ADB_RELAY_HOSTS`), a new device is relayed within `ADB_RELAY_SYNC_SECONDS`, the ports of `ADB_RELAY_HOSTS` are in `configuration/adb-relay/relay-hosts.conf`; it also shows the sessions and why a device host refused one |
-| `docker logs adb-relay` shows `The STF API ... failed` or `answered without devices` | the auto mode does not read the devices: `401` is an invalid `STF_TOKEN` of `variables.env` (a new access token of STF, Settings, Keys, then `./zebrunner.sh start` writes it into `configuration/adb-relay/stf-token`), `403` is a token of a user that is not an admin, `404` an STF of `TAG_STF` without the registry of the nodes; a failed connection is `stf-proxy` not running or not with the scheme of `STF_URL` (http or https); the relay keeps its devices until the next successful sync |
-| `adb-relay` restarts, `docker logs adb-relay` shows `bind() to 0.0.0.0:<port> failed (98: Address already in use)` | another program of the server listens on a relayed port: move the ports of the device in mcloud-agent (`connect_port`, `min_port`) and its entry of `ADB_RELAY_HOSTS`, or keep the port out of `ADB_RELAY_PORTS` |
+| `./zebrunner.sh node-invite` refuses the address | the address is the one the server connects to: not `127.x`, `localhost`, `0.0.0.0`, link-local or multicast; a node on the server itself has the LAN address of the server, see [Devices on the MCloud server](#devices-on-the-mcloud-server) |
+| `./zebrunner.sh join` of the node cannot connect to the server, or fails the pin | the node does not reach the host of the join string (`AGENTS_ADDRESS`, the host of `STF_URL` for `0.0.0.0`) on `STF_PORT`: set `AGENTS_ADDRESS` to an address the node reaches (the LAN address of the server, NAT hairpin), `./zebrunner.sh restart` and a new invite; a pin that does not match is a certificate changed after the invite (a new invite) or another server on the way |
+| `./zebrunner.sh join` fails with `403` | the invite is used, expired, replaced by a newer invite of the label, or of another label: a new invite; `docker logs stf-api` tells which |
+| `./zebrunner.sh join` fails with `429` | the enrollment is limited to 6 a minute per address: wait a minute; behind another proxy (e.g. the nginx of Zebrunner CE) every node has its address, the join string points to `stf-proxy` itself (`STF_PORT`) |
+| `nodes check` shows no device bound to the node; the `stf` container of an Android device restarts after `Providing all 0 of 1 device(s)` | the devices register with the token of the node from its address: `STF_PROVIDER_HOST` of the node is not the address of the invite, the containers run with an old token (after a new enrollment: `./zebrunner.sh ansible` and `zebrunner-farm restart` on the node), or the node is revoked; `docker logs stf-processor001` names the refused registrations, `stf-triproxy-app` or `stf-triproxy-dev` log `Refused the ZeroMQ client <address> with the unknown key "<key>"` for a key that is not of an active node |
+| the devices are in STF, not in `/mcloud/grid/console`; `nodes check` shows the node not seen by the grid | `mcloud-grid` logs why it refuses an Appium node: an invalid or revoked token of the node, or the host of the URL of the Appium node is not the address of the node (`STF_PROVIDER_HOST` of the node): enroll it again; `Node <url> is not reachable from the hub`: the grid does not reach `http://<address of the node>:<Appium port>` (the firewall of the node, a public address in the LAN, see [Nodes in a private network](#nodes-in-a-private-network)); `Could not get the device '<udid>' from STF (HTTP 401)`: `STF_TOKEN` of `variables.env` is empty or not an access token of an admin of STF (set it and `./zebrunner.sh restart`) |
+| the screen of a device stays gray; `nodes check` shows `NOT REACHABLE` | `stf-proxy` does not reach `<address of the node>:<screen port>`: the address of the invite is not the one the server reaches the node at (a new invite with the right address), the firewall of the node closes the ports of its devices for the server, or a public address inside the LAN (NAT hairpin, use the LAN address) |
+| the screen of a device stays gray, `/d/<node>/...` answers `403` | `stf-api` refuses it: the user does not use the device, the device is not bound to an active node, or the host or the port of the URL are not the address of its node and its screen port (see [Screens of the devices](#screens-of-the-devices)); `401`: the user is not signed in; `500`: the STF of `TAG_STF` has no `/api/v1/zebrunner/screen-auth` |
+| the screenshots or the app installs of the devices fail with `401` / `403` | the storage refuses the token of the node: the node is revoked or its containers run with an old token (`./zebrunner.sh ansible` and `zebrunner-farm restart` on the node) |
+| `configuration/adb-relay/stf-token is not writable` | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f configuration/adb-relay/stf-token`) and `./zebrunner.sh restart`; `adb-relay` keeps the token it has until then |
+| `adb connect` of STF to a device of a node in a private network times out or fails | `REMOTE_CONNECT_HOST` of mcloud-agent is not the public name of MCloud, the relay skips the port or the firewall of the server closes it, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay): `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason (e.g. a port out of `ADB_RELAY_PORTS`, a port of two devices), a new device is relayed within `ADB_RELAY_SYNC_SECONDS`; it also shows the sessions and why a node refused one |
+| `docker logs adb-relay` shows `The STF API ... failed` or `answered without devices` | the relay does not read the devices: `401` is an invalid `STF_TOKEN` of `variables.env` (a new access token of STF, Settings, Keys, then `./zebrunner.sh start` writes it into `configuration/adb-relay/stf-token`), `403` a token of a user that is not an admin, `404` an STF of `TAG_STF` without the registry of the nodes; a failed connection is `stf-proxy` not running or not with the scheme of `STF_URL` (http or https); the relay keeps its devices until the next successful sync |
+| `adb-relay` restarts, `docker logs adb-relay` shows `bind() to 0.0.0.0:<port> failed (98: Address already in use)` | another program of the server listens on a relayed port (e.g. a device of a node on the server itself, see [Devices on the MCloud server](#devices-on-the-mcloud-server)): move the ports of the device in mcloud-agent (`connect_port`, `min_port`) or keep the port out of `ADB_RELAY_PORTS` |
 | `The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied` | the key of Zebrunner CE is readable for root only (e.g. written by certbot): make it readable for the user of the setup (its group and `chmod 640`) instead of `sudo ./zebrunner.sh setup` |
-| a device of a gone device host is not removed by Settings, Devices of STF (nothing happens) | the removing filters of the page skip the devices that are controlled, booked or annotated, and a device whose host went away during a session stays controlled: set *Controlled* (and the others) of the filters to *Any* |
+| a device of a gone node is not removed by Settings, Devices of STF (nothing happens) | the removing filters of the page skip the devices that are controlled, booked or annotated, and a device whose node went away during a session stays controlled: set *Controlled* (and the others) of the filters to *Any* |
 | macOS (Docker Desktop): `./zebrunner.sh start` hangs, `stf-proxy` stays `Created`, `docker inspect stf-proxy` does not answer | the port forwarding of Docker Desktop hangs (seen after a failed start): `docker desktop restart` (or quit and start Docker Desktop), then `./zebrunner.sh start` |
 | `stf-processor001`, `stf-reaper` or `stf-api-groups-engine` is `unhealthy` | the unit lost its ZeroMQ brokers (`stf-triproxy-*`) or RethinkDB, docker does not restart an unhealthy unit: see the state and the logs of the brokers and of `rethinkdb`, then `./zebrunner.sh restart` |
 
@@ -382,15 +374,15 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | `make check` | everything below, as CI runs it | |
 | `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings, also with the profile `adb-relay` | Python 3; on macOS `brew install hadolint` |
 | `make test` | `tests/zebrunner_test.sh` and `tests/utility_test.sh`: the commands of `zebrunner.sh` on a copy of the repository with `docker` and `curl` stubs (the node commands with answers of the STF API, the configuration of `stf-proxy`); `tests/adb_relay_test.sh`: the sync of `configuration/adb-relay/adb-relay.sh` with answers of the STF API and stubs | bash, openssl, Python 3 |
-| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, `adb-relay` with a stand-in device host, then their shutdown; `tests/adb_relay_docker_test.sh`: the auto mode of `adb-relay` with a fake STF API and a stand-in node (the sessions, the reload, the errors); `tests/stf_proxy_docker_test.sh`: the configuration of `stf-proxy` with a fake `stf-api` and a fake node (the decision about the screens, the headers each side gets, the limit of the enrollment); `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
+| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, `adb-relay`, then their shutdown; `tests/adb_relay_docker_test.sh`: the auto mode of `adb-relay` with a fake STF API and a stand-in node (the sessions, the reload, the errors); `tests/stf_proxy_docker_test.sh`: the configuration of `stf-proxy` with a fake `stf-api` and a fake node (the decision about the screens, the headers each side gets, the internal routes, the limits of the enrollment and of the record of a node); `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
 
 The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflows/ci.yml`) runs the jobs `lint`, `tests` (Linux and macOS) and `docker` on the pushes and pull requests.
 
 The end-to-end test of the farm (`.github/workflows/e2e.yml`, on the pushes and pull requests, every night and on demand) runs on a GitHub runner with KVM:
 
-1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The inputs `ref` (all the repositories) and `refs` (single ones: `STF_REF=fix/x MCLOUD_AGENT_REF=feat/y`) of a manual run take other branches, as `E2E_REF` and `E2E_REFS` or `<REPOSITORY>_REF` of the script; `refs` is `STF_REF=feat/node-enrollment` by default until [zebrunner/stf#1124](https://github.com/zebrunner/stf/pull/1124) (the registry of the nodes) is merged.
+1. `tests/e2e/build-images.sh` builds the images of the farm with an Android device from the `develop` branches of their repositories with the tags of `.env.original` and of `mcloud-agent`; only the uploader is pulled from `public.ecr.aws/zebrunner` (`artifacts-uploader` is private). The inputs `ref` (all the repositories) and `refs` (single ones: `STF_REF=fix/x MCLOUD_AGENT_REF=feat/y`) of a manual run take other branches, as `E2E_REF` and `E2E_REFS` or `<REPOSITORY>_REF` of the script; `refs` is `STF_REF=feat/node-enrollment MCLOUD_GRID_REF=feat/node-tokens MCLOUD_AGENT_REF=feat/node-enrollment` by default until [zebrunner/stf#1124](https://github.com/zebrunner/stf/pull/1124), [zebrunner/mcloud-grid#216](https://github.com/zebrunner/mcloud-grid/pull/216) and [zebrunner/mcloud-agent#460](https://github.com/zebrunner/mcloud-agent/pull/460) (the enrollment of the nodes) are merged.
 2. `tests/e2e/emulator.sh` starts with an Android emulator (`android-emulator-runner`) and relays its adb to the containers.
-3. `tests/e2e/farm_test.sh` sets up and starts MCloud of this checkout, MinIO for the artifacts and a device host of `mcloud-agent` with the emulator, then checks the containers, the device in STF and in the grid, an Appium session with an app, the screen of the device in STF, the upload of a file to STF and the artifacts of the session (the video too) in S3.
+3. `tests/e2e/farm_test.sh` sets up and starts MCloud of this checkout with https (a self-signed certificate) and `AGENTS_ADDRESS` of the machine, MinIO for the artifacts and a node of `mcloud-agent` on the same machine with the emulator, enrolled with `node-invite` and `join`, then checks `nodes check`, the containers, the device in STF and in the grid, an Appium session with an app, the screen of the device in STF, the upload of a file to STF and the artifacts of the session (the video too) in S3.
 
 The logs of every container and of the emulator are the artifact `e2e` of the run (with JUnit XML). `tests/e2e/farm_test.sh` changes the machine (the ports, udev, `zebrunner-farm`), run it only on disposable machines.
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests of the nginx configuration of stf-proxy in docker, the one ./zebrunner.sh setup writes, with a fake stf-api and
 # a fake node (nginx too): the screens of the devices allowed by stf-api (/api/v1/zebrunner/screen-auth) with the headers
-# each side gets, and the limit of the enrollment of the nodes. The containers have fixed names and use the port 18083 of
-# the host.
+# each side gets, the internal routes, and the limits of the enrollment and of the record of a node. The containers
+# have fixed names and use the port 18083 of the host.
 source "$(dirname "$0")/lib.sh"
 
 require_cmd docker
@@ -118,6 +118,16 @@ for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Z
 done
 check "the screen decision of the API is not an internal route (401 of stf-api)" "401" \
   "$(http_code /api/v1/zebrunner/screen-auth)"
+
+section "the record of a node for itself"
+check "the record of a node goes to stf-api" "upstream GET /api/v1/nodes/self" \
+  "$(body /api/v1/nodes/self -H "Authorization: Bearer node-token")"
+codes=""
+for _ in $(seq 11); do
+  codes+="$(http_code /api/v1/nodes/self -H "Authorization: Bearer node-token") "
+done
+check "a burst of 10, then 429" "200 200 200 200 200 200 200 200 200 200 429 " "$codes"
+check "another case is limited too" "429" "$(http_code /API/v1/Nodes/Self)"
 
 section "enrollment of the nodes"
 check "the enrollment goes to stf-api" "upstream POST /api/v1/nodes/enroll" "$(body /api/v1/nodes/enroll -X POST -d '{}')"

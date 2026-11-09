@@ -17,8 +17,6 @@ variables.env_*
 .env
 variables.env
 configuration/stf-proxy/nginx.conf
-configuration/stf-proxy/agent-hosts.conf
-configuration/adb-relay/relay-hosts.conf
 configuration/adb-relay/stf-token
 configuration/stf-proxy/htpasswd/mcloud.htpasswd
 configuration/stf-proxy/ssl/ssl.crt

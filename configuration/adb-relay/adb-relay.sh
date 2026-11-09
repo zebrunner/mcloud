@@ -1,15 +1,13 @@
 #!/bin/bash
 # The entrypoint of adb-relay (README.md#remote-debug-through-the-adb-relay), it runs in the nginx image: nginx relays the
-# remote debug ports of the Android devices of the nodes in a private network. ADB_RELAY_HOSTS of .env is a fixed list
-# (relay-hosts.conf of ./zebrunner.sh); with ADB_RELAY=true this script also reads the devices of the enrolled nodes from
-# the STF API (GET /api/v1/nodes/relay: the registered address of the node, never an address the node reports) every
+# remote debug ports of the Android devices of the nodes in a private network. With ADB_RELAY=true this script reads the
+# devices of the enrolled nodes from the STF API (GET /api/v1/nodes/relay: the registered address of the node, never an address the node reports) every
 # ADB_RELAY_SYNC_SECONDS and reloads nginx when their servers change (gracefully: the open sessions go on): the devices of
 # STF, present or not, so only a new, a removed or a moved device changes them.
 # tests/adb_relay_test.sh sources it: keep the functions compatible with the macOS system bash 3.2, mawk and BSD awk.
 
 # the configuration of nginx (configuration/adb-relay/nginx.conf includes stream-conf.d), the file of ./zebrunner.sh
 AUTO_CONF="${AUTO_CONF:-/etc/nginx/stream-conf.d/adb-relay-auto.conf}"
-MANUAL_TEMPLATE="${MANUAL_TEMPLATE:-/etc/nginx/templates/relay-hosts.conf.stream-template}"
 # STF_TOKEN of variables.env, the only secret of MCloud the relay gets: ./zebrunner.sh start writes it (mode 600), it is
 # read on every sync
 TOKEN_FILE="${TOKEN_FILE:-/opt/adb-relay/stf-token}"
@@ -48,14 +46,14 @@ devices_of_json() {
 # relay_devices <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin) with what the
 # relay does with them, a line per Android device, present or not: `relay|<port>|<address>|<serial>|<label>` or
 # `skip|<port>|<address>|<serial>|<label>|<reason>`. The port is connectPort, the address the one of the node; an empty
-# first port takes any port; the ports not to relay (of MCloud, of ADB_RELAY_HOSTS) are separated by spaces, a range as
+# first port takes any port; the ports not to relay (of MCloud) are separated by spaces, a range as
 # <first>-<last>; a port of two devices is not relayed
 relay_devices() {
   awk -v first="$1" -v last="$2" -v reserved="$3" -f "${AWK_DIR}/relay.awk"
 }
 
 # servers_of <resolvers>: the servers of nginx of the relay lines of relay_devices (stdin), the resolvers (of
-# /etc/resolv.conf) for the device hosts given by name
+# /etc/resolv.conf) for the nodes given by name
 servers_of() {
   awk -v resolvers="$1" '
     BEGIN { FS = "|" }
@@ -68,11 +66,6 @@ servers_of() {
       print "}"
     }
   '
-}
-
-# manual_ports: the ports of ADB_RELAY_HOSTS (the listen of relay-hosts.conf of ./zebrunner.sh), separated by spaces
-manual_ports() {
-  sed -n 's/^ *listen \([0-9-]*\) .*/\1/p' "$MANUAL_TEMPLATE" 2> /dev/null | tr '\n' ' '
 }
 
 # stf_token: the access token of STF of the file of ./zebrunner.sh, STF_TOKEN of variables.env
@@ -148,9 +141,10 @@ log_report() {
 
 #### Main
 
-# main: nginx, with ADB_RELAY=true also the sync of the devices of STF
+# main: nginx and the sync of the devices of STF; ./zebrunner.sh starts adb-relay with ADB_RELAY=true only
 main() {
   if [[ "$ADB_RELAY" != "true" ]]; then
+    log "WARN" "ADB_RELAY is '${ADB_RELAY}', not true: no device is relayed."
     exec /docker-entrypoint.sh nginx -g 'daemon off;'
   fi
   local interval="$ADB_RELAY_SYNC_SECONDS"
@@ -173,7 +167,7 @@ main() {
   fi
   # stf-proxy on the published port of the host: the scheme of STF_URL is the one of stf-proxy (README.md#https)
   stf_api="${STF_URL%%://*}://127.0.0.1:${STF_PORT}"
-  reserved_ports="${STF_PORT} 4446 7160 7250 7260 7270 $(manual_ports)"
+  reserved_ports="${STF_PORT} 4446 7160 7250 7260 7270"
   resolvers="$(awk '$1 == "nameserver" { printf "%s%s", sep, ($2 ~ /:/ ? "[" $2 "]" : $2); sep = " " }' /etc/resolv.conf)"
   last_error=""
   last_report="none"

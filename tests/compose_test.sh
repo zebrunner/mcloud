@@ -7,7 +7,7 @@ source "$(dirname "$0")/lib.sh"
 require_cmd docker
 docker info > /dev/null 2>&1 || skip "requires a running docker"
 docker compose version > /dev/null 2>&1 || skip "requires docker compose"
-if [[ -n "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app|adb-relay|adb-relay-target)$')" ]]; then
+if [[ -n "$(docker ps -aq --filter name='^/(stf-proxy|mcloud-grid|rethinkdb|stf-app|adb-relay)$')" ]]; then
   skip "the containers of MCloud exist on this machine"
 fi
 
@@ -22,7 +22,6 @@ docker network inspect infra > /dev/null 2>&1 || network_created=1
 # the EXIT trap of tests/lib.sh runs it
 # shellcheck disable=SC2329
 cleanup() {
-  docker rm -f adb-relay-target > /dev/null 2>&1
   if [[ -f "${MCLOUD}/.env" ]]; then
     (cd "$MCLOUD" && docker compose --profile adb-relay down -v > /dev/null 2>&1)
   fi
@@ -77,8 +76,6 @@ answers="http\nlocalhost\n${PORT}\ny\n\n\ny\n\nn\n"
 
 section "setup and start"
 run_check "setup" zbr "$answers" setup
-# stf-app stands for a legacy node, its screen would be its root page
-sed -i.orig "s|^AGENT_HOSTS=.*|AGENT_HOSTS=stf-app|" "${MCLOUD}/.env"
 # the units reach the storage by STF_URL, localhost is the container itself there: stf-proxy of the network instead
 sed -i.orig "s|^STF_URL=.*|STF_URL=http://stf-proxy|" "${MCLOUD}/.env"
 storage_token="$(sed -n 's/^STF_STORAGE_TOKEN=//p' "${MCLOUD}/variables.env")"
@@ -125,7 +122,6 @@ for header in "Referrer-Policy: no-referrer" "X-Content-Type-Options: nosniff" "
 done
 
 section "screens of the devices"
-check "stf-api gets AGENT_HOSTS, the legacy nodes" "stf-app" "$(docker exec stf-api printenv AGENT_HOSTS)"
 # stf-api decides (/api/v1/zebrunner/screen-auth); an STF without it (an older TAG_STF) answers 404
 screen_auth="$(http_code /api/v1/zebrunner/screen-auth)"
 if [[ "$screen_auth" != "404" ]]; then
@@ -166,10 +162,10 @@ check "the image is resized" "50x25" \
   "$(python3 -c 'import struct, sys; d = open(sys.argv[1], "rb").read(24); print("%dx%d" % struct.unpack(">II", d[16:24]))' \
     "${WORK}/resized.png" 2> /dev/null)"
 
-section "authentication of the device hosts"
+section "authentication of the nodes"
 check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
 check "RethinkDB is not published on the host" "" "$(docker port rethinkdb)"
-check "ZeroMQ of the STF units is published for the device hosts only" "7160/tcp -> 0.0.0.0:7160" \
+check "ZeroMQ of the STF units is published for the nodes only" "7160/tcp -> 0.0.0.0:7160" \
   "$(docker port stf-triproxy-app | grep -v '::')"
 stf_image="$(docker inspect --format '{{.Config.Image}}' stf-app)"
 run_check "RethinkDB refuses a connection without its password" docker run --rm --network infra "$stf_image" \
@@ -184,7 +180,7 @@ if [[ -n "$(sed -n 's/^STF_ZMQ_CURVE_SERVER_SECRET_KEY=//p' "${MCLOUD}/variables
     node -e "import('/app/lib/util/zmqutil.js').then(({default: zmqutil}) => {
       const push = zmqutil.socket('push'); push.connect('tcp://stf-triproxy-dev:7270'); push.send('x')
       setTimeout(() => process.exit(0), 3000) })" > /dev/null 2>&1
-  check_contains "a device host with an unknown key is refused" "Refused the ZeroMQ client" \
+  check_contains "a node with an unknown key is refused" "Refused the ZeroMQ client" \
     "$(docker logs stf-triproxy-dev 2>&1)"
 else
   skip_check "ZeroMQ with CURVE" "the STF image made no CURVE keys (stf curve-keygen)"
@@ -202,13 +198,11 @@ for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff"
 done
 check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
-grid_token="$(sed -n 's/^NODE_REGISTRATION_TOKEN=//p' "${MCLOUD}/variables.env")"
-check "the grid gets the registration token" "$grid_token" "$(docker exec mcloud-grid printenv NODE_REGISTRATION_TOKEN)"
-# a node without the token registers at the port of the device hosts (4446) as Appium does: the grid refuses it (500)
+# an Appium node without a node token registers at the port of the nodes (4446): the grid refuses it (500)
 node='{"capabilities": [{"maxInstances": 1, "platformName": "ANDROID", "udid": "compose-test", "deviceName": "Pixel"}],
   "configuration": {"proxy": "com.zebrunner.mcloud.grid.MobileRemoteProxy", "url": "http://192.0.2.1:4723/wd/hub",
   "host": "192.0.2.1", "port": 4723, "id": "http://192.0.2.1:4723", "maxSession": 1, "register": true}}'
-check "the grid refuses a node without the registration token" "500" \
+check "the grid refuses a node without a node token" "500" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST --data-binary "$node" http://127.0.0.1:4446/grid/register)"
 curl -s -o /dev/null --max-time 10 "${URL}/mcloud/lifecycle-manager?action=shutdown"
 sleep 2
@@ -256,30 +250,20 @@ check "the services run again after the backup" "$expected" "$running"
 run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
 
 section "adb relay"
-# a device host of the private network: a container of the infra network whose port 17431 answers; adb-relay of the
-# network of the host relays the ports 17431 and 17432 of the host to it (two entries of one device host)
-nginx_image="nginx:$(sed -n 's/^TAG_NGINX=//p' "${MCLOUD}/.env")"
-docker run -d --name adb-relay-target --network infra "$stf_image" \
-  node -e "require('net').createServer((s) => s.end('relay ok\\n')).listen(17431)" > /dev/null
-target="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' adb-relay-target)"
-sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=${target}:17431,${target}:17432|" "${MCLOUD}/.env"
-run_check "start with ADB_RELAY_HOSTS" zbr "" start
+# the auto mode with the access token of variables.env (empty here): adb-relay runs, reads the devices of the nodes and
+# reports the empty token
+sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=true|" "${MCLOUD}/.env"
+run_check "start with ADB_RELAY=true" zbr "" start
 # shellcheck disable=SC2329 # called through wait_for
 healthy_relay() {
   [[ "$(status adb-relay)" == "healthy" ]]
 }
 run_check "adb-relay is healthy" wait_for 60 healthy_relay
 check "adb-relay is in the network of the host" "host" "$(docker inspect --format '{{.HostConfig.NetworkMode}}' adb-relay)"
-# the client is in the network of the host too: the one of Docker Desktop is its VM, not the one of macOS
-check "a port of the range reaches the device host" "relay ok" \
-  "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17431 && timeout 5 cat <&3' 2>&1)"
-check_contains "adb-relay logs the session" "17431 -> ${target}:17431" "$(docker logs adb-relay 2>&1)"
-check "another port relays to the same port of the device host" "" \
-  "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17432 && timeout 5 cat <&3' 2>&1)"
-check_contains "the device host refuses the other port" "17432 -> ${target}:17432" "$(docker logs adb-relay 2>&1)"
-docker rm -f adb-relay-target > /dev/null
-# adb-relay goes with the services also when ADB_RELAY_HOSTS is cleared (the shutdown below)
-sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=|" "${MCLOUD}/.env"
+check_contains "adb-relay reports the empty access token" "The access token of STF (STF_TOKEN of variables.env) is empty" \
+  "$(docker logs adb-relay 2>&1)"
+# adb-relay goes with the services also when ADB_RELAY is turned off (the shutdown below)
+sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=false|" "${MCLOUD}/.env"
 
 section "https"
 HTTPS="${WORK}/https"
@@ -291,15 +275,8 @@ printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.
 run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
-# the servers of adb-relay: single ports of one address, a range of a host name (the resolvers of the template of the image)
-sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464,agent.example.com:7700-7799|" "${HTTPS}/.env"
-printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
-check_contains "the setup writes the servers of adb-relay" "proxy_pass agent.example.com:" \
-  "$(cat "${HTTPS}/configuration/adb-relay/relay-hosts.conf")"
 run_check "the configuration of adb-relay" \
-  docker run --rm -e NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
-  -v "${HTTPS}/configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "${HTTPS}/configuration/adb-relay/relay-hosts.conf:/etc/nginx/templates/relay-hosts.conf.stream-template:ro" \
+  docker run --rm -e NGINX_ENTRYPOINT_QUIET_LOGS=1 -v "${HTTPS}/configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro" \
   "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 
 section "shutdown"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests of adb-relay in docker: the auto mode (ADB_RELAY=true) with a fake STF API (the devices of the enrolled nodes) on
-# the port of stf-proxy of the host, a stand-in node in a docker network and a manual entry of ADB_RELAY_HOSTS; the sessions through the relay, the
+# the port of stf-proxy of the host and a stand-in node in a docker network; the sessions through the relay, the
 # reload when the devices change (an open session goes on) and the functions of adb-relay.sh with the bash and the mawk of
 # the nginx image. The containers have fixed names and use the ports 17400-17499 and 18082 of the host.
 source "$(dirname "$0")/lib.sh"
@@ -87,7 +87,7 @@ docker network create adb-relay-test > /dev/null
 # the node: every port answers the lines it gets with the port in front
 # shellcheck disable=SC2016 # a perl program
 run_check "a node" docker run -d --name adb-relay-test-host --network adb-relay-test "$NGINX" perl -MIO::Socket::INET -e '
-  for my $port (17401, 17411, 17421, 17450) {
+  for my $port (17401, 17411, 17421) {
     next if fork;
     my $server = IO::Socket::INET->new(LocalPort => $port, Listen => 5, ReuseAddr => 1) or die $!;
     while (my $client = $server->accept) {
@@ -117,7 +117,7 @@ http {
 }
 EOF
 # absent: a device of STF that is not connected, its node refuses the port
-devices "old:${host}:17401" "new:${host}:17411" "absent:${host}:17431" "manual:${host}:17450" "loop:127.0.0.1:17440" \
+devices "old:${host}:17401" "new:${host}:17411" "absent:${host}:17431" "loop:127.0.0.1:17440" \
   "out:${host}:17600"
 # published like stf-proxy: adb-relay reads it on 127.0.0.1 of the network of the host
 run_check "the fake STF API" docker run -d --name adb-relay-test-api --network adb-relay-test -p 18082:18082 -v "${API}:/data:ro" \
@@ -132,23 +132,16 @@ sed -i.orig -e "s|^STF_PORT=.*|STF_PORT=18082|" -e "s|^STF_URL=.*|STF_URL=http:/
   "${MCLOUD}/.env"
 # the token file of ./zebrunner.sh start, STF_TOKEN of variables.env
 (umask 077 && echo test-token > "${MCLOUD}/configuration/adb-relay/stf-token")
-# the manual entry of ADB_RELAY_HOSTS, as ./zebrunner.sh writes it
-# shellcheck disable=SC2016 # $server_port of nginx
-printf 'server {\n  listen 17450 so_keepalive=on;\n  proxy_pass %s:$server_port;\n}\n' "$host" \
-  > "${MCLOUD}/configuration/adb-relay/relay-hosts.conf"
 run_check "adb-relay starts" bash -c "cd '${MCLOUD}' && docker compose --profile adb-relay up -d adb-relay"
 run_check "adb-relay reads the devices of the nodes" wait_for 60 relay_log_has "Android devices of the nodes relayed: 3."
 log="$(docker logs adb-relay 2>&1)"
 check_contains "a device: connectPort at the address of its node" \
   "Relays the remote debug port 17401 of the device old of the node lab-1 to ${host}:17401." "$log"
 check_contains "another device" "Relays the remote debug port 17411 of the device new of the node lab-1 to ${host}:17411." "$log"
-check_contains "a port of ADB_RELAY_HOSTS is skipped" \
-  "Skips the remote debug port 17450 of the device manual of the node lab-1 (${host}): the port is one of MCloud or of ADB_RELAY_HOSTS." "$log"
 check_contains "a loopback address of a node is skipped" "the address 127.0.0.1 of its node is not one to relay to" "$log"
 check_contains "a port out of ADB_RELAY_PORTS is skipped" "Skips the remote debug port 17600 of the device out" "$log"
 check "the remote debug port of a device" "17401 hi" "$(talk 17401 hi)"
 check "the remote debug port of another device" "17411 hi" "$(talk 17411 hi)"
-check "the port of ADB_RELAY_HOSTS" "17450 hi" "$(talk 17450 hi)"
 check_contains "an absent device is relayed too" "Relays the remote debug port 17431 of the device absent of the node lab-1 to ${host}:17431." "$log"
 check_not_contains "the port of the absent device reaches no device" "17431 hi" "$(talk 17431 hi)"
 check_contains "the node refuses the port of the absent device (502 of the relay)" "17431 -> ${host}:17431 502" \
@@ -181,14 +174,15 @@ run_check "a new token is read on the next sync" wait_for 30 relay_log_has "The 
 check "the relay has no other secret of MCloud" "" \
   "$(docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' adb-relay | tr ' ' '\n' | grep variables.env)"
 
-section "ADB_RELAY_HOSTS only"
+section "without the auto mode"
+# ./zebrunner.sh starts adb-relay with ADB_RELAY=true only; a container started otherwise relays nothing
 sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=false|" "${MCLOUD}/.env"
 run_check "adb-relay starts again without the auto mode" \
   bash -c "cd '${MCLOUD}' && docker compose --profile adb-relay up -d adb-relay"
 run_check "adb-relay is healthy without the auto mode" wait_for 60 \
   bash -c "test \"\$(docker inspect --format '{{.State.Health.Status}}' adb-relay)\" == healthy"
-check "the port of ADB_RELAY_HOSTS without the auto mode" "17450 hi" "$(talk 17450 hi)"
 check_contains "no device of STF without the auto mode" "Connection refused" "$(talk 17401 hi)"
+check_contains "the log says so" "ADB_RELAY is 'false', not true: no device is relayed." "$(docker logs adb-relay 2>&1)"
 check_not_contains "no sync without the auto mode" "Android devices of the nodes" "$(docker logs adb-relay 2>&1)"
 
 section "adb-relay.sh in the image"

@@ -84,10 +84,10 @@ skip|7399|192.168.30.2|below|n|the port is not in ADB_RELAY_PORTS 7400-7499" "$(
     device below n 192.168.30.2 7399
   } | relay_devices 7400 7499 ""
 )"
-check "the ports of MCloud and of ADB_RELAY_HOSTS are skipped" \
-  "skip|8082|192.168.30.2|stf|n|the port is one of MCloud or of ADB_RELAY_HOSTS
-skip|7404|192.168.30.2|single|n|the port is one of MCloud or of ADB_RELAY_HOSTS
-skip|7465|192.168.30.3|range|n|the port is one of MCloud or of ADB_RELAY_HOSTS
+check "the ports of MCloud are skipped" \
+  "skip|8082|192.168.30.2|stf|n|the port is one of MCloud
+skip|7404|192.168.30.2|single|n|the port is one of MCloud
+skip|7465|192.168.30.3|range|n|the port is one of MCloud
 relay|7471|192.168.30.3|free|n" "$(
     {
       device stf n 192.168.30.2 8082
@@ -134,10 +134,6 @@ for value in 7400 7499-7400 80-90 7400-70000 x-y ""; do
     echo "$?"
   )"
 done
-MANUAL_TEMPLATE="${WORK}/relay-hosts.conf"
-# shellcheck disable=SC2016 # $server_port of nginx
-printf 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;\nserver {\n  listen 7404 so_keepalive=on;\n  proxy_pass a:$server_port;\n}\nserver {\n  listen 7460-7469 so_keepalive=on;\n  proxy_pass b:$server_port;\n}\n' > "$MANUAL_TEMPLATE"
-check "the ports of ADB_RELAY_HOSTS" "7404 7460-7469 " "$(manual_ports)"
 TOKEN_FILE="${WORK}/stf-token"
 printf 'abc123\n' > "$TOKEN_FILE"
 check "the access token of the file of ./zebrunner.sh" "abc123" "$(stf_token)"

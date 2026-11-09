@@ -14,6 +14,9 @@ copy_repo "$MCLOUD"
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ "$1 $2" == "network inspect" && "$NO_NETWORK" == "1" ]] && exit 1
 [[ "$1 $2" == "compose ps" ]] && cat "${STUB_DIR}/running" 2> /dev/null
+# docker inspect of stf-proxy: running unless ${STUB_DIR}/proxy-down; docker exec: the ports of ${STUB_DIR}/unreachable fail
+[[ "$1" == "inspect" ]] && { [[ -f "${STUB_DIR}/proxy-down" ]] && echo false || echo true; }
+[[ "$1" == "exec" ]] && grep -qx "${*: -1}" "${STUB_DIR}/unreachable" 2> /dev/null && exit 1
 exit 0'
 # curl: the address of ifconfig.me; the STF API answers ${STUB_DIR}/answer with the status ${STUB_DIR}/status, the
 # configuration of stdin goes to ${STUB_DIR}/curl.stdin
@@ -21,7 +24,9 @@ exit 0'
 stub curl '[[ "$*" == *ifconfig.me* ]] && echo 203.0.113.10 && exit 0
 (IFS="|"; echo "curl|$*") >> "${STUB_DIR}/calls.log"
 cat > "${STUB_DIR}/curl.stdin"
-cat "${STUB_DIR}/answer" 2> /dev/null
+answer="${STUB_DIR}/answer"
+[[ "${*: -1}" == */api/v1/devices* && -f "${STUB_DIR}/answer.devices" ]] && answer="${STUB_DIR}/answer.devices"
+cat "$answer" 2> /dev/null
 printf "\n%s" "$(cat "${STUB_DIR}/status" 2> /dev/null || echo 000)"'
 
 # zbr <stdin text> <zebrunner.sh arguments...>: runs zebrunner.sh of the copy without the user's environment,
@@ -106,16 +111,18 @@ check "no Zebrunner sign-in" "" "$(value variables.env ZEBRUNNER_LOGIN_URL)"
 check "variables.env ends with a newline" "" "$(tail -c 1 "${MCLOUD}/variables.env")"
 check_contains "the enrollment of the nodes is explained" "./zebrunner.sh node-invite <label> <address>" "$output"
 check "the mock sign-in by default" "auth-mock:auth/mock/" "$(value .env AUTH_SYSTEM):$(value .env AUTH_URL)"
-check "no legacy node by default" "" "$(value .env AGENT_HOSTS)"
-check_not_contains "the legacy nodes are not asked" "Device hosts" "$output"
-check "no list of the device hosts for stf-proxy" "no" \
-  "$([[ -e "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf" ]] && echo yes || echo no)"
-check_not_contains "no warning without legacy nodes" "AGENT_HOSTS" "$output"
-check "no adb relay by default" "" "$(value .env ADB_RELAY_HOSTS)"
-check "adb-relay has no server without the relay hosts" "" "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
+check_not_contains "no device host is asked" "Device hosts" "$output"
+for name in AGENT_HOSTS ADB_RELAY_HOSTS; do
+  check "no ${name} in .env" "" "$(grep "^${name}=" "${MCLOUD}/.env")"
+done
+for name in NODE_REGISTRATION_TOKEN STF_ZMQ_CURVE_CLIENT_KEYS; do
+  check "no ${name} in variables.env" "" "$(grep "^${name}=" "${MCLOUD}/variables.env")"
+done
+check_contains "AGENTS_ADDRESS 0.0.0.0 is reported" \
+  "AGENTS_ADDRESS of .env is 0.0.0.0: the nodes reach MCloud at mcloud.example.com (the host of STF_URL" "$output"
 check "no access token for adb-relay without its auto mode" "" "$(cat "${MCLOUD}/configuration/adb-relay/stf-token")"
 check "the token file of adb-relay is readable for its owner only" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
-check_not_contains "no warning of the optional adb relay" "ADB_RELAY_HOSTS" "$output"
+check_not_contains "no warning of the optional adb relay" "ADB_RELAY" "$output"
 check "the mock sign-in is behind the basic authentication" "true" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
 check "the user of the basic authentication" "'mcloud'" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_USERNAME)"
 mock_password="$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
@@ -128,8 +135,6 @@ check_not_contains "the CURVE keys need no docker" "run|" "$(calls docker)"
 keys="$(printf '%064d' 0)"
 check "the CURVE keys of the triproxies and of the STF units" "ok" "$(curve_keys)"
 server_secret="$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-check "no device host yet" "" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
-check "no key of a device host yet" "" "$(grep '^STF_ZMQ_CURVE_CLIENT_KEY_' "${MCLOUD}/variables.env")"
 password="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the password of RethinkDB is generated" "48" "${#password}"
 check "variables.env is readable for its owner only" "-rw-------" "$(mode variables.env)"
@@ -139,34 +144,25 @@ check "the ports of the device hosts are published on every address" "0.0.0.0" "
 check "the nodes reach the host of STF_URL" "mcloud.example.com" "$(value .env NODES_HOST)"
 check "the triproxies and the storage read the nodes from stf-api" "http://stf-api:3000" \
   "$(value variables.env STF_NODES_API_URL)"
-grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-check "the registration token of the grid is generated" "48" "${#grid_token}"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
-replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
-printf '%s\n' "STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01=${keys//0/a}" "STF_SESSION_TTL_SECONDS=3600" >> "${MCLOUD}/variables.env"
+printf '%s\n' "STF_SESSION_TTL_SECONDS=3600" "STF_CUSTOM_KEY=${keys//0/a}" >> "${MCLOUD}/variables.env"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
-replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
 check "the password of RethinkDB is kept" "$password" "$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the CURVE keys are kept" "$server_secret" "$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
-check "the registration token of the grid is kept" "$grid_token" "$(value variables.env NODE_REGISTRATION_TOKEN)"
-check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
-check "the key of a device host of its own variable is kept" "${keys//0/a}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01)"
 check "a variable added to variables.env is kept" "3600" "$(value variables.env STF_SESSION_TTL_SECONDS)"
+check "another variable added to variables.env is kept" "${keys//0/a}" "$(value variables.env STF_CUSTOM_KEY)"
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
 check "the nodes reach AGENTS_ADDRESS" "10.0.0.5" "$(value .env NODES_HOST)"
+check_not_contains "no warning with the LAN address in AGENTS_ADDRESS" "AGENTS_ADDRESS of .env is 0.0.0.0" "$output"
 check "the size of the log files is kept" "200m" "$(value .env LOG_MAX_SIZE)"
 check "the default number of the log files" "5" "$(value .env LOG_MAX_FILE)"
-check "the relay hosts are kept" "192.168.30.2:7404,192.168.30.2:7464" "$(value .env ADB_RELAY_HOSTS)"
-check_contains "the setup writes the relay of the relay hosts" "proxy_pass 192.168.30.2:" \
-  "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
-replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464" "ADB_RELAY_HOSTS="
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
@@ -184,20 +180,16 @@ replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET="
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
-check "the added variables are added once" "1" "$(grep -c '^STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01=' "${MCLOUD}/variables.env")"
+check "the added variables are added once" "1" "$(grep -c '^STF_CUSTOM_KEY=' "${MCLOUD}/variables.env")"
 
 section "setup without the secrets"
-for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY \
-  NODE_REGISTRATION_TOKEN; do
+for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY; do
   sed -i.orig "/^${name}=/d" "${MCLOUD}/variables.env"
 done
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "the missing password of RethinkDB is generated" "48" "${#authkey}"
 check "the missing CURVE keys are made" "ok" "$(curve_keys)"
-grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-check "the missing registration token of the grid is generated" "48" "${#grid_token}"
-check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(value variables.env STF_ZMQ_CURVE_CLIENT_KEYS)"
 
 section "setup questions"
 SSL="${MCLOUD}/configuration/stf-proxy/ssl"
@@ -244,29 +236,20 @@ check "the end of the input with an invalid value fails" "1" "$?"
 check_contains "the invalid host is reported" "A host name or an IP address only" "$output"
 mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
 
-section "legacy nodes"
-# AGENT_HOSTS of .env, the nodes without enrollment: stf-api gets it (README.md#nodes), the setup keeps it
-replace "${MCLOUD}/.env" "AGENT_HOSTS=" "AGENT_HOSTS=agent1.example.com,10.0.0.7"
-echo '"old.example.com" 1;' > "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf"
-output="$(zbr "$(answers "" "" "" "" "")" setup)"
-check "the legacy nodes are kept by the setup" "agent1.example.com,10.0.0.7" "$(value .env AGENT_HOSTS)"
-check "the list of stf-proxy of an earlier MCloud is removed" "no" \
-  "$([[ -e "${MCLOUD}/configuration/stf-proxy/agent-hosts.conf" ]] && echo yes || echo no)"
-check_not_contains "no warning with valid legacy nodes" "AGENT_HOSTS" "$output"
-replace "${MCLOUD}/.env" "AGENT_HOSTS=agent1.example.com,10.0.0.7" "AGENT_HOSTS=agent2.example.com,bad/host"
-output="$(zbr "" start)"
-check_contains "start reports an invalid host" "'bad/host' of AGENT_HOSTS of .env is not a host name or address: stf-api ignores it." "$output"
-check_not_contains "a valid host is not reported" "agent2.example.com" "$output"
-replace "${MCLOUD}/.env" "AGENT_HOSTS=agent2.example.com,bad/host" "AGENT_HOSTS=agent1.example.com"
+section "the host of the nodes"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.5" "AGENTS_ADDRESS=10.0.0.6"
 zbr "" start > /dev/null
 check "start writes NODES_HOST of a new AGENTS_ADDRESS" "10.0.0.6" "$(value .env NODES_HOST)"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.6" "AGENTS_ADDRESS=0.0.0.0"
 sed -i.orig '/^NODES_HOST=/d' "${MCLOUD}/.env"
-zbr "" start > /dev/null
-check "start adds NODES_HOST to the .env of an earlier MCloud" "mcloud.example.com" "$(value .env NODES_HOST)"
+output="$(zbr "" start)"
+check "start adds a missing NODES_HOST" "mcloud.example.com" "$(value .env NODES_HOST)"
+check_contains "start reports AGENTS_ADDRESS 0.0.0.0 with a hint for the nodes on the server" \
+  "set AGENTS_ADDRESS to the LAN address of the server and run ./zebrunner.sh restart (README.md#devices-on-the-mcloud-server)" \
+  "$output"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
-zbr "" start > /dev/null
+output="$(zbr "" start)"
+check_not_contains "start does not report a LAN address in AGENTS_ADDRESS" "AGENTS_ADDRESS" "$output"
 if docker compose version > /dev/null 2>&1; then
   check "stf-api gives the nodes the ZeroMQ endpoints at NODES_HOST" \
     "--nodes-connect-sub tcp://10.0.0.5:7250 --nodes-connect-push tcp://10.0.0.5:7270 --nodes-connect-app-dealer tcp://10.0.0.5:7160 --nodes-connect-dev-dealer tcp://10.0.0.5:7260" \
@@ -278,147 +261,25 @@ s = json.load(sys.stdin)["services"]
 print(" ".join(s[n]["environment"]["STF_NODES_API_URL"] for n in ("stf-triproxy-app", "stf-triproxy-dev", "stf-storage-temp", "stf-api")))')"
 fi
 if docker compose version > /dev/null 2>&1; then
-  check "docker compose passes AGENT_HOSTS to stf-api" "AGENT_HOSTS: agent1.example.com" \
-    "$(cd "$MCLOUD" && docker compose config 2> /dev/null | sed -n '/^  stf-api:/,/^  [a-z]/p' | grep -E '^      AGENT_HOSTS' |
-      sed 's/^ *//')"
-  check "stf-proxy has no list of the device hosts" "" \
-    "$(cd "$MCLOUD" && docker compose config 2> /dev/null | grep agent-hosts)"
-else
-  skip_check "docker compose passes AGENT_HOSTS to stf-api" "requires docker compose"
+  check "stf-api gets no AGENT_HOSTS" "" "$(cd "$MCLOUD" && docker compose config 2> /dev/null | grep AGENT_HOSTS)"
 fi
 
 section "adb relay"
-relay="${MCLOUD}/configuration/adb-relay/relay-hosts.conf"
-# relay_hosts <value>: ADB_RELAY_HOSTS of .env
-relay_hosts() {
-  sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=$1|" "${MCLOUD}/.env"
-}
-reset_calls
-zbr "" start > /dev/null
-check "start without the relay hosts starts no adb-relay" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
-# the remote debug ports of the devices: a single port per entry, a device host in several entries
-relay_hosts "192.168.30.2:7404, 192.168.30.2:7464,192.168.30.3:7704"
-reset_calls
-output="$(zbr "" start)"
-check "start with the relay hosts starts adb-relay too" "network|inspect|infra
-compose|--profile|adb-relay|up|-d" "$(calls docker)"
-# shellcheck disable=SC2016 # $server_port of nginx
-check "a server of adb-relay for every port" 'server {
-  listen 7404 so_keepalive=on;
-  proxy_pass 192.168.30.2:$server_port;
-}
-server {
-  listen 7464 so_keepalive=on;
-  proxy_pass 192.168.30.2:$server_port;
-}
-server {
-  listen 7704 so_keepalive=on;
-  proxy_pass 192.168.30.3:$server_port;
-}' "$(cat "$relay")"
-check_not_contains "no warning with the remote debug ports" "ADB_RELAY_HOSTS" "$output"
-relay_hosts "192.168.30.2:7400-7699,192.168.30.3:7700-7700"
-output="$(zbr "" start)"
-# shellcheck disable=SC2016 # $server_port of nginx
-check "a range and a range of one port" 'server {
-  listen 7400-7699 so_keepalive=on;
-  proxy_pass 192.168.30.2:$server_port;
-}
-server {
-  listen 7700 so_keepalive=on;
-  proxy_pass 192.168.30.3:$server_port;
-}' "$(cat "$relay")"
-check_contains "a range is relayed with a warning about the screens" \
-  "'192.168.30.2:7400-7699' of ADB_RELAY_HOSTS of .env is a range: it also makes the screens of the devices public" "$output"
-check_contains "the warning suggests the remote debug ports" "Relay only the remote debug ports, min_port + 1 of every Android device" "$output"
-check_not_contains "no warning for a range of one port" "'192.168.30.3:7700-7700' of ADB_RELAY_HOSTS" "$output"
-relay_hosts "agent1.lan:9000"
-zbr "" start > /dev/null
-# shellcheck disable=SC2016 # the variables of nginx and of the template of its image
-check "a host name with the resolvers of the host" 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
-server {
-  listen 9000 so_keepalive=on;
-  proxy_pass agent1.lan:$server_port;
-}' "$(cat "$relay")"
-relay_hosts "192.168.30.2:7404,192.168.30.3:7404,192.168.30.2:7404,192.168.30.3:7405"
-output="$(zbr "" start)"
-check_contains "the same port of another device host is skipped" \
-  "'192.168.30.3:7404' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7404'" "$output"
-check_contains "the same entry twice is skipped" \
-  "'192.168.30.2:7404' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7404'" "$output"
-check "a port is relayed once" "7404 so_keepalive=on;
-7405 so_keepalive=on;" "$(sed -n 's/^  listen //p' "$relay")"
-stf_port="$(value .env STF_PORT)"
-stf_ports="$((stf_port - 1))-$((stf_port + 1))"
-relay_hosts "192.168.30.2:7400-7799,bad,10.0.0.1:,10.0.0.1:7400-,host/x:9000-9001,999.1.1.1:9000-9001,1.2.3:9000,\
-10.0.0.1:80-90,10.0.0.1:80,10.0.0.1:7500-7400,10.0.0.1:65000-70000,10.0.0.1:70000,10.0.0.9:7700-7900,10.0.0.9:7790,\
-10.0.0.9:7100-7200,10.0.0.9:7160,10.0.0.9:${stf_ports},10.0.0.9:4440-4450,10.0.0.10:9000"
-reset_calls
-output="$(zbr "" start)"
-for entry in bad 10.0.0.1: 10.0.0.1:7400- host/x:9000-9001 999.1.1.1:9000-9001 1.2.3:9000; do
-  check_contains "${entry} is not a relay host" \
-    "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<port> or <host>:<first port>-<last port>" "$output"
-done
-for entry in 10.0.0.1:80-90 10.0.0.1:80 10.0.0.1:7500-7400 10.0.0.1:65000-70000 10.0.0.1:70000; do
-  check_contains "the ports of ${entry} are invalid" "'${entry}' of ADB_RELAY_HOSTS of .env: the ports are 1024-65535" "$output"
-done
-check_contains "an overlapping range is skipped" \
-  "'10.0.0.9:7700-7900' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7400-7799'" "$output"
-check_contains "a port in an earlier range is skipped" \
-  "'10.0.0.9:7790' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7400-7799'" "$output"
-check_contains "a range with a port of ZeroMQ of STF is skipped" "'10.0.0.9:7100-7200' of ADB_RELAY_HOSTS of .env holds the port 7160 of MCloud" "$output"
-check_contains "a port of ZeroMQ of STF is skipped" "'10.0.0.9:7160' of ADB_RELAY_HOSTS of .env holds the port 7160 of MCloud" "$output"
-check_contains "a range with STF_PORT is skipped" \
-  "'10.0.0.9:${stf_ports}' of ADB_RELAY_HOSTS of .env holds the port ${stf_port} of MCloud" "$output"
-check_contains "a range with the port of the grid is skipped" "'10.0.0.9:4440-4450' of ADB_RELAY_HOSTS of .env holds the port 4446 of MCloud" "$output"
-check "only the valid relay hosts are written" "192.168.30.2:\$server_port;
-10.0.0.10:\$server_port;" "$(sed -n 's/^  proxy_pass //p' "$relay")"
-check "adb-relay starts with the valid relay hosts" "network|inspect|infra
-compose|--profile|adb-relay|up|-d" "$(calls docker)"
-relay_hosts "bad,10.0.0.1:80-90"
-reset_calls
-output="$(zbr "" start)"
-check "no valid relay host: no server" "" "$(cat "$relay")"
-check_contains "no valid relay host is reported" "ADB_RELAY_HOSTS of .env has no valid entry: adb-relay does not run" "$output"
-check "no valid relay host: no adb-relay" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
-relay_hosts ""
-zbr "" start > /dev/null
-check "cleared relay hosts: no server" "" "$(cat "$relay")"
-relay_hosts "192.168.30.2:7404,192.168.30.2:7464"
-zbr "$(answers "" "" "" "" "")" setup > /dev/null
-check "the setup keeps the relay hosts" "192.168.30.2:7404,192.168.30.2:7464" "$(value .env ADB_RELAY_HOSTS)"
-check_contains "the setup writes the servers of adb-relay" "listen 7464 so_keepalive=on;" "$(cat "$relay")"
-# a file of root (sudo ./zebrunner.sh): root writes any file, so the check runs for another user only
-if [[ "$(id -u)" -ne 0 ]]; then
-  chmod 444 "$relay"
-  reset_calls
-  output="$(zbr "" start)"
-  chmod 644 "$relay"
-  check_contains "a file of adb-relay that is not writable is reported" \
-    "configuration/adb-relay/relay-hosts.conf is not writable" "$output"
-  check_not_contains "no shell error for adb-relay" "Permission denied" "$output"
-  check "adb-relay keeps the servers it has" "network|inspect|infra
-compose|--profile|adb-relay|up|-d" "$(calls docker)"
-else
-  skip_check "a file of adb-relay that is not writable" "root writes any file"
-fi
-relay_hosts ""
-zbr "" start > /dev/null
-
-section "adb relay of the devices of STF"
 # relay_setting <name> <value>: a setting of the auto mode of adb-relay in .env
 relay_setting() {
   sed -i.orig "s|^$1=.*|$1=$2|" "${MCLOUD}/.env"
 }
 check "the auto mode is off by default" "false:300:" \
   "$(sed -n 's/^ADB_RELAY=//p' "${REPO}/.env.original"):$(value .env ADB_RELAY_SYNC_SECONDS):$(value .env ADB_RELAY_PORTS)"
+reset_calls
+zbr "" start > /dev/null
+check "start without ADB_RELAY starts no adb-relay" "network|inspect|infra
+compose|up|-d" "$(calls docker)"
 relay_setting ADB_RELAY true
 reset_calls
 output="$(zbr "" start)"
-check "the auto mode starts adb-relay without relay hosts" "network|inspect|infra
+check "ADB_RELAY=true starts adb-relay" "network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(calls docker)"
-check "no server of ADB_RELAY_HOSTS" "" "$(cat "$relay")"
 token_file="${MCLOUD}/configuration/adb-relay/stf-token"
 check "the auto mode gets STF_TOKEN of variables.env only" "api-token" "$(cat "$token_file")"
 check "the token file is readable for its owner only" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
@@ -452,13 +313,10 @@ check_contains "an invalid ADB_RELAY_SYNC_SECONDS is reported" \
   "ADB_RELAY_SYNC_SECONDS of .env '0' is not a number of seconds: adb-relay reads the devices every 300 seconds." "$(zbr "" start)"
 relay_setting ADB_RELAY_SYNC_SECONDS 30
 replace "${MCLOUD}/variables.env" "STF_TOKEN=api-token" "STF_TOKEN="
-replace "${MCLOUD}/.env" "AGENT_HOSTS=agent1.example.com" "AGENT_HOSTS="
 output="$(zbr "" start)"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
-replace "${MCLOUD}/.env" "AGENT_HOSTS=" "AGENT_HOSTS=agent1.example.com"
 check_contains "the auto mode without STF_TOKEN is reported" \
   "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF." "$output"
-check_not_contains "the auto mode needs no AGENT_HOSTS" "AGENT_HOSTS" "$output"
 relay_setting ADB_RELAY yes
 reset_calls
 output="$(zbr "" start)"
@@ -478,7 +336,7 @@ if docker compose version > /dev/null 2>&1; then
 ADB_RELAY_PORTS: 7400-7799
 ADB_RELAY_SYNC_SECONDS: \"30\"" \
     "$(cd "$MCLOUD" && docker compose --profile adb-relay config 2> /dev/null |
-      sed -n '/^  adb-relay:/,/^  [a-z]/p' | grep -E '^      (ADB_RELAY|AGENT_HOSTS)' | sed 's/^ *//')"
+      sed -n '/^  adb-relay:/,/^  [a-z]/p' | grep -E '^      ADB_RELAY' | sed 's/^ *//')"
   relay_setting ADB_RELAY false
   relay_setting ADB_RELAY_PORTS ""
 else
@@ -668,13 +526,11 @@ zbr "" start > /dev/null
 rm -f "${WORK}/bin/id" "${WORK}/bin/chown"
 owner="$(stat -c '%u:%g' "$MCLOUD" 2> /dev/null || stat -f '%u:%g' "$MCLOUD")"
 check_contains "root gives variables.env back to the owner of the folder" "${owner}|variables.env" "$(calls chown)"
-check_contains "root gives relay-hosts.conf back to the owner of the folder" \
-  "${owner}|configuration/adb-relay/relay-hosts.conf" "$(calls chown)"
 check_contains "root gives stf-token back to the owner of the folder" \
   "${owner}|configuration/adb-relay/stf-token" "$(calls chown)"
 
 section "stop, down, restart"
-# with the profile of adb-relay: it stops and goes also when ADB_RELAY_HOSTS was cleared after its start
+# with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
 reset_calls
 zbr "" stop > /dev/null
 check "stop" "compose|--profile|adb-relay|stop" "$(calls docker)"
@@ -686,13 +542,13 @@ zbr "" restart > /dev/null
 check "restart" "compose|--profile|adb-relay|down
 network|inspect|infra
 compose|up|-d" "$(calls docker)"
-sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464/" "${MCLOUD}/.env"
+sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=true/" "${MCLOUD}/.env"
 reset_calls
 zbr "" restart > /dev/null
-check "restart with the relay hosts" "compose|--profile|adb-relay|down
+check "restart with adb-relay" "compose|--profile|adb-relay|down
 network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(calls docker)"
-sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=/" "${MCLOUD}/.env"
+sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
 
 section "version"
 check "the version is the STF tag" "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
@@ -771,6 +627,9 @@ for label in enroll invites relay verify; do
   check_contains "the reserved label '${label}' is reported" \
     "The label '${label}' is reserved by STF (enroll, invites, relay, verify): choose another one." "$output"
 done
+no_curl "an invite of the loopback address" node-invite lab-1 127.0.0.1
+check_contains "a node on the server is invited with the LAN address" \
+  "A node on the MCloud server itself is invited with the LAN address of the server (README.md#devices-on-the-mcloud-server)" "$output"
 for address in 127.0.0.1 0.0.0.0 169.254.169.254 224.0.0.1 255.255.255.255 localhost a.localhost http://10.0.0.5 10.0.0.5:7000 \
   10.0.0.256 "a b" 10.0.0.5/x; do
   no_curl "the address '${address}'" node-invite lab-1 "$address"
@@ -890,54 +749,67 @@ output="$(zbr "" nodes delete lab-1)"
 check "the removal of an active node fails" "1" "$?"
 check_contains "the removal needs a revocation" "a revoked one only: ./zebrunner.sh nodes revoke lab-1" "$output"
 
-# the legacy settings: the keys of two nodes, the key list, AGENT_HOSTS
-printf '%s\n' "STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01=${keys//0/a}" "STF_ZMQ_CURVE_CLIENT_KEY_IOS=${keys//0/b}" \
-  "STF_ZMQ_CURVE_CLIENT_KEY_EMPTY=" >> "${MCLOUD}/variables.env"
-replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
-replace "${MCLOUD}/.env" "AGENT_HOSTS=" "AGENT_HOSTS=10.0.0.7"
-grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-storage_token="$(value variables.env STF_STORAGE_TOKEN)"
-cp "${MCLOUD}/variables.env" "${WORK}/variables.saved"
-variables_inode="$(inode variables.env)"
-api 200 "{\"nodes\":[{\"label\":\"lab-1\",\"address\":\"10.0.0.5\",\"publicKey\":\"${key}\",\"status\":\"active\"}]}"
+# the diagnostics of a node: lab-1 at 10.0.0.5 with a reachable Android device, an iOS device stf-proxy does not reach
+# (its port in ${WORK}/unreachable), an absent device; the devices of another node and an unbound one are not shown
+api 200 "{\"nodes\":[{\"label\":\"lab-1\",\"address\":\"10.0.0.5\",\"publicKey\":\"${key}\",\"status\":\"active\",
+  \"createdAt\":\"2026-11-09T17:00:00.000Z\",\"revokedAt\":null,\"lastSeenAt\":\"2026-11-09T17:30:00.123Z\"},
+  {\"label\":\"lab-2\",\"address\":\"node-2.lan\",\"publicKey\":\"${key//a/c}\",\"status\":\"revoked\",
+  \"createdAt\":\"2026-11-08T10:00:00.000Z\",\"revokedAt\":\"2026-11-09T09:00:00.000Z\",\"lastSeenAt\":null},
+  {\"label\":\"lab-3\",\"address\":\"10.0.0.8\",\"publicKey\":\"${key}\",\"status\":\"active\",
+  \"createdAt\":\"2026-11-08T10:00:00.000Z\",\"revokedAt\":null,\"lastSeenAt\":null}]}"
+devices_answer='{"success":true,"description":"Devices Information","devices":[
+  {"serial":"emulator-5554","platform":"Android","present":true,"node":"lab-1","screenPort":7405,"connectPort":7406},
+  {"serial":"00008110-001","platform":"iOS","present":true,"node":"lab-1","screenPort":7600,"connectPort":null},
+  {"serial":"R58M","platform":"Android","present":false,"node":"lab-1","screenPort":7410,"connectPort":7411},
+  {"serial":"other","platform":"Android","present":true,"node":"lab-2","screenPort":7420,"connectPort":7421},
+  {"serial":"unbound","platform":"Android","present":true,"node":null,"screenPort":7430,"connectPort":7431}]}'
+printf '%s' "$devices_answer" > "${WORK}/answer.devices"
+echo 7600 > "${WORK}/unreachable"
 reset_calls
-output="$(zbr "n\n" nodes legacy-off)"
-check "a declined legacy-off" "0" "$?"
-check "a declined legacy-off changes nothing" "same:AGENT_HOSTS=10.0.0.7" \
-  "$(cmp -s "${MCLOUD}/variables.env" "${WORK}/variables.saved" && echo same):$(grep '^AGENT_HOSTS=' "${MCLOUD}/.env")"
-check "a declined legacy-off restarts nothing" "" "$(calls docker)"
-check_contains "legacy-off warns that the nodes without enrollment stop working" "Every node that is not
-      enrolled stops working" "$output"
-check_contains "legacy-off names the keys it empties" \
-  "(set: STF_ZMQ_CURVE_CLIENT_KEYS STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01 STF_ZMQ_CURVE_CLIENT_KEY_IOS )" "$output"
-check_contains "legacy-off shows the enrolled nodes" "lab-1" "$output"
-check_not_contains "legacy-off shows no key value" "${keys//0/a}" "$output"
-zbr "\n" nodes legacy-off > /dev/null
-check "legacy-off is declined by default" "same" "$(cmp -s "${MCLOUD}/variables.env" "${WORK}/variables.saved" && echo same)"
+output="$(zbr "" nodes check lab-1)"
+check "a node with an unreachable device fails the check" "1" "$?"
+check "the check reads the node and the devices from the STF API" \
+  "-sS|-k|--max-time|30|-X|GET|-H|Accept: application/json|-w|\\n%{http_code}|-K|-|https://127.0.0.1:443/api/v1/nodes
+-sS|-k|--max-time|30|-X|GET|-H|Accept: application/json|-w|\\n%{http_code}|-K|-|\
+https://127.0.0.1:443/api/v1/devices?fields=serial,platform,present,node,screenPort,connectPort" "$(calls curl)"
+check_not_contains "STF_TOKEN is not an argument of the check" "$admin_token" "$(calls curl)"
+# shellcheck disable=SC2016 # the script of the inner bash
+check "stf-proxy connects to the screens of the present devices of the node" \
+  'inspect|--format|{{.State.Running}}|stf-proxy
+exec|stf-proxy|timeout|5|bash|-c|echo > "/dev/tcp/$0/$1"|10.0.0.5|7405
+exec|stf-proxy|timeout|5|bash|-c|echo > "/dev/tcp/$0/$1"|10.0.0.5|7600' "$(calls docker)"
+check_contains "the record of the node" \
+  "Node lab-1: active, address 10.0.0.5, enrolled 2026-11-09T17:00:00, last seen by the grid 2026-11-09T17:30:00" "$output"
+check "the devices of the node with the result" "SERIAL PLATFORM PRESENT SCREEN REMOTE DEBUG SCREEN FROM stf-proxy
+emulator-5554 Android yes 7405 7406 reachable
+00008110-001 iOS yes 7600 - NOT REACHABLE
+R58M Android no 7410 7411 not checked: absent" "$(grep -E '^(SERIAL|emulator|00008110|R58M|other|unbound)' <<< "$output" | tr -s ' ')"
+check_contains "an unreachable screen is explained" "stf-proxy does not reach the screen of a device at 10.0.0.5: the address of the invite" "$output"
+check_contains "the hint names the NAT hairpin" "NAT hairpin" "$output"
+: > "${WORK}/unreachable"
+output="$(zbr "" nodes check lab-1)"
+check "a node with its screens reachable passes the check" "0" "$?"
+check_not_contains "no hint when the screens are reachable" "does not reach" "$output"
+touch "${WORK}/proxy-down"
 reset_calls
-output="$(zbr "y\n" nodes legacy-off)"
-check "legacy-off" "0" "$?"
-check "legacy-off empties the keys of the legacy nodes" "STF_ZMQ_CURVE_CLIENT_KEYS=
-STF_ZMQ_CURVE_CLIENT_KEY_ANDROID_01=
-STF_ZMQ_CURVE_CLIENT_KEY_IOS=
-STF_ZMQ_CURVE_CLIENT_KEY_EMPTY=" "$(grep '^STF_ZMQ_CURVE_CLIENT_KEY' "${MCLOUD}/variables.env")"
-new_grid_token="$(value variables.env NODE_REGISTRATION_TOKEN)"
-new_storage_token="$(value variables.env STF_STORAGE_TOKEN)"
-check "legacy-off makes a new NODE_REGISTRATION_TOKEN" "48:new" \
-  "${#new_grid_token}:$([[ "$new_grid_token" != "$grid_token" ]] && echo new)"
-check "legacy-off makes a new STF_STORAGE_TOKEN" "64:new" \
-  "${#new_storage_token}:$([[ "$new_storage_token" != "$storage_token" ]] && echo new)"
-check_not_contains "the new NODE_REGISTRATION_TOKEN is not shown" "$new_grid_token" "$output"
-check_not_contains "the new STF_STORAGE_TOKEN is not shown" "$new_storage_token" "$output"
-check "legacy-off empties AGENT_HOSTS" "" "$(value .env AGENT_HOSTS)"
-check "legacy-off keeps the other settings" \
-  "$(grep -vE '^(STF_ZMQ_CURVE_CLIENT_KEY|NODE_REGISTRATION_TOKEN|STF_STORAGE_TOKEN)' "${WORK}/variables.saved")" \
-  "$(grep -vE '^(STF_ZMQ_CURVE_CLIENT_KEY|NODE_REGISTRATION_TOKEN|STF_STORAGE_TOKEN)' "${MCLOUD}/variables.env")"
-check "legacy-off writes variables.env in place, readable for its owner only" "${variables_inode}:-rw-------" \
-  "$(inode variables.env):$(mode variables.env)"
-check "legacy-off restarts the services" "compose|--profile|adb-relay|down
-network|inspect|infra
-compose|up|-d" "$(calls docker)"
+output="$(zbr "" nodes check lab-1)"
+check "the check without stf-proxy fails" "1" "$?"
+rm -f "${WORK}/proxy-down"
+check_contains "stf-proxy that is not running is reported" "stf-proxy is not running (./zebrunner.sh start)" "$output"
+check "no connection without stf-proxy" "" "$(calls docker | grep '^exec')"
+output="$(zbr "" nodes check lab-2)"
+check "a revoked node fails the check" "1" "$?"
+check_contains "a revoked node is explained" "The node lab-2 is revoked" "$output"
+output="$(zbr "" nodes check lab-9)"
+check "an unknown node fails the check" "1" "$?"
+check_contains "an unknown node is explained" "There is no node lab-9 in the registry of STF" "$output"
+output="$(zbr "" nodes check lab-3)"
+check "a node without devices fails the check" "1" "$?"
+check_contains "a node the grid has not seen is explained" "The grid has not seen the node yet" "$output"
+check_contains "a node without devices is explained" "No device of STF is bound to the node lab-3" "$output"
+no_curl "the check without a label" nodes check
+no_curl "the check of an invalid label" nodes check ../x
+rm -f "${WORK}/answer.devices"
 
 section "stf-proxy"
 conf="$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
@@ -949,6 +821,11 @@ block() {
 screen="$(block 'location ~ "^/d/')"
 screen_auth="$(block "location = /_screen_auth")"
 check_not_contains "no list of the device hosts" "agent-hosts" "$conf"
+self="$(block "location ~* ^/api/v1/nodes/self")"
+check_contains "the record of a node for itself goes to stf-api" "set \$upstream_node_self stf-api:3000;" "$self"
+check_contains "the record of a node for itself is limited per address" \
+  "limit_req_zone \$binary_remote_addr zone=node_self:1m rate=30r/m;" "$conf"
+check_contains "too many requests of the record of a node are 429" "limit_req_status 429;" "$self"
 check_contains "the screens are allowed by stf-api" "auth_request /_screen_auth;" "$screen"
 check_contains "the node gets the headers of the WebSocket only" "proxy_pass_request_headers off;" "$screen"
 check_contains "the node gets no session cookie" 'proxy_set_header Cookie "";' "$screen"
@@ -990,8 +867,7 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(calls docker)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/agent-hosts.conf \
-  configuration/adb-relay/relay-hosts.conf configuration/adb-relay/stf-token; do
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"

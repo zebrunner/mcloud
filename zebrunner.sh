@@ -13,21 +13,17 @@ setup() {
   local agents_address=""
   local log_max_size=""
   local log_max_file=""
-  local adb_relay_hosts=""
   local relay_settings=""
   local setting
-  local agent_hosts=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
   fi
-  # the addresses of the published ports of the previous setup (README.md#firewall), the legacy nodes
+  # the addresses of the published ports of the previous setup (README.md#firewall)
   if [[ -f .env ]]; then
     agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
-    agent_hosts="$(sed -n 's/^AGENT_HOSTS=//p' .env)"
     log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
     log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
-    adb_relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
     relay_settings="$(grep -E '^ADB_RELAY(_PORTS|_SYNC_SECONDS)?=' .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
@@ -80,7 +76,7 @@ setup() {
     exit 1
   fi
 
-  # the authentication of RethinkDB, of ZeroMQ and of the grid registration (README.md#authentication-of-the-device-hosts):
+  # the authentication of RethinkDB, of ZeroMQ and of the grid registration (README.md#authentication-of-the-nodes):
   # the secrets of the previous setup are kept, the missing ones are made
   if [[ -z "$RETHINKDB_ENV_AUTHKEY" ]]; then
     RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
@@ -88,16 +84,11 @@ setup() {
   if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]] && ! set_curve_keys; then
     exit 1
   fi
-  if [[ -z "$NODE_REGISTRATION_TOKEN" ]]; then
-    NODE_REGISTRATION_TOKEN="$(random_string 48)"
-  fi
 
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
-  replace .env "AGENT_HOSTS=" "AGENT_HOSTS=${agent_hosts}"
-  replace .env "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=${adb_relay_hosts}"
   # the settings of the auto mode of adb-relay of the previous setup
   while read -r setting; do
     if [[ -n "$setting" ]]; then
@@ -107,8 +98,6 @@ setup() {
   replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
   replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
   set_nodes_host
-  check_agent_hosts
-  write_adb_relay_hosts
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
   case "$sign_in" in
@@ -139,7 +128,7 @@ setup() {
     STF_STORAGE_TOKEN="$(random_string 64)"
   fi
 
-  # the variables added to variables.env (e.g. STF_ZMQ_CURVE_CLIENT_KEY_<HOST> of the device hosts) are added again
+  # the variables added to variables.env (e.g. STF_SESSION_TTL_SECONDS) are added again
   local added=""
   if [[ "$is_new" -eq 0 ]]; then
     added="$(awk -F '=' 'NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) known[$1] = 1; next }
@@ -150,14 +139,12 @@ setup() {
   replace variables.env "localhost" "${ZBR_HOSTNAME}"
 
   replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
-  replace variables.env "NODE_REGISTRATION_TOKEN=" "NODE_REGISTRATION_TOKEN=${NODE_REGISTRATION_TOKEN}"
   replace variables.env "SECRET=password" "SECRET=${SECRET}"
   replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
   replace variables.env "RETHINKDB_ENV_AUTHKEY=" "RETHINKDB_ENV_AUTHKEY=${RETHINKDB_ENV_AUTHKEY}"
   replace variables.env "STF_ZMQ_CURVE_SERVER_SECRET_KEY=" "STF_ZMQ_CURVE_SERVER_SECRET_KEY=${STF_ZMQ_CURVE_SERVER_SECRET_KEY}"
   replace variables.env "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=${STF_ZMQ_CURVE_SERVER_PUBLIC_KEY}"
   replace variables.env "STF_ZMQ_CURVE_SECRET_KEY=" "STF_ZMQ_CURVE_SECRET_KEY=${STF_ZMQ_CURVE_SECRET_KEY}"
-  replace variables.env "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${STF_ZMQ_CURVE_CLIENT_KEYS}"
   # the settings of the sign-in, quoted: the values the user typed are not read as a script by the next setup
   if [[ "$sign_in" == "oauth2" ]]; then
     # shellcheck disable=SC2034 # read by the loop below through ${!name}
@@ -207,6 +194,7 @@ setup() {
       Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env:
       ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on
       the node (README.md#nodes); https only."
+  check_agents_address
   if [[ "$sign_in" == "mock" ]]; then
     echo "
       The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
@@ -240,8 +228,6 @@ shutdown() {
   rm -f .env
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf
-  rm -f configuration/stf-proxy/agent-hosts.conf
-  rm -f configuration/adb-relay/relay-hosts.conf
   rm -f configuration/adb-relay/stf-token
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
@@ -263,13 +249,12 @@ start() {
   fi
 
   protect_files
-  # AGENTS_ADDRESS, AGENT_HOSTS and ADB_RELAY_HOSTS of .env may have changed since the setup
+  # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
-  check_agent_hosts
-  write_adb_relay_hosts
+  check_agents_address
   check_adb_relay_auto
   write_stf_token
-  # adb-relay runs with relay hosts or in the auto mode only (README.md#remote-debug-through-the-adb-relay)
+  # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay)
   if [[ -n "$adb_relay" ]]; then
     docker compose --profile adb-relay up -d || return
   else
@@ -294,7 +279,7 @@ stop() {
     exit 0
   fi
 
-  # with the profile: adb-relay stops also when ADB_RELAY_HOSTS was cleared after its start
+  # with the profile: adb-relay stops also when ADB_RELAY was turned off after its start
   docker compose --profile adb-relay stop
 }
 
@@ -304,7 +289,7 @@ down() {
     exit 0
   fi
 
-  # with the profile: adb-relay is removed also when ADB_RELAY_HOSTS was cleared after its start
+  # with the profile: adb-relay is removed also when ADB_RELAY was turned off after its start
   docker compose --profile adb-relay down
 }
 
@@ -462,7 +447,7 @@ mcloud-join://${host}:${port}?label=${label}&grid=${host}:${GRID_PORT}&pin=$(url
       The node checks the certificate of stf-proxy by its pin (SHA-256 of its public key): ${pin}"
 }
 
-# nodes [list|revoke <label>|delete <label>|legacy-off]: the registry of the nodes of STF (README.md#nodes)
+# nodes [list|check <label>|revoke <label>|delete <label>]: the registry of the nodes of STF (README.md#nodes)
 nodes() {
   if ! require_setup; then
     return 1
@@ -470,6 +455,13 @@ nodes() {
   case "${1:-list}" in
   list)
     nodes_list
+    ;;
+  check)
+    if [[ $# -ne 2 ]] || ! valid_label "$2"; then
+      echo "Usage: ./zebrunner.sh nodes check <label>"
+      return 1
+    fi
+    nodes_check "$2"
     ;;
   revoke)
     if [[ $# -ne 2 ]] || ! valid_label "$2"; then
@@ -499,11 +491,8 @@ nodes() {
     fi
     echo "The node ${2} is removed from the registry: its label and its address are free again."
     ;;
-  legacy-off)
-    nodes_legacy_off
-    ;;
   *)
-    echo "Usage: ./zebrunner.sh nodes [list|revoke <label>|delete <label>|legacy-off]"
+    echo "Usage: ./zebrunner.sh nodes [list|check <label>|revoke <label>|delete <label>]"
     return 1
     ;;
   esac
@@ -530,39 +519,101 @@ nodes_list() {
   done <<< "$nodes"
 }
 
-# nodes_legacy_off: the end of the migration to the enrollment (README.md#migration-from-the-manual-settings): empties the
-# keys of the legacy nodes and AGENT_HOSTS, makes new NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN, restarts
-nodes_legacy_off() {
-  local keys
-  keys="$(sed -n 's/^\(STF_ZMQ_CURVE_CLIENT_KEYS\{0,1\}[A-Za-z0-9_]*\)=..*/\1/p' variables.env | tr '\n' ' ')"
-  echo_warning "legacy-off turns the manual settings of the nodes off: it empties STF_ZMQ_CURVE_CLIENT_KEYS and every
-      STF_ZMQ_CURVE_CLIENT_KEY_<HOST> of variables.env (set: ${keys:-none}) and AGENT_HOSTS of .env, makes new
-      NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN of variables.env and restarts the services. Every node that is not
-      enrolled stops working: STF refuses its key, the grid its registration and the storage its uploads. The enrolled
-      nodes go on with their own key and token:"
-  nodes_list
-  if ! confirm "" "      Turn the legacy settings off and restart?" "n"; then
-    echo "Nothing is changed."
-    return 0
-  fi
-  local content
-  content="$(LEGACY_GRID_TOKEN="$(random_string 48)" LEGACY_STORAGE_TOKEN="$(random_string 64)" awk '
-    /^STF_ZMQ_CURVE_CLIENT_KEYS=/ || /^STF_ZMQ_CURVE_CLIENT_KEY_[A-Za-z0-9_]*=/ { sub(/=.*/, "="); print; next }
-    /^NODE_REGISTRATION_TOKEN=/ { print "NODE_REGISTRATION_TOKEN=" ENVIRON["LEGACY_GRID_TOKEN"]; next }
-    /^STF_STORAGE_TOKEN=/ { print "STF_STORAGE_TOKEN=" ENVIRON["LEGACY_STORAGE_TOKEN"]; next }
-    { print }' variables.env)"
-  if [[ "$content" != *"NODE_REGISTRATION_TOKEN="?* || "$content" != *"STF_STORAGE_TOKEN="?* ]]; then
-    echo_warning "variables.env has no NODE_REGISTRATION_TOKEN or STF_STORAGE_TOKEN: run ./zebrunner.sh setup first, nothing is changed."
+# nodes_check <label>: the diagnostics of a node (README.md#diagnostics): its record in the registry, the devices bound
+# to it in STF and, for every present one, a connection of stf-proxy to <address>:<screen port>, the path of its screen
+nodes_check() {
+  local label="$1"
+  local node address status seen devices line serial platform present screen connect result
+  local problems=0
+  local checked=0
+  local unreachable=0
+  local proxy=1
+  if ! stf_api GET /api/v1/nodes; then
+    api_error "The list of the nodes"
     return 1
   fi
-  # in place: variables.env keeps its mode
-  printf '%s\n' "$content" > variables.env
-  sed -i.orig 's/^AGENT_HOSTS=.*/AGENT_HOSTS=/' .env && rm -f .env.orig
-  protect_files
-  echo "The legacy settings are off: NODE_REGISTRATION_TOKEN and STF_STORAGE_TOKEN of variables.env are new, the keys of
-      the legacy nodes and AGENT_HOSTS are empty. The services restart."
-  down
-  start
+  node="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep "\"label\"[[:space:]]*:[[:space:]]*\"${label}\"")"
+  if [[ -z "$node" ]]; then
+    echo_warning "There is no node ${label} in the registry of STF (./zebrunner.sh nodes): ./zebrunner.sh node-invite ${label} <address> enrolls it."
+    return 1
+  fi
+  address="$(json_value address <<< "$node")"
+  status="$(json_value status <<< "$node")"
+  seen="$(json_time lastSeenAt <<< "$node")"
+  echo "Node ${label}: ${status}, address ${address}, enrolled $(json_time createdAt <<< "$node"), last seen by the grid ${seen}"
+  if [[ "$status" != "active" ]]; then
+    echo_warning "The node ${label} is ${status}: STF and the grid refuse its key and token, no device is bound to it. A new invite enrolls it again: ./zebrunner.sh node-invite ${label} ${address}."
+    return 1
+  fi
+  if [[ "$seen" == "-" ]]; then
+    problems=1
+    echo_warning "The grid has not seen the node yet: no Appium of the node registered with its token. On the node: ./zebrunner.sh doctor of mcloud-agent, zebrunner-farm status; the grid logs why it refuses a node (docker logs mcloud-grid)."
+  fi
+  if ! stf_api GET "/api/v1/devices?fields=serial,platform,present,node,screenPort,connectPort"; then
+    api_error "The list of the devices"
+    return 1
+  fi
+  devices="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep '"serial"' | grep "\"node\"[[:space:]]*:[[:space:]]*\"${label}\"")"
+  if [[ -z "$devices" ]]; then
+    echo_warning "No device of STF is bound to the node ${label}: the devices of a node register with its token from its address (${address}, STF_PROVIDER_HOST of the node). On the node: ./zebrunner.sh doctor of mcloud-agent; docker logs stf-processor001 names the refused registrations."
+    return 1
+  fi
+  if [[ "$(docker inspect --format '{{.State.Running}}' stf-proxy 2> /dev/null)" != "true" ]]; then
+    proxy=0
+    problems=1
+    echo_warning "stf-proxy is not running (./zebrunner.sh start): the screens are not checked."
+  fi
+  printf '%-28s %-9s %-8s %-7s %-13s %s\n' SERIAL PLATFORM PRESENT SCREEN "REMOTE DEBUG" "SCREEN FROM stf-proxy"
+  while read -r line; do
+    serial="$(json_value serial <<< "$line")"
+    platform="$(json_value platform <<< "$line")"
+    present="$(json_value present <<< "$line")"
+    screen="$(json_value screenPort <<< "$line")"
+    connect="$(json_value connectPort <<< "$line")"
+    if [[ "$present" != "true" ]]; then
+      result="not checked: absent"
+    elif [[ ! "$screen" =~ ^[0-9]{1,5}$ ]] || ! valid_host "$address"; then
+      result="not checked: no screen port"
+      problems=1
+    elif [[ "$proxy" -eq 0 ]]; then
+      result="not checked"
+    else
+      checked=$((checked + 1))
+      if screen_reachable "$address" "$screen"; then
+        result="reachable"
+      else
+        result="NOT REACHABLE"
+        unreachable=1
+        problems=1
+      fi
+    fi
+    printf '%-28s %-9s %-8s %-7s %-13s %s\n' "$serial" "${platform:--}" "$([[ "$present" == "true" ]] && echo yes || echo no)" \
+      "${screen:--}" "${connect:--}" "$result"
+  done <<< "$devices"
+  if [[ "$unreachable" -eq 1 ]]; then
+    echo_warning "stf-proxy does not reach the screen of a device at ${address}: the address of the invite must be the one the server reaches the node at (a node in the network of the server or on the server itself: its LAN address, a public address often fails there, NAT hairpin; a new invite of ${label} with another address enrolls it again), and the firewall of the node must let the server in on the ports of its devices (README.md#firewall)."
+  fi
+  if [[ "$checked" -eq 0 && "$proxy" -eq 1 ]]; then
+    echo "No present device to check: an absent device is down on the node (zebrunner-farm status, ./zebrunner.sh doctor of mcloud-agent)."
+  fi
+  return "$problems"
+}
+
+# screen_reachable <address> <port>: stf-proxy connects to the port within 5 seconds, as it does for a screen
+screen_reachable() {
+  # $0 and $1 of the inner bash are the arguments after the script, not of this script
+  # shellcheck disable=SC2016
+  docker exec stf-proxy timeout 5 bash -c 'echo > "/dev/tcp/$0/$1"' "$1" "$2" > /dev/null 2>&1
+}
+
+# check_agents_address: warns when AGENTS_ADDRESS of .env is every address: the nodes reach MCloud at the host of
+# STF_URL then, which a node in the network of the server or on the server itself may not reach (README.md#nodes)
+check_agents_address() {
+  case "$(sed -n 's/^AGENTS_ADDRESS=//p' .env)" in
+  "" | 0.0.0.0)
+    echo_warning "AGENTS_ADDRESS of .env is 0.0.0.0: the nodes reach MCloud at $(join_host) (the host of STF_URL, the join string of ./zebrunner.sh node-invite). A node in the network of the server or on the server itself often does not reach a public name or address (NAT hairpin): set AGENTS_ADDRESS to the LAN address of the server and run ./zebrunner.sh restart (README.md#devices-on-the-mcloud-server)."
+    ;;
+  esac
 }
 
 # require_setup: succeeds when MCloud is set up, warns otherwise
@@ -587,7 +638,7 @@ valid_label() {
 # (STF_PROVIDER_HOST of the node), not of the server itself or of the link; warns otherwise
 node_address() {
   local octets=()
-  if relay_host "$1" && [[ "$1" != localhost && "$1" != *.localhost ]]; then
+  if valid_host "$1" && [[ "$1" != localhost && "$1" != *.localhost ]]; then
     if [[ ! "$1" =~ ^[0-9.]+$ ]]; then
       return 0
     fi
@@ -598,7 +649,7 @@ node_address() {
       return 0
     fi
   fi
-  echo_warning "'${1}' is not the address of a node: an IPv4 address or a host name without the protocol and the port, not a loopback, link-local or multicast one."
+  echo_warning "'${1}' is not the address of a node: an IPv4 address or a host name without the protocol and the port, not a loopback, link-local or multicast one. A node on the MCloud server itself is invited with the LAN address of the server (README.md#devices-on-the-mcloud-server)."
   return 1
 }
 
@@ -725,7 +776,7 @@ protect_files() {
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
-    configuration/adb-relay/relay-hosts.conf configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
+    configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
@@ -834,24 +885,8 @@ ask_secret() {
   printf -v "$name" '%s' "$answer"
 }
 
-# check_agent_hosts: warns about the entries of AGENT_HOSTS of .env, the legacy nodes without enrollment whose screens
-# stf-api allows (README.md#nodes), that are not a host name or an address; removes agent-hosts.conf, the list of
-# stf-proxy of an earlier MCloud
-check_agent_hosts() {
-  local hosts=()
-  local host
-  rm -f configuration/stf-proxy/agent-hosts.conf 2> /dev/null
-  IFS=',' read -r -a hosts <<< "$(sed -n 's/^AGENT_HOSTS=//p' .env)"
-  for host in "${hosts[@]}"; do
-    host="${host// /}"
-    if [[ -n "$host" && ! "$host" =~ ^[A-Za-z0-9.-]+$ ]]; then
-      echo_warning "'${host}' of AGENT_HOSTS of .env is not a host name or address: stf-api ignores it."
-    fi
-  done
-}
-
-# relay_host <host>: succeeds for a host name or an IPv4 address the relay connects to
-relay_host() {
+# valid_host <host>: succeeds for a host name or an IPv4 address
+valid_host() {
   local octets=()
   local octet
   if [[ "$1" =~ ^[0-9.]+$ ]]; then
@@ -869,111 +904,13 @@ relay_host() {
   [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]
 }
 
-# write_adb_relay_hosts: configuration/adb-relay/relay-hosts.conf of nginx from ADB_RELAY_HOSTS of .env: a server of
-# adb-relay for every entry, a port or a port range of a device host (README.md#remote-debug-through-the-adb-relay); an
-# invalid entry, one with a port of an earlier entry or of MCloud is skipped, a range is relayed with a warning (it
-# also relays the screens); sets adb_relay to 1 when adb-relay has servers
-write_adb_relay_hosts() {
-  local file="configuration/adb-relay/relay-hosts.conf"
-  local relay_hosts
-  local entries=()
-  local relays=()
-  local firsts=()
-  local lasts=()
-  local entry host first last port i conflict
-  local resolver=""
-  local servers=""
-  relay_hosts="$(sed -n 's/^ADB_RELAY_HOSTS=//p' .env)"
-  relay_hosts="${relay_hosts// /}"
-  # the ports MCloud publishes on the host (docker-compose.yml): nginx would not start with one of them
-  local mcloud_ports=("$(sed -n 's/^STF_PORT=//p' .env)" 4446 7160 7250 7260 7270)
-  adb_relay=""
-  # a file of root (e.g. of `sudo ./zebrunner.sh`) cannot be written, adb-relay keeps the servers it has
-  if ! : 2> /dev/null > "$file"; then
-    echo_warning "${file} is not writable for $(id -un): remove it (rm -f ${file}) and run ./zebrunner.sh restart (README.md#troubleshooting)."
-    if [[ -n "$relay_hosts" && -s "$file" ]]; then
-      adb_relay=1
-    fi
-    return
-  fi
-  IFS=',' read -r -a entries <<< "$relay_hosts"
-  for entry in "${entries[@]}"; do
-    if [[ -z "$entry" ]]; then
-      continue
-    fi
-    # <host>:<port> or <host>:<first>-<last>
-    if [[ "$entry" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})(-([0-9]{1,5}))?$ ]]; then
-      host="${BASH_REMATCH[1]}"
-      first=$((10#${BASH_REMATCH[2]}))
-      last=$((10#${BASH_REMATCH[4]:-${BASH_REMATCH[2]}}))
-    else
-      host=""
-    fi
-    if [[ -z "$host" ]] || ! relay_host "$host"; then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<port> or <host>:<first port>-<last port> with a host name or an IPv4 address, it is skipped."
-      continue
-    fi
-    if ((first < 1024 || last > 65535 || first > last)); then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env: the ports are 1024-65535 and the first one is not greater than the last one, it is skipped."
-      continue
-    fi
-    conflict=""
-    i=0
-    while [[ "$i" -lt "${#firsts[@]}" ]]; do
-      if ((first <= lasts[i] && last >= firsts[i])); then
-        conflict="${relays[i]}"
-        break
-      fi
-      i=$((i + 1))
-    done
-    if [[ -n "$conflict" ]]; then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env has a port of '${conflict}': a port is relayed to one device host only, it is skipped."
-      continue
-    fi
-    for port in "${mcloud_ports[@]}"; do
-      if [[ "$port" =~ ^[0-9]+$ ]] && ((port >= first && port <= last)); then
-        conflict="$port"
-        break
-      fi
-    done
-    if [[ -n "$conflict" ]]; then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env holds the port ${conflict} of MCloud, it is skipped."
-      continue
-    fi
-    relays+=("$entry")
-    firsts+=("$first")
-    lasts+=("$last")
-    # a host name is resolved by nginx on every connection: the resolvers of the host, the image fills them in
-    if [[ ! "$host" =~ ^[0-9.]+$ ]]; then
-      # shellcheck disable=SC2016 # the variable of the template of the nginx image, not of this script
-      resolver='resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;'
-    fi
-    if [[ "$first" -eq "$last" ]]; then
-      port="$first"
-    else
-      port="${first}-${last}"
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is a range: it also makes the screens of the devices public (their min_port), which have no sign-in of their own. Relay only the remote debug ports, min_port + 1 of every Android device: ./zebrunner.sh doctor of mcloud-agent prints them (README.md#remote-debug-through-the-adb-relay)."
-    fi
-    # shellcheck disable=SC2016 # $server_port is the variable of nginx: the port the user connected to
-    servers+="$(printf 'server {\n  listen %s so_keepalive=on;\n  proxy_pass %s:$server_port;\n}' "$port" "$host")"$'\n'
-  done
-  if [[ -n "$servers" ]]; then
-    if [[ -n "$resolver" ]]; then
-      echo "$resolver" >> "$file"
-    fi
-    printf '%s' "$servers" >> "$file"
-    adb_relay=1
-  elif [[ -n "$relay_hosts" ]]; then
-    echo_warning "ADB_RELAY_HOSTS of .env has no valid entry: adb-relay does not run (README.md#remote-debug-through-the-adb-relay)."
-  fi
-}
-
 # check_adb_relay_auto: the auto mode of adb-relay, ADB_RELAY=true of .env (README.md#remote-debug-through-the-adb-relay):
 # sets adb_relay to 1 and warns about the settings it needs
 check_adb_relay_auto() {
   local auto
   local ports
   local seconds
+  adb_relay=""
   auto="$(sed -n 's/^ADB_RELAY=//p' .env)"
   case "$auto" in
   true) ;;
@@ -1103,7 +1040,7 @@ curve_pair() {
   python3 "${BASEDIR}/patch/curve_keygen.py" 2> /dev/null
 }
 
-# set_curve_keys: the CURVE keys of ZeroMQ of a new deployment (README.md#authentication-of-the-device-hosts): the pair of
+# set_curve_keys: the CURVE keys of ZeroMQ of a new deployment (README.md#authentication-of-the-nodes): the pair of
 # the triproxies and the secret key of the STF units; fails without openssl with X25519 and without python3
 set_curve_keys() {
   local server
@@ -1210,8 +1147,8 @@ echo_help() {
           restore        Restore container
           version        Version of container
           node-invite    <label> <address> [<minutes>]: the join string of a new node, a secret shown once
-          nodes          [list]: the enrolled nodes; revoke <label>, delete <label>; legacy-off: the end of the manual
-                         keys and tokens of the nodes (README.md#nodes)"
+          nodes          [list]: the enrolled nodes; check <label>: the diagnostics of a node; revoke <label>;
+                         delete <label> (README.md#nodes)"
   echo_telegram
 }
 
