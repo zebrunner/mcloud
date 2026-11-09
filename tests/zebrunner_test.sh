@@ -129,7 +129,7 @@ replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
 replace "${MCLOUD}/variables.env" "STF_ZMQ_CURVE_CLIENT_KEYS=" "STF_ZMQ_CURVE_CLIENT_KEYS=${keys//0/e},${keys//0/f}"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
-replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=192.168.30.2:7400-7799"
+replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=" "ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
@@ -140,10 +140,10 @@ check "the keys of the device hosts are kept" "${keys//0/e},${keys//0/f}" "$(val
 check "the address of the ports of the device hosts is kept" "10.0.0.5" "$(value .env AGENTS_ADDRESS)"
 check "the size of the log files is kept" "200m" "$(value .env LOG_MAX_SIZE)"
 check "the default number of the log files" "5" "$(value .env LOG_MAX_FILE)"
-check "the relay hosts are kept" "192.168.30.2:7400-7799" "$(value .env ADB_RELAY_HOSTS)"
+check "the relay hosts are kept" "192.168.30.2:7404,192.168.30.2:7464" "$(value .env ADB_RELAY_HOSTS)"
 check_contains "the setup writes the relay of the relay hosts" "proxy_pass 192.168.30.2:" \
   "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
-replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=192.168.30.2:7400-7799" "ADB_RELAY_HOSTS="
+replace "${MCLOUD}/.env" "ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464" "ADB_RELAY_HOSTS="
 check "the previous host is the default" "http://mcloud.example.com:8082" "$(value .env STF_URL)"
 check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
@@ -260,45 +260,77 @@ reset_calls
 zbr "" start > /dev/null
 check "start without the relay hosts starts no adb-relay" "network|inspect|infra
 compose|up|-d" "$(calls docker)"
-relay_hosts "192.168.30.2:7400-7699, 192.168.30.3:7700-7999"
+# the remote debug ports of the devices: a single port per entry, a device host in several entries
+relay_hosts "192.168.30.2:7404, 192.168.30.2:7464,192.168.30.3:7704"
 reset_calls
 output="$(zbr "" start)"
 check "start with the relay hosts starts adb-relay too" "network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(calls docker)"
 # shellcheck disable=SC2016 # $server_port of nginx
-check "a server of adb-relay for every device host" 'server {
+check "a server of adb-relay for every port" 'server {
+  listen 7404 so_keepalive=on;
+  proxy_pass 192.168.30.2:$server_port;
+}
+server {
+  listen 7464 so_keepalive=on;
+  proxy_pass 192.168.30.2:$server_port;
+}
+server {
+  listen 7704 so_keepalive=on;
+  proxy_pass 192.168.30.3:$server_port;
+}' "$(cat "$relay")"
+check_not_contains "no warning with the remote debug ports" "ADB_RELAY_HOSTS" "$output"
+relay_hosts "192.168.30.2:7400-7699,192.168.30.3:7700-7700"
+output="$(zbr "" start)"
+# shellcheck disable=SC2016 # $server_port of nginx
+check "a range and a range of one port" 'server {
   listen 7400-7699 so_keepalive=on;
   proxy_pass 192.168.30.2:$server_port;
 }
 server {
-  listen 7700-7999 so_keepalive=on;
+  listen 7700 so_keepalive=on;
   proxy_pass 192.168.30.3:$server_port;
 }' "$(cat "$relay")"
-check_not_contains "no warning with valid relay hosts" "ADB_RELAY_HOSTS" "$output"
-relay_hosts "agent1.lan:9000-9000"
+check_contains "a range is relayed with a warning about the screens" \
+  "'192.168.30.2:7400-7699' of ADB_RELAY_HOSTS of .env is a range: it also makes the screens of the devices public" "$output"
+check_contains "the warning suggests the remote debug ports" "Relay only the remote debug ports, min_port + 1 of every Android device" "$output"
+check_not_contains "no warning for a range of one port" "'192.168.30.3:7700-7700' of ADB_RELAY_HOSTS" "$output"
+relay_hosts "agent1.lan:9000"
 zbr "" start > /dev/null
 # shellcheck disable=SC2016 # the variables of nginx and of the template of its image
-check "a host name with the resolvers of the host, a single port" 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
+check "a host name with the resolvers of the host" 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
 server {
   listen 9000 so_keepalive=on;
   proxy_pass agent1.lan:$server_port;
 }' "$(cat "$relay")"
+relay_hosts "192.168.30.2:7404,192.168.30.3:7404,192.168.30.2:7404,192.168.30.3:7405"
+output="$(zbr "" start)"
+check_contains "the same port of another device host is skipped" \
+  "'192.168.30.3:7404' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7404'" "$output"
+check_contains "the same entry twice is skipped" \
+  "'192.168.30.2:7404' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7404'" "$output"
+check "a port is relayed once" "7404 so_keepalive=on;
+7405 so_keepalive=on;" "$(sed -n 's/^  listen //p' "$relay")"
 stf_port="$(value .env STF_PORT)"
 stf_ports="$((stf_port - 1))-$((stf_port + 1))"
-relay_hosts "192.168.30.2:7400-7799,bad,10.0.0.1:7400,host/x:9000-9001,999.1.1.1:9000-9001,1.2.3:9000-9001,\
-10.0.0.1:80-90,10.0.0.1:7500-7400,10.0.0.1:65000-70000,10.0.0.9:7700-7900,10.0.0.9:7100-7200,10.0.0.9:${stf_ports},\
-10.0.0.9:4440-4450,10.0.0.10:9000-9001"
+relay_hosts "192.168.30.2:7400-7799,bad,10.0.0.1:,10.0.0.1:7400-,host/x:9000-9001,999.1.1.1:9000-9001,1.2.3:9000,\
+10.0.0.1:80-90,10.0.0.1:80,10.0.0.1:7500-7400,10.0.0.1:65000-70000,10.0.0.1:70000,10.0.0.9:7700-7900,10.0.0.9:7790,\
+10.0.0.9:7100-7200,10.0.0.9:7160,10.0.0.9:${stf_ports},10.0.0.9:4440-4450,10.0.0.10:9000"
 reset_calls
 output="$(zbr "" start)"
-for entry in bad 10.0.0.1:7400 host/x:9000-9001 999.1.1.1:9000-9001 1.2.3:9000-9001; do
-  check_contains "${entry} is not a relay host" "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<first port>-<last port>" "$output"
+for entry in bad 10.0.0.1: 10.0.0.1:7400- host/x:9000-9001 999.1.1.1:9000-9001 1.2.3:9000; do
+  check_contains "${entry} is not a relay host" \
+    "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<port> or <host>:<first port>-<last port>" "$output"
 done
-for entry in 10.0.0.1:80-90 10.0.0.1:7500-7400 10.0.0.1:65000-70000; do
+for entry in 10.0.0.1:80-90 10.0.0.1:80 10.0.0.1:7500-7400 10.0.0.1:65000-70000 10.0.0.1:70000; do
   check_contains "the ports of ${entry} are invalid" "'${entry}' of ADB_RELAY_HOSTS of .env: the ports are 1024-65535" "$output"
 done
 check_contains "an overlapping range is skipped" \
-  "'10.0.0.9:7700-7900' of ADB_RELAY_HOSTS of .env overlaps '192.168.30.2:7400-7799'" "$output"
+  "'10.0.0.9:7700-7900' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7400-7799'" "$output"
+check_contains "a port in an earlier range is skipped" \
+  "'10.0.0.9:7790' of ADB_RELAY_HOSTS of .env has a port of '192.168.30.2:7400-7799'" "$output"
 check_contains "a range with a port of ZeroMQ of STF is skipped" "'10.0.0.9:7100-7200' of ADB_RELAY_HOSTS of .env holds the port 7160 of MCloud" "$output"
+check_contains "a port of ZeroMQ of STF is skipped" "'10.0.0.9:7160' of ADB_RELAY_HOSTS of .env holds the port 7160 of MCloud" "$output"
 check_contains "a range with STF_PORT is skipped" \
   "'10.0.0.9:${stf_ports}' of ADB_RELAY_HOSTS of .env holds the port ${stf_port} of MCloud" "$output"
 check_contains "a range with the port of the grid is skipped" "'10.0.0.9:4440-4450' of ADB_RELAY_HOSTS of .env holds the port 4446 of MCloud" "$output"
@@ -316,10 +348,10 @@ compose|up|-d" "$(calls docker)"
 relay_hosts ""
 zbr "" start > /dev/null
 check "cleared relay hosts: no server" "" "$(cat "$relay")"
-relay_hosts "192.168.30.2:7400-7799"
+relay_hosts "192.168.30.2:7404,192.168.30.2:7464"
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
-check "the setup keeps the relay hosts" "192.168.30.2:7400-7799" "$(value .env ADB_RELAY_HOSTS)"
-check_contains "the setup writes the servers of adb-relay" "listen 7400-7799 so_keepalive=on;" "$(cat "$relay")"
+check "the setup keeps the relay hosts" "192.168.30.2:7404,192.168.30.2:7464" "$(value .env ADB_RELAY_HOSTS)"
+check_contains "the setup writes the servers of adb-relay" "listen 7464 so_keepalive=on;" "$(cat "$relay")"
 # a file of root (sudo ./zebrunner.sh): root writes any file, so the check runs for another user only
 if [[ "$(id -u)" -ne 0 ]]; then
   chmod 444 "$relay"
@@ -538,7 +570,7 @@ zbr "" restart > /dev/null
 check "restart" "compose|--profile|adb-relay|down
 network|inspect|infra
 compose|up|-d" "$(calls docker)"
-sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=192.168.30.2:7400-7799/" "${MCLOUD}/.env"
+sed -i.orig "s/^ADB_RELAY_HOSTS=.*/ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464/" "${MCLOUD}/.env"
 reset_calls
 zbr "" restart > /dev/null
 check "restart with the relay hosts" "compose|--profile|adb-relay|down

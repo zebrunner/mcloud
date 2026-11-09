@@ -562,13 +562,14 @@ relay_host() {
 }
 
 # write_adb_relay_hosts: configuration/adb-relay/relay-hosts.conf of nginx from ADB_RELAY_HOSTS of .env: a server of
-# adb-relay for the port range of every device host (README.md#remote-debug-through-the-adb-relay); an invalid entry, a
-# range that overlaps an earlier one or holds a port of MCloud is skipped; sets adb_relay to 1 when adb-relay has servers
+# adb-relay for every entry, a port or a port range of a device host (README.md#remote-debug-through-the-adb-relay); an
+# invalid entry, one with a port of an earlier entry or of MCloud is skipped, a range is relayed with a warning (it
+# also relays the screens); sets adb_relay to 1 when adb-relay has servers
 write_adb_relay_hosts() {
   local file="configuration/adb-relay/relay-hosts.conf"
   local relay_hosts
   local entries=()
-  local hosts=()
+  local relays=()
   local firsts=()
   local lasts=()
   local entry host first last port i conflict
@@ -592,15 +593,16 @@ write_adb_relay_hosts() {
     if [[ -z "$entry" ]]; then
       continue
     fi
-    if [[ "$entry" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})-([0-9]{1,5})$ ]]; then
+    # <host>:<port> or <host>:<first>-<last>
+    if [[ "$entry" =~ ^([A-Za-z0-9.-]+):([0-9]{1,5})(-([0-9]{1,5}))?$ ]]; then
       host="${BASH_REMATCH[1]}"
       first=$((10#${BASH_REMATCH[2]}))
-      last=$((10#${BASH_REMATCH[3]}))
+      last=$((10#${BASH_REMATCH[4]:-${BASH_REMATCH[2]}}))
     else
       host=""
     fi
     if [[ -z "$host" ]] || ! relay_host "$host"; then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<first port>-<last port> with a host name or an IPv4 address, it is skipped."
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is not <host>:<port> or <host>:<first port>-<last port> with a host name or an IPv4 address, it is skipped."
       continue
     fi
     if ((first < 1024 || last > 65535 || first > last)); then
@@ -611,13 +613,13 @@ write_adb_relay_hosts() {
     i=0
     while [[ "$i" -lt "${#firsts[@]}" ]]; do
       if ((first <= lasts[i] && last >= firsts[i])); then
-        conflict="${hosts[i]}:${firsts[i]}-${lasts[i]}"
+        conflict="${relays[i]}"
         break
       fi
       i=$((i + 1))
     done
     if [[ -n "$conflict" ]]; then
-      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env overlaps '${conflict}': the ranges of the device hosts are unique, it is skipped."
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env has a port of '${conflict}': a port is relayed to one device host only, it is skipped."
       continue
     fi
     for port in "${mcloud_ports[@]}"; do
@@ -630,7 +632,7 @@ write_adb_relay_hosts() {
       echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env holds the port ${conflict} of MCloud, it is skipped."
       continue
     fi
-    hosts+=("$host")
+    relays+=("$entry")
     firsts+=("$first")
     lasts+=("$last")
     # a host name is resolved by nginx on every connection: the resolvers of the host, the image fills them in
@@ -642,6 +644,7 @@ write_adb_relay_hosts() {
       port="$first"
     else
       port="${first}-${last}"
+      echo_warning "'${entry}' of ADB_RELAY_HOSTS of .env is a range: it also makes the screens of the devices public (their min_port), which have no sign-in of their own. Relay only the remote debug ports, min_port + 1 of every Android device: ./zebrunner.sh doctor of mcloud-agent prints them (README.md#remote-debug-through-the-adb-relay)."
     fi
     # shellcheck disable=SC2016 # $server_port is the variable of nginx: the port the user connected to
     servers+="$(printf 'server {\n  listen %s so_keepalive=on;\n  proxy_pass %s:$server_port;\n}' "$port" "$host")"$'\n'

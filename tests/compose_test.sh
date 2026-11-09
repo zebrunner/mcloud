@@ -248,12 +248,12 @@ run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "
 
 section "adb relay"
 # a device host of the private network: a container of the infra network whose port 17431 answers; adb-relay of the
-# network of the host relays the ports 17431-17432 of the host to it
+# network of the host relays the ports 17431 and 17432 of the host to it (two entries of one device host)
 nginx_image="nginx:$(sed -n 's/^TAG_NGINX=//p' "${MCLOUD}/.env")"
 docker run -d --name adb-relay-target --network infra "$stf_image" \
   node -e "require('net').createServer((s) => s.end('relay ok\\n')).listen(17431)" > /dev/null
 target="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' adb-relay-target)"
-sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=${target}:17431-17432|" "${MCLOUD}/.env"
+sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=${target}:17431,${target}:17432|" "${MCLOUD}/.env"
 run_check "start with ADB_RELAY_HOSTS" zbr "" start
 # shellcheck disable=SC2329 # called through wait_for
 healthy_relay() {
@@ -265,7 +265,7 @@ check "adb-relay is in the network of the host" "host" "$(docker inspect --forma
 check "a port of the range reaches the device host" "relay ok" \
   "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17431 && timeout 5 cat <&3' 2>&1)"
 check_contains "adb-relay logs the session" "17431 -> ${target}:17431" "$(docker logs adb-relay 2>&1)"
-check "another port of the range relays to the same port of the device host" "" \
+check "another port relays to the same port of the device host" "" \
   "$(docker run --rm --network host "$nginx_image" bash -c 'exec 3<> /dev/tcp/127.0.0.1/17432 && timeout 5 cat <&3' 2>&1)"
 check_contains "the device host refuses the other port" "17432 -> ${target}:17432" "$(docker logs adb-relay 2>&1)"
 docker rm -f adb-relay-target > /dev/null
@@ -283,8 +283,8 @@ run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/agent-hosts.conf:/etc/nginx/agent-hosts.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
-# the servers of adb-relay with an address and a host name (the resolvers of the template of the image)
-sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=192.168.30.2:7400-7699,agent.example.com:7700-7700|" "${HTTPS}/.env"
+# the servers of adb-relay: single ports of one address, a range of a host name (the resolvers of the template of the image)
+sed -i.orig "s|^ADB_RELAY_HOSTS=.*|ADB_RELAY_HOSTS=192.168.30.2:7404,192.168.30.2:7464,agent.example.com:7700-7799|" "${HTTPS}/.env"
 printf 'https\nlocalhost\n443\ny\n\n\ny\n\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
 check_contains "the setup writes the servers of adb-relay" "proxy_pass agent.example.com:" \
   "$(cat "${HTTPS}/configuration/adb-relay/relay-hosts.conf")"
