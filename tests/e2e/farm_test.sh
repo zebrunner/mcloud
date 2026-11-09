@@ -158,6 +158,8 @@ printf 'https\n%s\n443\ny\nadmin\nadmin@zebrunner.com\ny\nmock\nn\n' "$HOST_IP" 
 check "setup" "0" "$?"
 # the node is on this machine: the ports of MCloud on its address, the host of the join string
 sed -i.bak "s/^AGENTS_ADDRESS=.*/AGENTS_ADDRESS=${HOST_IP}/" "${MCLOUD}/.env"
+# the storage plugins of STF fetch the files from STF_URL: the self-signed certificate of this run is not trusted there
+echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> "${MCLOUD}/variables.env"
 run_check "start" mcloud start
 SIGN_IN="$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_USERNAME):$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 run_check "STF answers through stf-proxy" wait_for 300 stf_up
