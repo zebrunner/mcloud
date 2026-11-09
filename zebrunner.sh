@@ -191,6 +191,7 @@ setup() {
 
   # the user input for the next setup
   export_settings
+  write_stf_token
   protect_files
 
   echo "
@@ -237,6 +238,7 @@ shutdown() {
   rm -f configuration/stf-proxy/nginx.conf
   rm -f configuration/stf-proxy/agent-hosts.conf
   rm -f configuration/adb-relay/relay-hosts.conf
+  rm -f configuration/adb-relay/stf-token
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
 }
@@ -261,6 +263,7 @@ start() {
   write_agent_hosts
   write_adb_relay_hosts
   check_adb_relay_auto
+  write_stf_token
   # adb-relay runs with relay hosts or in the auto mode only (README.md#remote-debug-through-the-adb-relay)
   if [[ -n "$adb_relay" ]]; then
     docker compose --profile adb-relay up -d || return
@@ -403,7 +406,8 @@ protect_files() {
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/agent-hosts.conf \
-    configuration/adb-relay/relay-hosts.conf configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak \
+    configuration/adb-relay/relay-hosts.conf configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
+    configuration/stf-proxy/ssl/ssl.crt.bak \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
@@ -412,7 +416,7 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | backup/settings.env* | */ssl.key* | backup/rethinkdb.tar.gz)
+    variables.env* | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac
@@ -699,9 +703,31 @@ check_adb_relay_auto() {
   if [[ -z "$(sed -n 's/^AGENT_HOSTS=//p' .env)" ]]; then
     echo_warning "AGENT_HOSTS of .env is empty: adb-relay (ADB_RELAY=true) relays no device of STF."
   fi
-  if [[ -z "$(sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" variables.env 2> /dev/null)" ]]; then
-    echo_warning "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF. Set an access token of STF there (Settings, Keys): adb-relay reads it on its next sync."
+  if [[ -z "$(stf_token)" ]]; then
+    echo_warning "STF_TOKEN of variables.env is empty: adb-relay (ADB_RELAY=true) relays no device of STF. Set an access token of STF there (Settings, Keys) and run ./zebrunner.sh start: adb-relay reads it on its next sync."
   fi
+}
+
+# stf_token: STF_TOKEN of variables.env, without the quotes
+stf_token() {
+  sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" variables.env 2> /dev/null | tail -1
+}
+
+# write_stf_token: configuration/adb-relay/stf-token, STF_TOKEN of variables.env for the auto mode of adb-relay
+# (ADB_RELAY=true of .env), empty otherwise: the only secret the relay on the network of the host gets, readable for
+# its owner only and written in place (the relay reads it on every sync through its bind mount)
+write_stf_token() {
+  local file="configuration/adb-relay/stf-token"
+  local token=""
+  if [[ "$(sed -n 's/^ADB_RELAY=//p' .env)" == "true" ]]; then
+    token="$(stf_token)"
+  fi
+  # a new file is made for the owner only, an existing one keeps its inode
+  if ! (umask 077 && printf '%s\n' "$token" 2> /dev/null > "$file"); then
+    echo_warning "${file} is not writable for $(id -un): remove it (rm -f ${file}) and run ./zebrunner.sh restart (README.md#troubleshooting)."
+    return
+  fi
+  chmod 600 "$file"
 }
 
 # valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535

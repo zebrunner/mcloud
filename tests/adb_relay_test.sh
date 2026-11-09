@@ -156,11 +156,13 @@ MANUAL_TEMPLATE="${WORK}/relay-hosts.conf"
 # shellcheck disable=SC2016 # $server_port of nginx
 printf 'resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;\nserver {\n  listen 7404 so_keepalive=on;\n  proxy_pass a:$server_port;\n}\nserver {\n  listen 7460-7469 so_keepalive=on;\n  proxy_pass b:$server_port;\n}\n' > "$MANUAL_TEMPLATE"
 check "the ports of ADB_RELAY_HOSTS" "7404 7460-7469 " "$(manual_ports)"
-VARIABLES_ENV="${WORK}/variables.env"
-printf 'STF_URL=http://localhost\nSTF_TOKEN=abc123\n' > "$VARIABLES_ENV"
-check "STF_TOKEN of variables.env" "abc123" "$(stf_token)"
-printf "STF_TOKEN='abc123'\n" > "$VARIABLES_ENV"
-check "a quoted STF_TOKEN" "abc123" "$(stf_token)"
+TOKEN_FILE="${WORK}/stf-token"
+printf 'abc123\n' > "$TOKEN_FILE"
+check "the access token of the file of ./zebrunner.sh" "abc123" "$(stf_token)"
+printf 'abc123 \r\nother\n' > "$TOKEN_FILE"
+check "the first line of the token file, without spaces" "abc123" "$(stf_token)"
+rm -f "$TOKEN_FILE"
+check "no token file" "" "$(stf_token)"
 
 section "sync"
 PATH="${WORK}/bin:${PATH}"
@@ -174,7 +176,7 @@ stf_api="https://127.0.0.1:8082"
 nginx_pid=4242
 last_error=""
 last_report="none"
-printf 'STF_TOKEN=token1\n' > "$VARIABLES_ENV"
+printf 'token1\n' > "$TOKEN_FILE"
 echo "$OLD_STF" > "${WORK}/answer.json"
 # curl prints ${WORK}/answer.json, fails with CURL_FAIL; nginx -t fails with NGINX_FAIL; kill (of the reload) records
 # shellcheck disable=SC2016 # the stub body is expanded when the stub runs
@@ -234,13 +236,15 @@ reset_calls
 output="$(sync_devices)"
 check "no device: no server" "" "$(cat "$AUTO_CONF")"
 check_contains "no device is logged" "Android devices of STF relayed: 0." "$output"
-printf 'STF_TOKEN=\n' > "$VARIABLES_ENV"
+: > "$TOKEN_FILE"
 reset_calls
 output="$(sync_devices)"
-check_contains "an empty STF_TOKEN is logged" "STF_TOKEN of variables.env is empty: no device is relayed" "$output"
+check_contains "an empty token is logged" "The access token of STF (STF_TOKEN of variables.env) is empty: no device is relayed" "$output"
 check "no request without STF_TOKEN" "" "$(calls curl)"
-last_error="STF_TOKEN of variables.env is empty: no device is relayed, set an access token of STF there (README.md#remote-debug-through-the-adb-relay)."
+last_error="The access token of STF (STF_TOKEN of variables.env) is empty: no device is relayed, set it and run ./zebrunner.sh start (README.md#remote-debug-through-the-adb-relay)."
 check "an error is logged once" "" "$(sync_devices)"
+printf 'token1\n' > "$TOKEN_FILE"
+check_contains "the end of an error is logged" "The STF API https://127.0.0.1:8082 answers with the devices again." "$(sync_devices)"
 unset -f kill
 
 finish

@@ -8,8 +8,9 @@
 # the configuration of nginx (configuration/adb-relay/nginx.conf includes stream-conf.d), the file of ./zebrunner.sh
 AUTO_CONF="${AUTO_CONF:-/etc/nginx/stream-conf.d/adb-relay-auto.conf}"
 MANUAL_TEMPLATE="${MANUAL_TEMPLATE:-/etc/nginx/templates/relay-hosts.conf.stream-template}"
-# variables.env of MCloud: STF_TOKEN is read on every sync, a new token needs no restart
-VARIABLES_ENV="${VARIABLES_ENV:-/opt/mcloud/variables.env}"
+# STF_TOKEN of variables.env, the only secret of MCloud the relay gets: ./zebrunner.sh start writes it (mode 600), it is
+# read on every sync
+TOKEN_FILE="${TOKEN_FILE:-/opt/adb-relay/stf-token}"
 # the awk programs next to this script
 AWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the fields of the devices of GET /api/v1/devices: screenPort and connectPort are missing in older STF images
@@ -74,9 +75,9 @@ manual_ports() {
   sed -n 's/^ *listen \([0-9-]*\) .*/\1/p' "$MANUAL_TEMPLATE" 2> /dev/null | tr '\n' ' '
 }
 
-# stf_token: STF_TOKEN of variables.env of MCloud, without the quotes
+# stf_token: the access token of STF of the file of ./zebrunner.sh, STF_TOKEN of variables.env
 stf_token() {
-  sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$VARIABLES_ENV" 2> /dev/null | tail -1
+  head -1 "$TOKEN_FILE" 2> /dev/null | tr -d ' \r'
 }
 
 #### Sync
@@ -87,7 +88,7 @@ sync_devices() {
   local token answer devices report conf previous
   token="$(stf_token)"
   if [[ -z "$token" ]]; then
-    report_error "STF_TOKEN of variables.env is empty: no device is relayed, set an access token of STF there (README.md#remote-debug-through-the-adb-relay)."
+    report_error "The access token of STF (STF_TOKEN of variables.env) is empty: no device is relayed, set it and run ./zebrunner.sh start (README.md#remote-debug-through-the-adb-relay)."
     return
   fi
   # the certificate of stf-proxy is the one of the public name of MCloud, not of the loopback address
@@ -98,6 +99,9 @@ sync_devices() {
   if ! devices="$(devices_of_json <<< "$answer")"; then
     report_error "The STF API ${stf_api} answered without devices, the relay keeps its devices: ${answer:0:200}"
     return
+  fi
+  if [[ -n "$last_error" ]]; then
+    log "INFO" "The STF API ${stf_api} answers with the devices again."
   fi
   last_error=""
   report="$(relay_devices "$AGENT_HOSTS" "$relay_first" "$relay_last" "$reserved_ports" <<< "$devices")"

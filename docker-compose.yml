@@ -94,10 +94,8 @@ services:
     volumes:
       - ./configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./configuration/adb-relay/relay-hosts.conf:/etc/nginx/templates/relay-hosts.conf.stream-template:ro
-      # adb-relay.sh and its awk programs
+      # adb-relay.sh, its awk programs and stf-token (STF_TOKEN of variables.env only, written by ./zebrunner.sh)
       - ./configuration/adb-relay:/opt/adb-relay:ro
-      # STF_TOKEN for the STF API, read on every sync
-      - ./variables.env:/opt/mcloud/variables.env:ro
     healthcheck:
       # nginx writes its pid once it listens on every port of the ranges
       test: ["CMD", "sh", "-c", "kill -0 $$(cat /run/nginx.pid)"]

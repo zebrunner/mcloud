@@ -134,7 +134,8 @@ sed -i.orig -e "s|^STF_PORT=.*|STF_PORT=18082|" -e "s|^STF_URL=.*|STF_URL=http:/
   -e "s|^AGENT_HOSTS=.*|AGENT_HOSTS=${host}|" -e "s|^ADB_RELAY=.*|ADB_RELAY=true|" \
   -e "s|^ADB_RELAY_PORTS=.*|ADB_RELAY_PORTS=17400-17499|" -e "s|^ADB_RELAY_SYNC_SECONDS=.*|ADB_RELAY_SYNC_SECONDS=2|" \
   "${MCLOUD}/.env"
-sed -i.orig "s|^STF_TOKEN=.*|STF_TOKEN=test-token|" "${MCLOUD}/variables.env"
+# the token file of ./zebrunner.sh start, STF_TOKEN of variables.env
+(umask 077 && echo test-token > "${MCLOUD}/configuration/adb-relay/stf-token")
 # the manual entry of ADB_RELAY_HOSTS, as ./zebrunner.sh writes it
 # shellcheck disable=SC2016 # $server_port of nginx
 printf 'server {\n  listen 17450 so_keepalive=on;\n  proxy_pass %s:$server_port;\n}\n' "$host" \
@@ -172,11 +173,14 @@ check "an open session goes on over the reload" "17401 one
 17401 two" "$(docker logs adb-relay-test-client 2>&1)"
 
 section "errors of the STF API"
-# in place: the bind mount of adb-relay keeps the file
-variables="$(sed "s|^STF_TOKEN=.*|STF_TOKEN=wrong|" "${MCLOUD}/variables.env")"
-printf '%s\n' "$variables" > "${MCLOUD}/variables.env"
+# in place, as ./zebrunner.sh start writes it
+echo wrong > "${MCLOUD}/configuration/adb-relay/stf-token"
 run_check "a refused token is logged" wait_for 30 relay_log_has "The STF API http://127.0.0.1:18082 failed, the relay keeps its devices"
 check "the relay keeps its devices" "17421 hi" "$(talk 17421 hi)"
+echo test-token > "${MCLOUD}/configuration/adb-relay/stf-token"
+run_check "a new token is read on the next sync" wait_for 30 relay_log_has "The STF API http://127.0.0.1:18082 answers with the devices again."
+check "the relay has no other secret of MCloud" "" \
+  "$(docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' adb-relay | tr ' ' '\n' | grep variables.env)"
 
 section "ADB_RELAY_HOSTS only"
 sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=false|" "${MCLOUD}/.env"

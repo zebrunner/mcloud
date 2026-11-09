@@ -33,6 +33,12 @@ mode() {
   ls -l "${MCLOUD}/$1" | cut -c1-10
 }
 
+# inode <file>: the inode of a file of the copy, the bind mount of a file sees a file written in place only
+inode() {
+  # shellcheck disable=SC2012 # one known file, ls is the same on Linux and macOS
+  ls -i "${MCLOUD}/$1" | awk '{print $1}'
+}
+
 # value <file> <name>: the value of a variable of an env file of the copy
 value() {
   sed -n "s/^$2=//p" "${MCLOUD}/$1"
@@ -98,6 +104,8 @@ check "stf-proxy serves no screen without the device hosts" "" "$(cat "${MCLOUD}
 check_contains "the missing device hosts are reported" "AGENT_HOSTS of .env is empty" "$output"
 check "no adb relay by default" "" "$(value .env ADB_RELAY_HOSTS)"
 check "adb-relay has no server without the relay hosts" "" "$(cat "${MCLOUD}/configuration/adb-relay/relay-hosts.conf")"
+check "no access token for adb-relay without its auto mode" "" "$(cat "${MCLOUD}/configuration/adb-relay/stf-token")"
+check "the token file of adb-relay is readable for its owner only" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
 check_not_contains "no warning of the optional adb relay" "ADB_RELAY_HOSTS" "$output"
 check "the mock sign-in is behind the basic authentication" "true" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
 check "the user of the basic authentication" "'mcloud'" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_USERNAME)"
@@ -382,6 +390,21 @@ output="$(zbr "" start)"
 check "the auto mode starts adb-relay without relay hosts" "network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(calls docker)"
 check "no server of ADB_RELAY_HOSTS" "" "$(cat "$relay")"
+token_file="${MCLOUD}/configuration/adb-relay/stf-token"
+check "the auto mode gets STF_TOKEN of variables.env only" "api-token" "$(cat "$token_file")"
+check "the token file is readable for its owner only" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
+token_inode="$(inode configuration/adb-relay/stf-token)"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=api-token" "STF_TOKEN='new-token'"
+chmod 644 "$token_file"
+zbr "" start > /dev/null
+check "start writes a new STF_TOKEN without the quotes" "new-token" "$(cat "$token_file")"
+check "the token file is written in place" "$token_inode" "$(inode configuration/adb-relay/stf-token)"
+check "start makes the token file readable for its owner only again" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
+replace "${MCLOUD}/variables.env" "STF_TOKEN='new-token'" "STF_TOKEN=api-token"
+rm -f "$token_file"
+zbr "" restart > /dev/null
+check "restart writes a missing token file for its owner only" "api-token:-rw-------" \
+  "$(cat "$token_file"):$(mode configuration/adb-relay/stf-token)"
 check_not_contains "no warning of the auto mode with its settings" "adb-relay" "$output"
 relay_setting ADB_RELAY_PORTS 7400-7799
 relay_setting ADB_RELAY_SYNC_SECONDS 10
@@ -419,6 +442,7 @@ reset_calls
 zbr "" start > /dev/null
 check "ADB_RELAY=false starts no adb-relay" "network|inspect|infra
 compose|up|-d" "$(calls docker)"
+check "ADB_RELAY=false empties the token file" "" "$(cat "$token_file")"
 if docker compose version > /dev/null 2>&1; then
   relay_setting ADB_RELAY true
   relay_setting ADB_RELAY_PORTS 7400-7799
@@ -621,6 +645,8 @@ check_contains "root gives agent-hosts.conf back to the owner of the folder" \
   "${owner}|configuration/stf-proxy/agent-hosts.conf" "$(calls chown)"
 check_contains "root gives relay-hosts.conf back to the owner of the folder" \
   "${owner}|configuration/adb-relay/relay-hosts.conf" "$(calls chown)"
+check_contains "root gives stf-token back to the owner of the folder" \
+  "${owner}|configuration/adb-relay/stf-token" "$(calls chown)"
 
 section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY_HOSTS was cleared after its start
@@ -701,7 +727,7 @@ zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(calls docker)"
 for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/agent-hosts.conf \
-  configuration/adb-relay/relay-hosts.conf; do
+  configuration/adb-relay/relay-hosts.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
