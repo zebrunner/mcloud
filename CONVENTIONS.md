@@ -9,6 +9,7 @@ The conventions of the style, the formatting and the tooling of the Zebrunner MC
 - [mcloud-grid](https://github.com/zebrunner/mcloud-grid)
 - [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
 - [mcloud](https://github.com/zebrunner/mcloud)
+- [mcloud-dummy](https://github.com/zebrunner/mcloud-dummy)
 
 Outside of them: [stf](https://github.com/zebrunner/stf), the fork of DeviceFarmer STF, keeps the tooling of upstream (the npm scripts, its own linters, `ZEBRUNNER.md`), its `Makefile` has the targets of [Makefile](#makefile) without the shared block: `help`, `check`, `lint` and `test` over the npm scripts, `build` and `push` of the image. artifacts-uploader (the uploader image) has no conventions.
 
@@ -36,7 +37,7 @@ This file is the same in all of them: a change of a convention is made in every 
 | Path | What it is |
 | --- | --- |
 | `Dockerfile` | the image (mcloud-agent and mcloud have none) |
-| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent) |
+| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent, `cmd/` and `internal/` in mcloud-dummy) |
 | `tests/lib.sh` | the shared helpers of the test scripts; `tests/project_lib.sh` the helpers of the project |
 | `tests/lint.sh` | the static checks of `make lint`; `tests/lint_project.sh` the settings and the checks of the project |
 | `tests/<subject>_test.sh` | a test script; the docker ones are listed in `DOCKER_TESTS` of the `Makefile` |
@@ -320,12 +321,21 @@ The rules above are the same for every repository; these ones come from the kind
 | mcloud-grid | a docker image of a Java 11 application (Maven, Selenium 3 hub) | see [Java](#java) |
 | mcloud-agent | Ansible playbooks and the scripts of the farm hosts (Linux and macOS), no image | see [Ansible and host scripts](#ansible-and-host-scripts) |
 | mcloud | a docker compose deployment and its [host scripts](#host-scripts), no image | the project checks are described in its README |
+| mcloud-dummy | a docker image of a Go program (the dummy devices for the tests of the farm) | see [Go](#go) |
 
 ### Java
 
 - Java: 4 spaces, the rules of `config/checkstyle/checkstyle.xml` and SpotBugs (`config/spotbugs/exclude.xml`) in `make lint`; `pom.xml` keeps its tabs (`tab_files` of `tests/lint.sh`).
 - `make test` is `mvn verify`: the unit and integration tests with the JaCoCo coverage; Maven runs in docker (`tests/mvn.sh`) when the machine has no JDK.
 - The entrypoint logs JSON lines with the fields of the `JsonLogFormatter` of the hub, so the logs of the container stay one format: it does not use `util/logger.sh`.
+
+### Go
+
+- Go: the format of gofmt (tabs: the Go sources and `go.mod` are `tab_files` of `tests/lint.sh`), `go vet` and `go mod tidy -diff` in `make lint`; the Python tests and tools: ruff (`ruff.toml`).
+- `make test` is `go test -race ./...`, no docker and no device needed; with `JUNIT_DIR` gotestsum (pinned by version in the `Makefile`) writes the JUnit XML.
+- The program is the entrypoint of the image: it validates its configuration and exits with the codes of [Exit codes](#exit-codes), its healthcheck is the program itself (no shell tool in the image); it logs the text lines of `log/slog` with the levels of `LOGGER_LEVEL`, so it does not use `util/logger.sh`.
+- The build stage pins the Go image by version and digest and builds without cgo for `TARGETOS`/`TARGETARCH`; the final stage adds no package to its pinned base image.
+- The Go checks of the `lint` job use the Go of the runner, which downloads the toolchain of `go.mod`; the `tests` job sets up Go with `go-version-file: go.mod`.
 
 ### Ansible and host scripts
 
