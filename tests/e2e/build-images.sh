@@ -1,6 +1,6 @@
 #!/bin/bash
 # tests/e2e/build-images.sh <dir>: the images of the farm with an Android device built from the branches of their
-# repositories cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (defaults/main.yml) use them.
+# repositories cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (versions.yml) use them.
 # E2E_REF is the branch of every repository (develop), <REPOSITORY>_REF the one of a repository (e.g. STF_REF=fix/x,
 # MCLOUD_AGENT_REF=feat/y), also as the words of E2E_REFS ("STF_REF=fix/x MCLOUD_AGENT_REF=feat/y"); mcloud is this
 # checkout. The uploader is pulled: artifacts-uploader is private.
@@ -55,9 +55,9 @@ mcloud_tag() {
   sed -n "s/^$1=//p" "${REPO}/.env.original"
 }
 
-# agent_tag <variable>: a version of defaults/main.yml of mcloud-agent
+# agent_tag <variable>: a version of versions.yml of mcloud-agent
 agent_tag() {
-  sed -n "s/^$1: *//p" "${DIR}/mcloud-agent/defaults/main.yml"
+  sed -n "s/^$1: *//p" "${DIR}/mcloud-agent/versions.yml"
 }
 
 for repository in stf mcloud-grid mcloud-device appium mcloud-android-connector mcloud-agent; do

@@ -147,7 +147,7 @@ artifacts_uploaded() {
     [[ -s "${WORK}/artifacts.txt" ]]
 }
 
-UPLOADER_IMAGE="public.ecr.aws/zebrunner/uploader:$(sed -n 's/^UPLOADER_VERSION: *//p' "${AGENT}/defaults/main.yml")"
+UPLOADER_IMAGE="public.ecr.aws/zebrunner/uploader:$(sed -n 's/^UPLOADER_VERSION: *//p' "${AGENT}/versions.yml")"
 
 section "MCloud"
 # https with a self-signed certificate of the address of the machine: the node trusts its pin
@@ -218,7 +218,7 @@ check "the S3 settings and the device in mcloud-agent" "0" "$?"
 # the connector authenticates to the emulator with its adb keys (mcloud-key-volume of the connectors)
 docker volume create mcloud-key-volume > /dev/null
 docker run --rm -v mcloud-key-volume:/keys -v "${ADB_KEYS}:/host:ro" --entrypoint sh \
-  "public.ecr.aws/zebrunner/mcloud-android-connector:$(sed -n 's/^ANDROID_CONNECTOR_VERSION: *//p' "${AGENT}/defaults/main.yml")" \
+  "public.ecr.aws/zebrunner/mcloud-android-connector:$(sed -n 's/^ANDROID_CONNECTOR_VERSION: *//p' "${AGENT}/versions.yml")" \
   -c 'cp /host/adbkey /host/adbkey.pub /keys/'
 # the become password of ansible: sudo needs none here
 printf '\n' | bash "${AGENT}/zebrunner.sh" ansible > "${LOGS}/ansible.log" 2>&1
