@@ -86,10 +86,14 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '    location / {' \
   '      default_type text/plain;' \
   '      return 200 "node cookie=[$http_cookie] authorization=[$http_authorization] stf=[$http_x_stf_secret] internal=[$http_x_stf_internal_token] upgrade=[$http_upgrade] connection=[$http_connection] key=[$http_sec_websocket_key] version=[$http_sec_websocket_version]\n";' \
+  '    }' '  }' '  server {' '    listen 4444;' \
+  '    location / {' \
+  '      default_type text/plain;' \
+  '      return 200 "grid $request_uri upgrade=[$http_upgrade] connection=[$http_connection] agent=[$http_user_agent]\n";' \
   '    }' '  }' '}' > "${FAKE}/nginx.conf"
 docker network create stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
-  --network-alias stf-api --network-alias stf-app --network-alias node1 -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
+  --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 \
   -v "${MCLOUD}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy answers" wait_for 30 curl -sf --max-time 2 "${URL}/api/v1/user"
@@ -110,6 +114,15 @@ check "an access token: the node does not get it" \
   "$(body "$screen" -H "Authorization: Bearer good-token" "${websocket[@]}")"
 check "a port below 1024 is not a screen: the app gets it" "upstream GET /d/node1/serial1/80/" \
   "$(body /d/node1/serial1/80/ -H "Cookie: ssid=good")"
+
+section "playwright"
+check "the WebSocket of a Playwright session goes to the servlet of the grid with its upgrade and User-Agent" \
+  "grid /grid/admin/PlaywrightServlet/f09c14e2-7c54 upgrade=[websocket] connection=[upgrade] agent=[Playwright/1.65.0]" \
+  "$(body /mcloud/playwright/f09c14e2-7c54 -A "Playwright/1.65.0" "${websocket[@]}")"
+check "the other paths of the grid stay with the grid" "grid /grid/admin/DevicesServlet upgrade=[] connection=[] agent=[curl]" \
+  "$(body /mcloud/grid/admin/DevicesServlet -A curl)"
+check "a nested path is not a Playwright session" "grid /playwright/a/b upgrade=[] connection=[] agent=[curl]" \
+  "$(body /mcloud/playwright/a/b -A curl)"
 
 section "internal routes of the registry"
 for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Zebrunner/Nodes/keys/ \

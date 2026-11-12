@@ -316,11 +316,34 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 | `GET /api/v1/nodes/self` | the record of a node and its devices, with the token of the node (`./zebrunner.sh doctor` of mcloud-agent), limited to 30 a minute per address (a burst of 10, then `429`) |
 | `/d/<address of the node>/<serial>/<port>/` | the screen of a device, see [Screens of the devices](#screens-of-the-devices) |
 | `/mcloud/wd/hub` | the Selenium/Appium hub URL |
+| `/mcloud/playwright/<session id>` | the WebSocket of a Playwright session of the grid, see [Playwright](#playwright) |
 | `/mcloud/grid/console` | the grid console with the devices |
 | `/mcloud/grid/admin/DevicesServlet` | the devices of the grid as JSON: their status and sessions |
 | `/mcloud/grid/admin/AllSessionsServlet` | the active sessions as JSON |
 | `/mcloud/grid/admin/MetricsServlet` | the Prometheus metrics of the grid |
 | `POST /mcloud/grid/admin/TerminateSessionServlet` | terminates the session of a device, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#terminating-a-session) |
+
+## Playwright
+
+[Playwright](https://playwright.dev/docs/api/class-android) tests run on the Android devices of the farm, from any machine that reaches MCloud (e.g. a CI runner, no adb there): the test starts an Appium session of the `Playwright` automation through the grid, which queues it, reserves a device and records its video as for any session, and connects Playwright to the WebSocket of the session:
+
+```js
+// POST /mcloud/wd/hub/session {"capabilities": {"alwaysMatch": {"platformName": "Android", "appium:automationName": "Playwright"}}}
+const device = await _android.connect(`wss://mcloud.example.com/mcloud/playwright/${sessionId}`);
+const context = await device.launchBrowser(); // Chrome of the device
+// ... the tests; then DELETE /mcloud/wd/hub/session/<sessionId>
+```
+
+[examples/playwright](examples/playwright) has the fixtures of `@playwright/test`: every worker takes a device (`MCLOUD_DEVICES` workers, the devices in parallel) and returns it after its tests, the tests get Chrome of the device as `page` and `context`, the device itself as `device`; the capabilities of the grid select the devices (`MCLOUD_CAPS`, e.g. `{"appium:platformVersion": "14+"}`). Run it from CI:
+
+```bash
+cd examples/playwright && npm ci && MCLOUD_URL=https://mcloud.example.com MCLOUD_DEVICES=2 npx playwright test
+```
+
+- Any Playwright version works: the node serves the version of the client and installs another one on its first use (the device host needs the npm registry), see [zebrunner/appium](https://github.com/zebrunner/appium#playwright).
+- Chrome of a device that is neither rooted nor debuggable reads the command line of Playwright only with `chrome://flags/#enable-command-line-on-non-rooted-devices` enabled: enable it once on such devices.
+- The session lives as long as its WebSocket; a client that is gone leaves it to the timeout of the grid, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#playwright).
+- Android only: Playwright has no automation of Safari of iOS devices.
 
 ## Upgrade
 

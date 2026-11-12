@@ -1,0 +1,36 @@
+---
+# An example of a workflow of the repository of the tests (.github/workflows/playwright.yml there): the Playwright tests
+# on the Android devices of MCloud; MCLOUD_URL is a secret of the repository (with user:password@ of the basic
+# authentication of the grid, when it has one)
+name: playwright
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # no browsers to install: the tests use Chrome of the devices
+      - run: npx playwright test
+        env:
+          MCLOUD_URL: ${{ secrets.MCLOUD_URL }}
+          MCLOUD_DEVICES: 2
+          MCLOUD_CAPS: '{"appium:platformVersion": "12+"}'
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

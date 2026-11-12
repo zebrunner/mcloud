@@ -1,0 +1,11 @@
+{
+  "name": "mcloud-playwright-example",
+  "private": true,
+  "description": "Playwright tests on the Android devices of Zebrunner MCloud",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}
