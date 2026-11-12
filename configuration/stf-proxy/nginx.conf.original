@@ -87,6 +87,23 @@ http {
       add_header Content-Security-Policy "frame-ancestors 'self'" always;
     }
 
+    # the WebSocket of a Playwright session of the grid: /mcloud/playwright/<session id>, see README.md#playwright; the
+    # grid passes it on to the node of the session, the WebSocket lives as long as the test (the grid pings both sides)
+    location ~ ^/mcloud/playwright/([^/]+)$ {
+      set $upstream_hub mcloud-grid:4444;
+      proxy_pass http://$upstream_hub/grid/admin/PlaywrightServlet/$1;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection upgrade;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_connect_timeout 60;
+      proxy_send_timeout    3600;
+      proxy_read_timeout    3600;
+      proxy_buffering off;
+    }
+
     location  ~ ^/mcloud/?(.*)$ {
       #auth_basic "Private MCloud Selenium Hub";
       #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
