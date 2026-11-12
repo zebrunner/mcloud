@@ -14,20 +14,30 @@ copy_repo "$MCLOUD"
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ "$1 $2" == "network inspect" && "$NO_NETWORK" == "1" ]] && exit 1
 [[ "$1 $2" == "compose ps" ]] && cat "${STUB_DIR}/running" 2> /dev/null
+# the volume of the database exists with ${STUB_DIR}/db-volume; docker ps: the folder of ${STUB_DIR}/project-dir runs it
+[[ "$1 $2" == "volume inspect" ]] && { [[ -f "${STUB_DIR}/db-volume" ]] || exit 1; }
+[[ "$1" == "ps" ]] && cat "${STUB_DIR}/project-dir" 2> /dev/null
 # docker inspect of stf-proxy: running unless ${STUB_DIR}/proxy-down; docker exec: the ports of ${STUB_DIR}/unreachable fail
 [[ "$1" == "inspect" ]] && { [[ -f "${STUB_DIR}/proxy-down" ]] && echo false || echo true; }
 [[ "$1" == "exec" ]] && grep -qx "${*: -1}" "${STUB_DIR}/unreachable" 2> /dev/null && exit 1
 exit 0'
-# curl: the address of ifconfig.me; the STF API answers ${STUB_DIR}/answer with the status ${STUB_DIR}/status, the
-# configuration of stdin goes to ${STUB_DIR}/curl.stdin
+# curl: the address of ifconfig.me; the STF API answers ${STUB_DIR}/answer with the status ${STUB_DIR}/status (of
+# ${STUB_DIR}/status.user for /api/v1/user when it exists), the configuration of stdin goes to ${STUB_DIR}/curl.stdin
 # shellcheck disable=SC2016
 stub curl '[[ "$*" == *ifconfig.me* ]] && echo 203.0.113.10 && exit 0
 (IFS="|"; echo "curl|$*") >> "${STUB_DIR}/calls.log"
 cat > "${STUB_DIR}/curl.stdin"
 answer="${STUB_DIR}/answer"
+status="${STUB_DIR}/status"
 [[ "${*: -1}" == */api/v1/devices* && -f "${STUB_DIR}/answer.devices" ]] && answer="${STUB_DIR}/answer.devices"
+[[ "${*: -1}" == */api/v1/user && -f "${STUB_DIR}/status.user" ]] && status="${STUB_DIR}/status.user"
 cat "$answer" 2> /dev/null
-printf "\n%s" "$(cat "${STUB_DIR}/status" 2> /dev/null || echo 000)"'
+printf "\n%s" "$(cat "$status" 2> /dev/null || echo 000)"'
+
+# docker_calls: the calls of docker but the check of the containers of another folder (docker ps)
+docker_calls() {
+  calls docker | grep -v '^ps|'
+}
 
 # zbr <stdin text> <zebrunner.sh arguments...>: runs zebrunner.sh of the copy without the user's environment,
 # with the NAME=value items of the zbr_env array
@@ -193,15 +203,30 @@ check "the missing CURVE keys are made" "ok" "$(curve_keys)"
 
 section "setup questions"
 SSL="${MCLOUD}/configuration/stf-proxy/ssl"
-cp "${MCLOUD}/.env" "${WORK}/env.saved"
 output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
-check "https without a certificate fails" "1" "$?"
-check_contains "the certificate is asked for" "put it into configuration/stf-proxy/ssl/ssl.crt" "$output"
-check "nothing is written without a certificate" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
+check "https without a certificate goes on" "0" "$?"
+check_contains "the missing certificate is reported" \
+  "missing: configuration/stf-proxy/ssl/ssl.crt and configuration/stf-proxy/ssl/ssl.key. The setup goes on, but stf-proxy does not start without it" \
+  "$output"
+check_contains "the certificate is asked for" "put the certificate (PEM) into configuration/stf-proxy/ssl/ssl.crt" "$output"
+check "the settings are written without a certificate" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
+check_contains "https listens with ssl without a certificate too" "listen 80 ssl;" \
+  "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
+reset_calls
+output="$(zbr "" start)"
+check "start without the certificate of https fails" "1" "$?"
+check_contains "start reports the missing certificate" \
+  "The services are not started: stf-proxy serves https and needs its certificate, missing: configuration/stf-proxy/ssl/ssl.crt and configuration/stf-proxy/ssl/ssl.key." \
+  "$output"
+check "start without the certificate starts nothing" "" "$(calls docker | grep '^compose')"
+certificate "$SSL" mcloud.example.com
+rm -f "${SSL}/ssl.key"
+check_contains "start names the missing key only" "missing: configuration/stf-proxy/ssl/ssl.key." "$(zbr "" start)"
 certificate "$SSL" mcloud.example.com
 cp "${SSL}/ssl.crt" "${WORK}/ssl.crt"
 output="$(zbr "\n\n\nn\nhttps\n\n\ny\n\n\ny\n\nn\n" setup)"
 check "a declined address is asked again" "https://mcloud.example.com:8082" "$(value .env STF_URL)"
+check_not_contains "a certificate is not reported" "missing:" "$output"
 check "the key of the certificate is readable for its owner only" "-rw-------" "$(mode configuration/stf-proxy/ssl/ssl.key)"
 check_contains "https listens with ssl" "listen 80 ssl;" "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/nginx/ssl/ssl.crt;' \
@@ -209,11 +234,25 @@ check_contains "the ssl settings are uncommented" $'\n    ssl_certificate /etc/n
 check "the certificate of the user is kept" "same" "$(cmp -s "${SSL}/ssl.crt" "${WORK}/ssl.crt" && echo same)"
 certificate "${WORK}/other" other.example.com
 cp "${WORK}/other/ssl.key" "${SSL}/ssl.key"
-output="$(zbr "$(answers "" "" "" "" "")" setup)"
+reset_calls
+output="$(zbr "" start)"
+check "start with a key of another certificate fails" "1" "$?"
+check_contains "start reports the key of another certificate" \
+  "The services are not started: configuration/stf-proxy/ssl/ssl.key is not the key of configuration/stf-proxy/ssl/ssl.crt" "$output"
+check "start with a key of another certificate starts nothing" "" "$(calls docker | grep '^compose')"
+cp "${MCLOUD}/.env" "${WORK}/env.saved"
+output="$(zbr "$(answers "" keep.example.com "" "" "")" setup)"
 check "a key of another certificate fails" "1" "$?"
 check_contains "a key of another certificate is reported" "is not the key of" "$output"
+check_contains "the fix of the key is explained" "put the key of that certificate there, then run ./zebrunner.sh setup again" "$output"
+check_contains "the kept answers are reported" "nothing but your answers is written" "$output"
+check "nothing but the answers is written for a key of another certificate" "same" \
+  "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
+check_contains "the answers are kept for the next setup" 'ZBR_HOSTNAME="keep.example.com"' \
+  "$(cat "${MCLOUD}/backup/settings.env")"
+check "the kept answers are readable for their owner only" "-rw-------" "$(mode backup/settings.env)"
 cp "${REPO}/tests/fixtures/shared-ssl.crt" "${SSL}/ssl.crt"
-output="$(zbr "$(answers "" "" "" "" "")" setup)"
+output="$(zbr "$(answers "" mcloud.example.com "" "" "")" setup)"
 check "the shared self-signed certificate fails" "1" "$?"
 check_contains "the shared self-signed certificate is reported" "its private key is public" "$output"
 rm -f "${SSL}/ssl.crt" "${SSL}/ssl.key"
@@ -274,12 +313,12 @@ check "the auto mode is off by default" "false:300:" \
 reset_calls
 zbr "" start > /dev/null
 check "start without ADB_RELAY starts no adb-relay" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 relay_setting ADB_RELAY true
 reset_calls
 output="$(zbr "" start)"
 check "ADB_RELAY=true starts adb-relay" "network|inspect|infra
-compose|--profile|adb-relay|up|-d" "$(calls docker)"
+compose|--profile|adb-relay|up|-d" "$(docker_calls)"
 token_file="${MCLOUD}/configuration/adb-relay/stf-token"
 check "the auto mode gets STF_TOKEN of variables.env only" "api-token" "$(cat "$token_file")"
 check "the token file is readable for its owner only" "-rw-------" "$(mode configuration/adb-relay/stf-token)"
@@ -322,12 +361,12 @@ reset_calls
 output="$(zbr "" start)"
 check_contains "an invalid ADB_RELAY is reported" "ADB_RELAY of .env is 'yes', not true or false: the auto mode of adb-relay is off." "$output"
 check "an invalid ADB_RELAY starts no adb-relay" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 relay_setting ADB_RELAY false
 reset_calls
 zbr "" start > /dev/null
 check "ADB_RELAY=false starts no adb-relay" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 check "ADB_RELAY=false empties the token file" "" "$(cat "$token_file")"
 if docker compose version > /dev/null 2>&1; then
   relay_setting ADB_RELAY true
@@ -382,8 +421,12 @@ section "setup of Zebrunner CE"
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
 zbr_env=(ZBR_INSTALLER=1 ZBR_PROTOCOL=https ZBR_HOSTNAME=ce.example.com ZBR_PORT=443)
 output="$(zbr "" setup)"
-check "https of Zebrunner CE without its certificate fails" "1" "$?"
-check_contains "the certificate of Zebrunner CE is asked for" "../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing" "$output"
+check "https of Zebrunner CE without its certificate goes on" "0" "$?"
+check_contains "the certificate of Zebrunner CE is asked for" \
+  "../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing. The setup goes on, but stf-proxy does not start without a certificate" \
+  "$output"
+check_not_contains "the missing certificate of Zebrunner CE is reported once" "missing: configuration/stf-proxy/ssl" "$output"
+check "the setup of Zebrunner CE without its certificate writes the settings" "https://ce.example.com:443" "$(value .env STF_URL)"
 certificate "${WORK}/nginx/ssl" ce.example.com
 # a key of root only (e.g. of certbot): root reads any file, so the check runs for another user only
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -414,6 +457,13 @@ zbr "" setup > /dev/null
 check "Zebrunner CE makes the missing CURVE keys" "ok" "$(curve_keys)"
 authkey="$(value variables.env RETHINKDB_ENV_AUTHKEY)"
 check "Zebrunner CE generates the missing password of RethinkDB" "48" "${#authkey}"
+# the certificate of Zebrunner CE is gone, the copy of an earlier setup stays
+mv "${WORK}/nginx/ssl" "${WORK}/nginx/ssl.saved"
+output="$(zbr "" setup)"
+check "Zebrunner CE without its certificate keeps the earlier copy" "0" "$?"
+check_contains "the earlier copy is reported" "stf-proxy keeps the earlier copy of configuration/stf-proxy/ssl, which may be old" "$output"
+check_not_contains "the earlier copy is not reported as missing" "does not start without a certificate" "$output"
+mv "${WORK}/nginx/ssl.saved" "${WORK}/nginx/ssl"
 cp "${REPO}/tests/fixtures/shared-ssl.crt" "${WORK}/nginx/ssl/ssl.crt"
 # the key of the shared certificate is not in the repository: openssl takes the pair as a match
 stub openssl 'echo same'
@@ -453,8 +503,9 @@ check "patch/curve_keygen.py: the X25519 test vector of RFC 7748" \
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
 # openssl without X25519 (the LibreSSL of macOS): patch/curve_keygen.py makes them
 stub openssl 'exit 1'
-zbr "$(answers "" "" "" "" "")" setup > /dev/null
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check "python3 makes the CURVE keys" "ok" "$(curve_keys)"
+check_not_contains "a new setup without the volume of the database reports none" "has the database of STF" "$output"
 rm -f "${MCLOUD}/variables.env"
 cp "${MCLOUD}/.env" "${WORK}/env.saved"
 stub python3 'exit 127'
@@ -462,10 +513,25 @@ output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check "the setup fails without the CURVE keys" "1" "$?"
 rm -f "${WORK}/bin/openssl" "${WORK}/bin/python3"
 check_contains "the missing tools of the CURVE keys are reported" "openssl (X25519, OpenSSL 1.1.1+) or python3" "$output"
+check_contains "the answers are kept without the CURVE keys" "nothing but your answers is written" "$output"
 check "nothing is written without the CURVE keys" "same" "$(cmp -s "${MCLOUD}/.env" "${WORK}/env.saved" && echo same)"
 check "no variables.env without the CURVE keys" "no" "$([[ -f "${MCLOUD}/variables.env" ]] && echo yes || echo no)"
-zbr "$(answers "" "" "" "" "")" setup > /dev/null
+# the database of an earlier MCloud in the volume of the folder: the new SECRET fails its access tokens
+touch "${WORK}/db-volume"
+reset_calls
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+rm -f "${WORK}/db-volume"
 check "the keys are made by the next setup" "ok" "$(curve_keys)"
+check_contains "the volume of the folder is asked" "volume|inspect|mcloud_stf-db-volume" "$(calls docker)"
+check_contains "a new setup reports the database of an earlier MCloud" \
+  "The docker volume mcloud_stf-db-volume has the database of STF of an earlier MCloud" "$output"
+check_contains "the access tokens of the earlier database are explained" \
+  "the access tokens of that database fail (the STF API answers 500 to them)" "$output"
+reset_calls
+touch "${WORK}/db-volume"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+rm -f "${WORK}/db-volume"
+check_not_contains "the setup again does not report its own database" "has the database of STF" "$output"
 
 section "compose"
 if docker compose version > /dev/null 2>&1; then
@@ -484,11 +550,11 @@ section "start"
 reset_calls
 zbr "$(answers "" "" "" "" "" | sed '$d')\ny\n" setup > /dev/null
 check "the setup starts the services when confirmed" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 reset_calls
 output="$(zbr "" start)"
 check "start starts the services in the infra network" "network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 check_contains "start shows the URLs" "MCloud: http://203.0.113.10:80/stf, the Selenium/Appium hub: http://203.0.113.10:80/mcloud/wd/hub" "$output"
 check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
@@ -503,7 +569,7 @@ zbr "" start > /dev/null
 zbr_env=()
 check "start creates a missing infra network" "network|inspect|infra
 network|create|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 reset_calls
 mv "${MCLOUD}/.env" "${MCLOUD}/.env.saved"
 zbr "$(answers "" "" "" "" "")" start > /dev/null
@@ -511,6 +577,48 @@ check "the first start runs the setup and fails" "1" "$?"
 check "the first start writes .env" "yes" "$([[ -f "${MCLOUD}/.env" ]] && echo yes)"
 check "the first start does not start the services" "" "$(calls docker | grep compose)"
 mv "${MCLOUD}/.env.saved" "${MCLOUD}/.env"
+
+# the containers of the compose project of the folder: of another folder of the same name, of a removed one, its own
+reset_calls
+zbr "" start > /dev/null
+check_contains "start asks the folder of the database container of the project" \
+  "ps|-a|--filter|label=com.docker.compose.project=mcloud|--filter|label=com.docker.compose.service=rethinkdb" \
+  "$(calls docker)"
+mkdir -p "${WORK}/other-folder/mcloud"
+echo "${WORK}/other-folder/mcloud" > "${WORK}/project-dir"
+reset_calls
+output="$(zbr "" start)"
+check "start with the containers of another folder fails" "1" "$?"
+check_contains "the containers of another folder are reported" \
+  "./zebrunner.sh start did nothing: the docker compose project mcloud is the MCloud of ${WORK}/other-folder/mcloud" "$output"
+check_contains "the removal of the other MCloud is suggested" "./zebrunner.sh down in ${WORK}/other-folder/mcloud" "$output"
+check "start with the containers of another folder starts nothing" "" "$(calls docker | grep '^compose')"
+# the other commands of the services do not act on the containers and the database of another folder either
+zbr_env=(SHUTDOWN_CONFIRMED=1)
+for command in stop down restart backup restore shutdown; do
+  reset_calls
+  cp "${MCLOUD}/variables.env" "${WORK}/variables.saved"
+  output="$(zbr "" "$command")"
+  check "${command} with the containers of another folder fails" "1" "$?"
+  check_contains "${command} with the containers of another folder is explained" \
+    "./zebrunner.sh ${command} did nothing: the docker compose project mcloud is the MCloud of ${WORK}/other-folder/mcloud" "$output"
+  check "${command} with the containers of another folder calls docker ps only" "" "$(docker_calls)"
+  check "${command} with the containers of another folder keeps the settings" "same" \
+    "$(cmp -s "${MCLOUD}/variables.env" "${WORK}/variables.saved" && echo same)"
+done
+zbr_env=()
+check "restart with the containers of another folder explains it once" "1" "$(grep -c 'did nothing' <<< "$(zbr "" restart)")"
+echo "${WORK}/removed-folder/mcloud" > "${WORK}/project-dir"
+check "start replaces the containers of a removed folder" "0" "$(
+  zbr "" start > /dev/null
+  echo "$?"
+)"
+echo "$MCLOUD" > "${WORK}/project-dir"
+reset_calls
+zbr "" start > /dev/null
+check "start with its own containers" "network|inspect|infra
+compose|up|-d" "$(docker_calls)"
+rm -f "${WORK}/project-dir"
 
 # the files of an earlier start: the secrets get the mode of their owner only
 chmod 664 "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
@@ -533,21 +641,21 @@ section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
 reset_calls
 zbr "" stop > /dev/null
-check "stop" "compose|--profile|adb-relay|stop" "$(calls docker)"
+check "stop" "compose|--profile|adb-relay|stop" "$(docker_calls)"
 reset_calls
 zbr "" down > /dev/null
-check "down" "compose|--profile|adb-relay|down" "$(calls docker)"
+check "down" "compose|--profile|adb-relay|down" "$(docker_calls)"
 reset_calls
 zbr "" restart > /dev/null
 check "restart" "compose|--profile|adb-relay|down
 network|inspect|infra
-compose|up|-d" "$(calls docker)"
+compose|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=true/" "${MCLOUD}/.env"
 reset_calls
 zbr "" restart > /dev/null
 check "restart with adb-relay" "compose|--profile|adb-relay|down
 network|inspect|infra
-compose|--profile|adb-relay|up|-d" "$(calls docker)"
+compose|--profile|adb-relay|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
 
 section "version"
@@ -575,13 +683,13 @@ check "backup stops the database and the STF units for the copy, then starts the
 compose|stop|rethinkdb|stf-app|stf-websocket
 run|--rm|--volumes-from|rethinkdb|-v|${MCLOUD}/backup:/var/backup|rethinkdb:${tag}|sh|-c|tar -czf /var/backup/rethinkdb.tar.gz /data \
 && chown $(id -u):$(id -g) /var/backup/rethinkdb.tar.gz && chmod 600 /var/backup/rethinkdb.tar.gz
-compose|start|rethinkdb|stf-app|stf-websocket" "$(calls docker)"
+compose|start|rethinkdb|stf-app|stf-websocket" "$(docker_calls)"
 rm -f "${WORK}/running"
 echo "changed" > "${MCLOUD}/variables.env"
 reset_calls
 zbr "" restore > /dev/null
 check "restore brings variables.env back" "same" "$(cmp -s "${MCLOUD}/variables.env" "${MCLOUD}/variables.env.bak" && echo same)"
-check_contains "restore stops the services first" "compose|--profile|adb-relay|stop" "$(calls docker | head -1)"
+check_contains "restore stops the services first" "compose|--profile|adb-relay|stop" "$(docker_calls | head -1)"
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
 check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
 check "restore removes the containers at the end" "compose|--profile|adb-relay|down" "$(calls docker | tail -1)"
@@ -680,21 +788,37 @@ api 201 '{"label":"lab-1"}'
 output="$(zbr "" node-invite lab-1 10.0.0.5)"
 check "an answer without an invite fails" "1" "$?"
 check_contains "an answer without an invite is reported" "answered the invite without one" "$output"
-for answer in "000:stf-proxy does not answer on 127.0.0.1:443" "401:STF_TOKEN of variables.env is not a valid access token" \
+for answer in "000:stf-proxy does not answer on 127.0.0.1:443: the services do not run or still start" \
+  "401:STF_TOKEN of variables.env is not a valid access token of STF (unknown to its database): sign in to STF as an admin, generate an access token" \
   "403:refused: STF_TOKEN is not of an admin of STF" "400:refused: an unknown node" "404:not found: an unknown node" \
-  "500:the STF API answered 500"; do
+  "500:the STF API answered 500 to STF_TOKEN of variables.env itself: the token was made with another SECRET" \
+  "502:stf-proxy answered 502, stf-api does not answer it" "418:the STF API answered 418, see docker logs stf-api"; do
   api "${answer%%:*}" '{"success":false}'
   output="$(zbr "" node-invite lab-1 10.0.0.5)"
   check "the answer ${answer%%:*} fails" "1" "$?"
   check_contains "the answer ${answer%%:*} is explained" "The invite of the node lab-1 failed: ${answer#*:}" "$output"
   check_not_contains "the answer ${answer%%:*} shows no STF_TOKEN" "$admin_token" "$output"
 done
+api 500 '{"success":false}'
+reset_calls
+output="$(zbr "" node-invite lab-1 10.0.0.5)"
+check "a 500 is asked again of /api/v1/user" "https://127.0.0.1:443/api/v1/user" "$(calls curl | tail -1 | awk -F '|' '{print $NF}')"
+check_contains "a token of another SECRET: the volume of the database shared by the folders of the same name" \
+  "e.g. of another folder named nodes such as mcloud of Zebrunner CE: they share the docker volume nodes_stf-db-volume" "$output"
+printf 200 > "${WORK}/status.user"
+output="$(zbr "" node-invite lab-1 10.0.0.5)"
+rm -f "${WORK}/status.user"
+check_contains "a 500 of the operation with a valid token" \
+  "The invite of the node lab-1 failed: the STF API answered 500, see docker logs stf-api." "$output"
+check_not_contains "a 500 of the operation does not blame the token" "another SECRET" "$output"
 replace "${MCLOUD}/.env" "STF_URL=https://" "STF_URL=http://"
 no_curl "an invite of http" node-invite lab-1 10.0.0.5
 check_contains "an invite needs https" "The enrollment needs https of stf-proxy" "$output"
 replace "${MCLOUD}/.env" "STF_URL=http://" "STF_URL=https://"
 mv "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt" "${WORK}/nodes.crt"
 no_curl "an invite without the certificate" node-invite lab-1 10.0.0.5
+check_contains "an invite without the certificate names it" \
+  "The enrollment needs the certificate of stf-proxy, configuration/stf-proxy/ssl/ssl.crt is missing" "$output"
 mv "${WORK}/nodes.crt" "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt"
 
 key="$(printf 'ab%.0s' {1..32})"
@@ -862,11 +986,11 @@ check "shutdown of a disabled copy removes .disabled only" "no:yes" \
 section "shutdown"
 reset_calls
 zbr "n\n" shutdown > /dev/null
-check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$(calls docker)"
+check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$(docker_calls)"
 zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
-check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(calls docker)"
+check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
 for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done

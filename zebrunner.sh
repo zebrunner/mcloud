@@ -71,9 +71,10 @@ setup() {
     sign_in="$ZBR_MCLOUD_SIGN_IN"
   fi
 
-  # https: the certificate is checked before anything is written (README.md#https)
+  # https: the certificate is checked before anything is written (README.md#https); a missing one is only reported, the
+  # services start once it is there
   if [[ "$ZBR_PROTOCOL" == "https" ]] && ! set_certificate; then
-    exit 1
+    abort_setup
   fi
 
   # the authentication of RethinkDB, of ZeroMQ and of the grid registration (README.md#authentication-of-the-nodes):
@@ -82,7 +83,7 @@ setup() {
     RETHINKDB_ENV_AUTHKEY="$(random_string 48)"
   fi
   if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]] && ! set_curve_keys; then
-    exit 1
+    abort_setup
   fi
 
   cp .env.original .env
@@ -195,6 +196,10 @@ setup() {
       ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on
       the node (README.md#nodes); https only."
   check_agents_address
+  # a new SECRET with the database of an earlier deployment: its access tokens and sessions fail
+  if [[ "$is_new" -eq 1 ]]; then
+    check_old_database
+  fi
   if [[ "$sign_in" == "mock" ]]; then
     echo "
       The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
@@ -212,6 +217,11 @@ shutdown() {
   if [[ ! -f .env ]]; then
     echo_warning "Unable to erase as nothing is configured!"
     exit 0 # no need to proceed as nothing was configured
+  fi
+
+  # the volumes of the project would be the ones of another folder of the same name
+  if ! check_other_deployment shutdown; then
+    exit 1
   fi
 
   if [[ "$SHUTDOWN_CONFIRMED" -ne 1 ]]; then
@@ -249,6 +259,11 @@ start() {
   fi
 
   protect_files
+  # nginx of stf-proxy does not start without the certificate of https; the containers of another folder are not
+  # replaced
+  if ! check_certificate || ! check_other_deployment start; then
+    return 1
+  fi
   # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
   check_agents_address
@@ -280,6 +295,9 @@ stop() {
   fi
 
   # with the profile: adb-relay stops also when ADB_RELAY was turned off after its start
+  if ! check_other_deployment stop; then
+    return 1
+  fi
   docker compose --profile adb-relay stop
 }
 
@@ -290,6 +308,9 @@ down() {
   fi
 
   # with the profile: adb-relay is removed also when ADB_RELAY was turned off after its start
+  if ! check_other_deployment down; then
+    return 1
+  fi
   docker compose --profile adb-relay down
 }
 
@@ -297,6 +318,9 @@ down() {
 backup() {
   if [[ -f .disabled ]]; then
     exit 0
+  fi
+  if ! check_other_deployment backup; then
+    return 1
   fi
 
   cp variables.env variables.env.bak
@@ -349,6 +373,9 @@ rethinkdb_tag() {
 restore() {
   if [[ -f .disabled ]]; then
     exit 0
+  fi
+  if ! check_other_deployment restore; then
+    return 1
   fi
 
   stop
@@ -416,8 +443,12 @@ node_invite() {
     echo_warning "The validity of the invite '${minutes}' is not a number of minutes from 1 to 1440 (60 by default)."
     return 1
   fi
-  if [[ "$(sed -n 's/^STF_URL=//p' .env)" != https://* || ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+  if [[ "$(sed -n 's/^STF_URL=//p' .env)" != https://* ]]; then
     echo_warning "The enrollment needs https of stf-proxy: the node trusts the pin of its certificate only. Set up MCloud with https (README.md#https)."
+    return 1
+  fi
+  if [[ ! -f configuration/stf-proxy/ssl/ssl.crt ]]; then
+    echo_warning "The enrollment needs the certificate of stf-proxy, configuration/stf-proxy/ssl/ssl.crt is missing: the node trusts the pin of that certificate only. Put the certificate into configuration/stf-proxy/ssl/ssl.crt and its key into configuration/stf-proxy/ssl/ssl.key, run ./zebrunner.sh restart and invite the node again (README.md#https)."
     return 1
   fi
   if ! pin="$(certificate_pin)"; then
@@ -736,16 +767,29 @@ stf_api() {
   [[ "$api_status" =~ ^2[0-9][0-9]$ ]]
 }
 
-# api_error <action>: why a request of stf_api failed; the API answers the details in the log of stf-api only
+# api_error <action>: why a request of stf_api failed; the API answers the details in the log of stf-api only. A 500 is
+# asked again of /api/v1/user, which needs the access token only: STF answers 500 without a log line for a token made
+# with another SECRET (it cannot read the JWT of the token) and for a token of a removed user
 api_error() {
   local reason
-  case "$api_status" in
-  000) reason="stf-proxy does not answer on 127.0.0.1:$(sed -n 's/^STF_PORT=//p' .env) (./zebrunner.sh start)" ;;
-  401) reason="STF_TOKEN of variables.env is not a valid access token of STF" ;;
+  local status="$api_status"
+  local port
+  port="$(sed -n 's/^STF_PORT=//p' .env)"
+  case "$status" in
+  000) reason="stf-proxy does not answer on 127.0.0.1:${port}: the services do not run or still start (./zebrunner.sh start, docker ps), or stf-proxy does not serve the scheme of STF_URL of .env" ;;
+  401) reason="STF_TOKEN of variables.env is not a valid access token of STF (unknown to its database): sign in to STF as an admin, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart" ;;
   403) reason="refused: STF_TOKEN is not of an admin of STF, or the request is not allowed, see docker logs stf-api" ;;
   404) reason="not found: an unknown node, or the STF of TAG_STF has no registry of the nodes" ;;
   400) reason="refused: an unknown node, a label or an address of another node, or a node that is not revoked; see docker logs stf-api" ;;
-  *) reason="the STF API answered ${api_status}, see docker logs stf-api" ;;
+  502 | 503 | 504) reason="stf-proxy answered ${status}, stf-api does not answer it: stf-api is not running or still starts (docker ps, docker logs stf-api, ./zebrunner.sh start)" ;;
+  500)
+    if ! stf_api GET /api/v1/user && [[ "$api_status" == "500" ]]; then
+      reason="the STF API answered 500 to STF_TOKEN of variables.env itself: the token was made with another SECRET (SECRET of variables.env changed, or the database is the one of another MCloud, e.g. of another folder named $(compose_project) such as mcloud of Zebrunner CE: they share the docker volume $(compose_project)_stf-db-volume) or its user is removed. Sign in to STF as an admin, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart (README.md#troubleshooting)"
+    else
+      reason="the STF API answered 500, see docker logs stf-api"
+    fi
+    ;;
+  *) reason="the STF API answered ${status}, see docker logs stf-api" ;;
   esac
   echo_warning "${1} failed: ${reason}."
 }
@@ -807,26 +851,31 @@ file_sha256() {
 }
 
 # set_certificate: configuration/stf-proxy/ssl/ssl.crt and ssl.key of https: the user puts them there, Zebrunner CE
-# gives its own (../nginx/ssl, its nginx is in front of this one); fails without them, for a key that is not the one of
-# the certificate and, but for Zebrunner CE, for the self-signed pair of the repository of Zebrunner CE
+# gives its own (../nginx/ssl, its nginx is in front of this one); a missing one is reported, the setup goes on and
+# start waits for it (check_certificate); fails for a key that is not the one of the certificate and, but for
+# Zebrunner CE, for the self-signed pair of the repository of Zebrunner CE
 set_certificate() {
   local dir="configuration/stf-proxy/ssl"
   local shared=0
+  local missing
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
     if [[ ! -f "${BASEDIR}/../nginx/ssl/ssl.crt" || ! -f "${BASEDIR}/../nginx/ssl/ssl.key" ]]; then
-      echo_warning "https needs the certificate of Zebrunner CE: ../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing."
-      return 1
-    fi
+      if [[ -n "$(certificate_missing)" ]]; then
+        echo_warning "https needs the certificate of Zebrunner CE: ../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing. The setup goes on, but stf-proxy does not start without a certificate: put the certificate of ${ZBR_HOSTNAME} and its key there and run the setup of Zebrunner CE again (README.md#https)."
+        return 0
+      fi
+      echo_warning "https needs the certificate of Zebrunner CE: ../nginx/ssl/ssl.crt and ../nginx/ssl/ssl.key are missing. stf-proxy keeps the earlier copy of ${dir}, which may be old: put the certificate of ${ZBR_HOSTNAME} and its key there and run the setup of Zebrunner CE again (README.md#https)."
     # a key of root only (e.g. of certbot) is not readable for the user of the setup: the copy would be an old one
-    if ! cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt" 2> /dev/null ||
+    elif ! cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt" 2> /dev/null ||
       ! cp "${BASEDIR}/../nginx/ssl/ssl.key" "${dir}/ssl.key" 2> /dev/null; then
       echo_warning "The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied into ${dir}: make it readable for $(id -un) (README.md#troubleshooting)."
       return 1
     fi
   fi
-  if [[ ! -f "${dir}/ssl.crt" || ! -f "${dir}/ssl.key" ]]; then
-    echo_warning "https needs the certificate of ${ZBR_HOSTNAME}: put it into ${dir}/ssl.crt and its key into ${dir}/ssl.key (README.md#https)."
-    return 1
+  missing="$(certificate_missing)"
+  if [[ -n "$missing" ]]; then
+    echo_warning "https needs the certificate of ${ZBR_HOSTNAME}, missing: ${missing}. The setup goes on, but stf-proxy does not start without it: put the certificate (PEM) into ${dir}/ssl.crt and its key into ${dir}/ssl.key, then run ./zebrunner.sh start (README.md#https)."
+    return 0
   fi
   if [[ "$(file_sha256 "${dir}/ssl.crt")" == "$SHARED_SSL_CRT_SHA256" || "$(file_sha256 "${dir}/ssl.key")" == "$SHARED_SSL_KEY_SHA256" ]]; then
     shared=1
@@ -834,14 +883,102 @@ set_certificate() {
   if [[ "$shared" -eq 1 && "$ZBR_INSTALLER" -eq 1 ]]; then
     echo_warning "The certificate of Zebrunner CE (nginx/ssl) is the self-signed one of its repository, its private key is public: anyone can read and change the traffic of MCloud. Replace it with the certificate of ${ZBR_HOSTNAME}."
   elif [[ "$shared" -eq 1 ]]; then
-    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the repository of Zebrunner CE, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} (README.md#https)."
+    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the repository of Zebrunner CE, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} and its key, then run ./zebrunner.sh setup again (README.md#https)."
     return 1
   fi
-  if command -v openssl > /dev/null 2>&1 &&
-    [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]; then
-    echo_warning "${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM)."
+  if certificate_mismatch; then
+    echo_warning "${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM): put the key of that certificate there, then run ./zebrunner.sh setup again; the public keys of 'openssl x509 -noout -pubkey -in ${dir}/ssl.crt' and 'openssl pkey -pubout -in ${dir}/ssl.key' are the same for a pair (README.md#https)."
     return 1
   fi
+}
+
+# certificate_missing: the missing files of the certificate of stf-proxy, separated by ' and ', empty for none
+certificate_missing() {
+  local dir="configuration/stf-proxy/ssl"
+  local file
+  local missing=""
+  for file in ssl.crt ssl.key; do
+    if [[ ! -f "${dir}/${file}" ]]; then
+      missing="${missing:+${missing} and }${dir}/${file}"
+    fi
+  done
+  echo "$missing"
+}
+
+# certificate_mismatch: succeeds when openssl tells that ssl.key of stf-proxy is not the key of its ssl.crt (or one of
+# them is not PEM); without openssl the pair is not checked
+certificate_mismatch() {
+  local dir="configuration/stf-proxy/ssl"
+  command -v openssl > /dev/null 2>&1 &&
+    [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]
+}
+
+# check_certificate: the certificate of stf-proxy is there when its nginx configuration has the ssl settings of https
+# (README.md#https), nginx does not start without it or with a key of another certificate; warns and fails otherwise
+check_certificate() {
+  local dir="configuration/stf-proxy/ssl"
+  local missing
+  if ! grep -q '^[[:space:]]*ssl_certificate[[:space:]]' configuration/stf-proxy/nginx.conf 2> /dev/null; then
+    return 0
+  fi
+  missing="$(certificate_missing)"
+  if [[ -n "$missing" ]]; then
+    echo_warning "The services are not started: stf-proxy serves https and needs its certificate, missing: ${missing}. Put the certificate (PEM) of the host of STF_URL into ${dir}/ssl.crt and its key into ${dir}/ssl.key, then run ./zebrunner.sh start (README.md#https)."
+    return 1
+  fi
+  if certificate_mismatch; then
+    echo_warning "The services are not started: ${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM), nginx of stf-proxy does not start with them. Put the key of that certificate there, then run ./zebrunner.sh start (README.md#https)."
+    return 1
+  fi
+}
+
+# abort_setup: ends a setup that cannot write its files; the answers are saved as the defaults of the next setup
+abort_setup() {
+  export_settings
+  protect_files
+  echo "
+      The setup is not finished, nothing but your answers is written: fix the problem above and run ./zebrunner.sh setup
+      again, your answers are its defaults."
+  exit 1
+}
+
+# compose_project: the project name of docker compose for this folder, COMPOSE_PROJECT_NAME or the name of the folder
+# in lower case without the characters docker compose drops; it names the volumes (<project>_stf-db-volume), so two
+# folders of the same name share them
+compose_project() {
+  local name="$COMPOSE_PROJECT_NAME"
+  if [[ -z "$name" ]]; then
+    name="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2> /dev/null)"
+  fi
+  name="${name:-$(basename "$BASEDIR")}"
+  tr '[:upper:]' '[:lower:]' <<< "$name" | tr -cd 'a-z0-9_-'
+}
+
+# check_old_database: warns when a new setup (a new SECRET) finds the database of STF of an earlier MCloud in the docker
+# volume of this folder: of a folder removed without ./zebrunner.sh shutdown or of another folder of the same name
+check_old_database() {
+  local volume
+  volume="$(compose_project)_stf-db-volume"
+  if ! docker volume inspect "$volume" > /dev/null 2>&1; then
+    return 0
+  fi
+  echo_warning "The docker volume ${volume} has the database of STF of an earlier MCloud: of a folder $(basename "$BASEDIR") removed without ./zebrunner.sh shutdown, or of another folder of this name on this server (e.g. mcloud of Zebrunner CE; docker compose names the volumes by the folder). This setup made a new SECRET: the access tokens of that database fail (the STF API answers 500 to them) and its users sign in again, so generate a new STF_TOKEN as an admin (Settings, Keys). An empty database instead: docker volume rm ${volume} before ./zebrunner.sh start. To keep the tokens of that MCloud: copy its SECRET into SECRET of variables.env, then ./zebrunner.sh restart (README.md#troubleshooting)."
+}
+
+# check_other_deployment <command>: fails when the services of the docker compose project of this folder belong to
+# another folder that still exists (two folders of the same name, e.g. mcloud of Zebrunner CE): the command would act on
+# its containers and its database; the containers of a removed folder are the ones of this folder
+check_other_deployment() {
+  local project dir
+  project="$(compose_project)"
+  dir="$(docker ps -a --filter "label=com.docker.compose.project=${project}" \
+    --filter "label=com.docker.compose.service=rethinkdb" --format '{{.Label "com.docker.compose.project.working_dir"}}' \
+    2> /dev/null | head -1)"
+  if [[ -z "$dir" || ! -d "$dir" || "$(cd "$dir" && pwd -P)" == "$(pwd -P)" ]]; then
+    return 0
+  fi
+  echo_warning "./zebrunner.sh ${1} did nothing: the docker compose project ${project} is the MCloud of ${dir} (docker compose names the projects and their volumes by the folder), ${1} here would act on its containers and its database (the volume ${project}_stf-db-volume; with the SECRET of this folder its access tokens fail). One MCloud runs on a server: use that folder, or remove that MCloud first (./zebrunner.sh down in ${dir}; its shutdown removes its database too), then ./zebrunner.sh start here (README.md#troubleshooting)."
+  return 1
 }
 
 # ask <variable> <question> [optional]: reads a value of the interactive setup, the current one by default; a value
@@ -1053,7 +1190,7 @@ set_curve_keys() {
   local key
   for key in "$STF_ZMQ_CURVE_SERVER_PUBLIC_KEY" "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" "$STF_ZMQ_CURVE_SECRET_KEY"; do
     if [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
-      echo_warning "The setup makes the CURVE keys with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements); nothing is written."
+      echo_warning "The setup makes the CURVE keys with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements)."
       return 1
     fi
   done
@@ -1181,6 +1318,9 @@ stop)
   stop
   ;;
 restart)
+  if [[ ! -f .disabled ]] && ! check_other_deployment restart; then
+    exit 1
+  fi
   down
   start
   ;;
