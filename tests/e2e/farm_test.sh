@@ -189,17 +189,20 @@ printf '%s\n' "$join" | bash "${AGENT}/zebrunner.sh" join > "${LOGS}/join.log" 2
 check "the node joins MCloud" "0" "$?"
 check_contains "the node is enrolled and active" "e2e ${HOST_IP} active" \
   "$(bash "${MCLOUD}/zebrunner.sh" nodes 2>&1 | grep '^e2e ' | tr -s ' ')"
-python3 - "${AGENT}/roles/devices/vars/main.yml" "$ADB_ADDRESS" "$MINIO" "$BUCKET" "$S3_USER" "$S3_PASSWORD" << 'EOF'
+# the settings of the host in config/settings.yml, its devices in config/devices.yml (written by mcloud-agent setup)
+python3 - "${AGENT}/config/settings.yml" "${AGENT}/config/devices.yml" "$ADB_ADDRESS" "$MINIO" "$BUCKET" "$S3_USER" "$S3_PASSWORD" << 'EOF'
 import re, sys
-vars_file, address, minio, bucket, user, password = sys.argv[1:]
+settings_file, devices_file, address, minio, bucket, user, password = sys.argv[1:]
 settings = {
     "S3_BUCKET": bucket, "S3_ENDPOINT": "http://%s:9000" % minio, "S3_ACCESS_KEY_ID": user, "S3_SECRET": password,
     "S3_REGION": "us-east-1",
 }
-text = open(vars_file).read()
+text = open(settings_file).read()
 for name, value in settings.items():
     text, count = re.subn(r"^%s:.*$" % name, "%s: %s" % (name, value), text, flags=re.M)
     assert count == 1, name
+open(settings_file, "w").write(text)
+text = open(devices_file).read()
 text = text[:text.index("\ndevices:\n")] + """
 devices:
   - id: emulator
@@ -212,7 +215,7 @@ devices:
     min_port: 7405
     max_port: 7410
 """ % address
-open(vars_file, "w").write(text)
+open(devices_file, "w").write(text)
 EOF
 check "the S3 settings and the device in mcloud-agent" "0" "$?"
 # the connector authenticates to the emulator with its adb keys (mcloud-key-volume of the connectors)
