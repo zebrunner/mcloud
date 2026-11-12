@@ -81,9 +81,9 @@ The commands of `./zebrunner.sh`:
 | `ADB_RELAY_SYNC_SECONDS` | `300` | `adb-relay` reads the devices of the nodes every these seconds: a new device is relayed within this time (at once after `./zebrunner.sh restart`); the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
-| `TAG_SELENIUM_HUB` | `3.1` | the tag of `public.ecr.aws/zebrunner/mcloud-grid` |
+| `TAG_SELENIUM_HUB` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/mcloud-grid`: on `develop` the newest image of the `develop` of mcloud-grid, a release has its version |
 | `TAG_RETHINKDB` | `2.4.3` | the tag of `rethinkdb` |
-| `TAG_STF` | `3.1` | the tag of `public.ecr.aws/zebrunner/stf` |
+| `TAG_STF` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/stf`: on `develop` the newest image of the `develop` of zebrunner/stf, a release has its version |
 | `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in [Zebrunner CE](#zebrunner-ce) by default |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
