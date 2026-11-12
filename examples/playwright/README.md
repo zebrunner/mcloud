@@ -1,7 +1,8 @@
 # Playwright tests on the devices of MCloud
 
 The fixtures of `@playwright/test` for the Android devices of MCloud (`mcloud.ts`), an example test and the workflow of
-GitHub Actions that runs them (`github-actions.yml`); see [Playwright](../../README.md#playwright).
+GitHub Actions that runs them (`github-actions.yml`); see [Playwright](../../README.md#playwright). The Playwright
+sessions are an option of the farm: `PLAYWRIGHT_ENABLED=true` of MCloud.
 
 ```bash
 npm ci

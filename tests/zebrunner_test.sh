@@ -155,9 +155,11 @@ check "the nodes reach the host of STF_URL" "mcloud.example.com" "$(value .env N
 check "the triproxies and the storage read the nodes from stf-api" "http://stf-api:3000" \
   "$(value variables.env STF_NODES_API_URL)"
 check_contains "the start is suggested" "need to be started after setup" "$output"
+check "the Playwright sessions are off by default" "false" "$(value variables.env PLAYWRIGHT_ENABLED)"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
+replace "${MCLOUD}/variables.env" "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED=true"
 printf '%s\n' "STF_SESSION_TTL_SECONDS=3600" "STF_CUSTOM_KEY=${keys//0/a}" >> "${MCLOUD}/variables.env"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
@@ -178,6 +180,8 @@ check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
 check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_STORAGE_TOKEN)"
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
+check "the Playwright sessions stay on" "true" "$(value variables.env PLAYWRIGHT_ENABLED)"
+check "the option of the Playwright sessions is in variables.env once" "1" "$(grep -c '^PLAYWRIGHT_ENABLED=' "${MCLOUD}/variables.env")"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
