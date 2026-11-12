@@ -27,6 +27,7 @@ This file is the same in all of them: a change of a convention is made in every 
 - [YAML and GitHub Actions](#yaml-and-github-actions)
 - [Markdown](#markdown)
 - [Makefile](#makefile)
+- [Versions](#versions)
 - [License](#license)
 - [Git](#git)
 - [Project rules](#project-rules)
@@ -43,6 +44,7 @@ This file is the same in all of them: a change of a convention is made in every 
 | `tests/<subject>_test.sh` | a test script; the docker ones are listed in `DOCKER_TESTS` of the `Makefile` |
 | `tests/requirements-lint.txt` | the pinned linters, installed into `.venv` by `make lint` |
 | `Makefile` | the entry point of all the checks: `make help` |
+| `VERSION` | the release in work of the image, see [Versions](#versions) |
 | `.github/workflows/ci.yml` | CI, runs the same checks as `make check` |
 | `.github/dependabot.yml` | weekly updates of the actions, the base image and the linters |
 | `.editorconfig` | the formatting of every file type, also the style of shfmt |
@@ -259,6 +261,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 - The `lint` job is the reusable workflow of mcloud-conventions: `uses: zebrunner/mcloud-conventions/.github/workflows/lint.yml@v1` (`with: java-version` for the Maven checks).
 - The other jobs are `tests`, `docker` (those that apply, plus the project ones), each with `timeout-minutes` (10 unless the project needs more) and a JUnit report step `mikepenz/action-junit-report` with `annotate_only: true`, `detailed_summary: true`, `require_tests: true`.
 - The `tests` job runs the tests of `make test`; the jobs upload their JUnit XML as artifacts (`junit-docker` of the `docker` job).
+- The repositories of an image have the `publish` job last: the reusable workflow `uses: zebrunner/mcloud-conventions/.github/workflows/docker-publish.yml@v1` with `needs` of all the other jobs, `if: github.event_name == 'push' && github.ref == 'refs/heads/develop'` and `permissions: contents: read, id-token: write`; it pushes the image of every merge into `develop` (see [Versions](#versions)).
 - A job that pulls from public.ecr.aws logs docker in first with `uses: zebrunner/mcloud-conventions/.github/actions/ecr-public-login@v1` and `permissions: contents: read, id-token: write` of the job: the anonymous pulls are limited to 1 per second per IP of the runners.
 - The `actions/*` are referenced by their major version tag, the other actions by the full commit SHA with the version in a comment: `uses: mikepenz/action-junit-report@<sha> # v6.6.0`.
 - `.github/dependabot.yml` updates `github-actions`, `docker` and the ecosystem of the project weekly, `pip` (`directory: /tests`) only for the project linters, each with a comment of what it covers.
@@ -292,6 +295,12 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 - `lint` installs `tests/requirements-lint.txt` into `.venv` once (the stamp `.venv/.installed`).
 - The repositories of an image have `build` and `push` after the checks, not run by `check`: `make build VERSION=<tag>` builds `public.ecr.aws/zebrunner/<image>:<tag>` in the local docker (for the platform of the machine, `linux/amd64` for an amd64-only image), `make push VERSION=<tag>` builds the platforms of `PLATFORMS` with `docker buildx` (the builder `mcloud`, docker-container driver) and pushes them. `VERSION` is the tag and `--build-arg VERSION` (`dev` by default, `push` refuses it), `IMAGE_REPO` overrides the repository; both pass `--provenance=false`, as the docker tests. The tests of `make test` check their commands with a docker stub (`tests/make_test.sh`) where it runs the shell tests.
 - The recipes are indented with a tab, `SHELL := /bin/bash`.
+
+## Versions
+
+- The repositories of an image keep the release in work in the file `VERSION`: one line, the version only, e.g. `3.1`; it is changed by hand to the next version when the work on it starts (after a release).
+- The `publish` job of CI pushes the image of every merge into `develop` after all the checks passed, with `make push`: `public.ecr.aws/zebrunner/<image>:<version>-develop-<sha>` (the first 7 characters of the commit) and `<version>-develop-latest`, moved to the newest commit of `develop`.
+- The releases are tagged `<version>` by hand: `make push VERSION=<version>`.
 
 ## License
 
@@ -349,7 +358,7 @@ The rules above are the same for every repository; these ones come from the kind
 
 1. Create `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile` with the markers of the shared block and the project part.
 2. Add the repository to `sync/targets.yml` of mcloud-conventions: its sync brings the [shared files](#shared-files) and `.mcloud-conventions`.
-3. Set the project parts: `tests/lint_project.sh`, `.dockerignore` comment, `.hadolint.yaml`, `DOCKER_TESTS`, the `lint` job of the reusable workflow and the other jobs.
+3. Set the project parts: `tests/lint_project.sh`, `.dockerignore` comment, `.hadolint.yaml`, `DOCKER_TESTS`, the `lint` job of the reusable workflow and the other jobs; for an image `VERSION` and the `publish` job, its repository in public.ecr.aws (README.md#the-push-to-publicecraws of mcloud-conventions).
 4. Write `tests/<subject>_test.sh` for the scripts of the image and `tests/image_test.sh` for the image.
 5. Write the README with the sections above.
 6. `make check`.
