@@ -163,6 +163,10 @@ setup() {
   if [[ -z "$ZBR_MCLOUD_ADMIN_EMAIL" && -n "$STF_ADMIN_EMAIL" ]]; then
     ZBR_MCLOUD_ADMIN_EMAIL="$STF_ADMIN_EMAIL"
   fi
+  # the option of the Playwright sessions of the previous setup, off for any other value than true
+  if [[ "$PLAYWRIGHT_ENABLED" == "true" ]]; then
+    replace variables.env "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED=true"
+  fi
   replace variables.env "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME=${STF_ROOT_GROUP_NAME}"
   replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
   replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"

@@ -325,7 +325,9 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 
 ## Playwright
 
-[Playwright](https://playwright.dev/docs/api/class-android) tests run on the Android devices of the farm, from any machine that reaches MCloud (e.g. a CI runner, no adb there): the test starts an Appium session of the `Playwright` automation through the grid, which queues it, reserves a device and records its video as for any session, and connects Playwright to the WebSocket of the session:
+[Playwright](https://playwright.dev/docs/api/class-android) tests run on the Android devices of the farm, from any machine that reaches MCloud (e.g. a CI runner, no adb there). It is an option of the farm, off by default: set `PLAYWRIGHT_ENABLED=true` in `variables.env` and run `./zebrunner.sh restart` (`./zebrunner.sh setup` keeps the value). Without it the grid refuses the Playwright sessions at once (`Playwright sessions are not enabled on this grid`, no device is reserved) and their WebSocket with `501`; the other sessions are not affected.
+
+The test starts an Appium session of the `Playwright` automation through the grid, which queues it, reserves a device and records its video as for any session, and connects Playwright to the WebSocket of the session:
 
 ```js
 // POST /mcloud/wd/hub/session {"capabilities": {"alwaysMatch": {"platformName": "Android", "appium:automationName": "Playwright"}}}
