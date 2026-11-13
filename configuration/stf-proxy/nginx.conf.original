@@ -254,4 +254,37 @@ http {
       proxy_pass http://$upstream_app;
     }
   }
+
+  # the grid of the nodes (AGENTS_ADDRESS:4446, the grid of the join string): the registration of Appium only, the
+  # grid checks the node token of it. The hub and the console are /mcloud of the server above, behind its basic
+  # authentication
+  server {
+    listen 4446;
+    server_name stf-proxy-grid;
+
+    resolver 127.0.0.11 valid=30s;
+    resolver_timeout 10s;
+
+    location = /grid/register {
+      set $upstream_grid mcloud-grid:4444;
+      proxy_pass http://$upstream_grid;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # the check of a registered node: GET /grid/api/proxy?id=<node url>
+    location = /grid/api/proxy {
+      limit_except GET {
+        deny all;
+      }
+      set $upstream_grid mcloud-grid:4444;
+      proxy_pass http://$upstream_grid;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location / {
+      return 403;
+    }
+  }
 }

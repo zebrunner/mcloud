@@ -58,6 +58,8 @@ services:
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
+      # the grid of the nodes, the grid of the join string of ./zebrunner.sh node-invite: the registration of Appium only
+      - "${AGENTS_ADDRESS}:4446:4446"
     depends_on:
       stf-app:
         condition: service_healthy
@@ -112,9 +114,7 @@ services:
       - CHECK_APPIUM_STATUS=true
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
-    # the nodes register on AGENTS_ADDRESS:4446, the grid of the join string of ./zebrunner.sh node-invite
-    ports:
-      - "${AGENTS_ADDRESS}:4446:4444"
+    # not published: the users reach it through /mcloud of stf-proxy, the nodes register through its port 4446
     # the healthcheck is the one of the image (/wd/hub/status)
     logging: *logging
     restart: always
