@@ -828,10 +828,10 @@ protect_files() {
   if [[ "$(id -u)" -eq 0 ]]; then
     owner="$(stat -c '%u:%g' . 2> /dev/null || stat -f '%u:%g' .)"
   fi
-  for file in .env .env.bak variables.env variables.env.bak grid.env backup/settings.env backup/settings.env.bak \
+  for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
-    configuration/stf-proxy/ssl/ssl.crt.bak \
+    configuration/stf-proxy/ssl/ssl.crt.bak grid.env \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
