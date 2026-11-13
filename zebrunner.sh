@@ -181,7 +181,6 @@ setup() {
   fi
 
   cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
-  replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '${ZBR_HOSTNAME}'"
   # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
   if [[ "$ZBR_PROTOCOL" == "https" ]]; then
     replace configuration/stf-proxy/nginx.conf "listen 80" "listen 80 ssl"

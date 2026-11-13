@@ -32,7 +32,8 @@ http {
     listen 80;
     server_name stf-proxy;
 
-    # Uncomment below block to setup SSL on this NGiNX instance. make sure to put ssl.crt and ssl.key to nginx/ssl shared folder
+    # the ssl of https: ./zebrunner.sh setup uncomments these lines and listens with ssl, the certificate is
+    # configuration/stf-proxy/ssl/ssl.crt and its key ssl.key (README.md#https)
 #    ssl_certificate /etc/nginx/ssl/ssl.crt;
 #    ssl_certificate_key /etc/nginx/ssl/ssl.key;
 #    ssl_session_timeout 5m;
