@@ -409,9 +409,10 @@ version() {
     exit 0
   fi
 
-  # shellcheck source=.env.original
-  source .env
-  echo "mcloud: ${TAG_STF}"
+  # .env is read, not sourced; before the setup the version of this folder
+  local tag
+  tag="$(sed -n 's/^TAG_STF=//p' .env 2> /dev/null | tail -1)"
+  echo "mcloud: ${tag:-$(sed -n 's/^TAG_STF=//p' .env.original)}"
 }
 
 #### Nodes
