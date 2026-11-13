@@ -163,6 +163,14 @@ replace "${MCLOUD}/variables.env" "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED
 printf '%s\n' "STF_SESSION_TTL_SECONDS=3600" "STF_CUSTOM_KEY=${keys//0/a}" >> "${MCLOUD}/variables.env"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
+# the changes by hand of variables.env and .env, also of the variables the setup does not ask
+replace "${MCLOUD}/variables.env" "STF_AUTH_MOCK_USE_BASIC_AUTH=true" "STF_AUTH_MOCK_USE_BASIC_AUTH=false"
+replace "${MCLOUD}/variables.env" "STF_NODES_API_URL=http://stf-api:3000" "STF_NODES_API_URL=http://stf-api-2:3000"
+replace "${MCLOUD}/variables.env" "RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015" "RETHINKDB_PORT_28015_TCP=tcp://db.example.com:28015"
+replace "${MCLOUD}/variables.env" "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=ops"
+replace "${MCLOUD}/variables.env" "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME='Mobile Lab'"
+replace "${MCLOUD}/.env" "TAG_STF=" "TAG_STF=old-"
+printf '%s\n' "COMPOSE_PROJECT_NAME=mcloud-prod" "AGENT_HOSTS=192.0.2.5" >> "${MCLOUD}/.env"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
@@ -183,6 +191,18 @@ check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the Playwright sessions stay on" "true" "$(value variables.env PLAYWRIGHT_ENABLED)"
 check "the option of the Playwright sessions is in variables.env once" "1" "$(grep -c '^PLAYWRIGHT_ENABLED=' "${MCLOUD}/variables.env")"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
+check "the admin name changed in variables.env is kept" "ops" "$(value variables.env STF_ADMIN_NAME)"
+check_contains "the admin name of variables.env is the default of the question" \
+  "Zebrunner MCloud admin username: ops; email: ops@example.com" "$output"
+check "STF_AUTH_MOCK_USE_BASIC_AUTH is kept" "false" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
+check "STF_NODES_API_URL is kept" "http://stf-api-2:3000" "$(value variables.env STF_NODES_API_URL)"
+check "RETHINKDB_PORT_28015_TCP is kept" "tcp://db.example.com:28015" "$(value variables.env RETHINKDB_PORT_28015_TCP)"
+check "a value with a space is kept in quotes" "'Mobile Lab'" "$(value variables.env STF_ROOT_GROUP_NAME)"
+check "COMPOSE_PROJECT_NAME of .env is kept" "mcloud-prod" "$(value .env COMPOSE_PROJECT_NAME)"
+check "a variable of an earlier MCloud is not kept in .env" "" "$(value .env AGENT_HOSTS)"
+check "the image tags are the ones of .env.original" "$(grep '^TAG_' "${REPO}/.env.original")" "$(grep '^TAG_' "${MCLOUD}/.env")"
+check "every variable of .env.original is in .env once" "" \
+  "$(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MCLOUD}/.env" | sort | uniq -d)"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 
@@ -195,6 +215,15 @@ zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
 check "the added variables are added once" "1" "$(grep -c '^STF_CUSTOM_KEY=' "${MCLOUD}/variables.env")"
+check "the values are kept by every setup" "false 'Mobile Lab' ops mcloud-prod" \
+  "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH) $(value variables.env STF_ROOT_GROUP_NAME) $(value variables.env STF_ADMIN_NAME) $(value .env COMPOSE_PROJECT_NAME)"
+# the defaults again for the next sections
+replace "${MCLOUD}/variables.env" "STF_AUTH_MOCK_USE_BASIC_AUTH=false" "STF_AUTH_MOCK_USE_BASIC_AUTH=true"
+replace "${MCLOUD}/variables.env" "STF_NODES_API_URL=http://stf-api-2:3000" "STF_NODES_API_URL=http://stf-api:3000"
+replace "${MCLOUD}/variables.env" "RETHINKDB_PORT_28015_TCP=tcp://db.example.com:28015" "RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015"
+replace "${MCLOUD}/variables.env" "STF_ADMIN_NAME=ops" "STF_ADMIN_NAME=admin"
+replace "${MCLOUD}/variables.env" "STF_ROOT_GROUP_NAME='Mobile Lab'" "STF_ROOT_GROUP_NAME=MCloud"
+sed -i.orig '/^COMPOSE_PROJECT_NAME=/d' "${MCLOUD}/.env"
 
 section "setup without the secrets"
 for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY; do

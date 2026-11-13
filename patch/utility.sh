@@ -47,6 +47,26 @@ replace() {
   printf '%s\n' "$content" > "$file"
 }
 
+# set_line <file> <name>=<value>: the line of a variable of an env file, added at its end when the file has none
+set_line() {
+  local file="$1"
+  local line="$2"
+  local current
+  local found=0
+  local content=""
+  while IFS= read -r current || [[ -n "$current" ]]; do
+    if [[ "$current" == "${line%%=*}="* ]]; then
+      current="$line"
+      found=1
+    fi
+    content+="${current}"$'\n'
+  done < "$file"
+  if [[ "$found" -eq 0 ]]; then
+    content+="${line}"$'\n'
+  fi
+  printf '%s' "$content" > "$file"
+}
+
 # confirm <message> <question> <default y|n>: asks until the answer is y or n; 0 for y, 1 for n
 confirm() {
   local message="$1"
