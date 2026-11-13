@@ -49,6 +49,19 @@ zbr() {
     "${zbr_env[@]}" /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
 }
 
+# zbr_end <stdin text> <zebrunner.sh arguments...>: zbr for an input that ends, then "exit <status>"; at most 20
+# seconds (timeout) and 50 lines: a question asked again forever is cut there
+zbr_end() {
+  local input="$1"
+  shift
+  {
+    printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
+      "$TIMEOUT" 20 /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
+    echo "exit $?"
+  } | head -n 50
+}
+TIMEOUT="$(command -v timeout || command -v gtimeout)"
+
 # mode <file>: the permissions of a file of the copy, as ls shows them (-rw-------)
 mode() {
   # shellcheck disable=SC2012 # one known file, ls is the same on Linux and macOS
@@ -419,6 +432,33 @@ check "the LDAP URL" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP
 check "the attribute of the user name by default" "'uid'" "$(value variables.env LDAP_SEARCH_FIELD)"
 output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oracle mock n)" setup)"
 check_contains "an unknown sign-in is asked again" "Please answer mock, oauth2 or ldap." "$output"
+# the end of the input at a question without a valid answer ends the setup, it is not asked again forever
+if [[ -n "$TIMEOUT" ]]; then
+  cp "${MCLOUD}/variables.env" "${WORK}/variables.before"
+  sed -i.orig "s|^OAUTH_AUTHORIZATION_URL=.*|OAUTH_AUTHORIZATION_URL=''|" "${MCLOUD}/variables.env"
+  cp "${MCLOUD}/variables.env" "${WORK}/variables.saved"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y oauth2)" setup)"
+  check_contains "the end of the input without a value fails" "exit 1" "$output"
+  check_contains "the end of the input is explained" \
+    "The input ended at the question 'Authorization URL': A value is needed." "$output"
+  check "the question is not asked again" "1" "$(grep -c 'A value is needed' <<< "$output")"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y ldap ldap://ldap.example.com:389 "cn=admin")" setup)"
+  check_contains "the end of the input without a secret fails" "exit 1" "$output"
+  check_contains "the end of the input at a secret is explained" \
+    "The input ended at the question 'Bind password': A value is needed." "$output"
+  cp "${MCLOUD}/backup/settings.env" "${WORK}/settings.saved"
+  echo 'declare -x ZBR_MCLOUD_SIGN_IN="zebrunner"' >> "${MCLOUD}/backup/settings.env"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y)" setup)"
+  check_contains "the end of the input with an invalid sign-in fails" "exit 1" "$output"
+  check_contains "the end of the input at the sign-in is explained" \
+    "The input ended at the question 'Sign-in of STF': Please answer mock, oauth2 or ldap." "$output"
+  mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+  check "the setup that ended wrote no variables.env" "same" \
+    "$(cmp -s "${MCLOUD}/variables.env" "${WORK}/variables.saved" && echo same)"
+  mv "${WORK}/variables.before" "${MCLOUD}/variables.env"
+else
+  skip_check "the end of the input at a question without a valid answer" "requires timeout"
+fi
 check "the mock sign-in again" "auth-mock" "$(value .env AUTH_SYSTEM)"
 
 section "setup of Zebrunner CE"

@@ -986,44 +986,69 @@ check_other_deployment() {
 }
 
 # ask <variable> <question> [optional]: reads a value of the interactive setup, the current one by default; a value
-# with a quote or a backslash is asked again (variables.env keeps it in quotes), an empty one too unless optional
+# with a quote or a backslash is asked again (variables.env keeps it in quotes), an empty one too unless optional; the
+# end of the input with such a value ends the setup
 ask() {
   local name="$1"
   local question="$2"
   local optional="$3"
   local answer
+  local ended
+  local problem
   while true; do
-    read -r -p "${question} [${!name}]: " answer
+    ended=0
+    read -r -p "${question} [${!name}]: " answer || ended=1
     answer="${answer:-${!name}}"
-    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
-      echo "Quotes and backslashes are not supported."
-    elif [[ -n "$answer" || -n "$optional" ]]; then
+    problem="$(answer_problem "$answer" "$optional")"
+    if [[ -z "$problem" ]]; then
       break
-    else
-      echo "A value is needed."
     fi
+    end_of_input "$ended" "$question" "$problem"
+    echo "$problem"
   done
   printf -v "$name" '%s' "$answer"
 }
 
-# ask_secret <variable> <question>: ask without echo, the current value is kept on an empty answer
+# ask_secret <variable> <question>: ask without echo, the current value is kept on an empty answer; the end of the
+# input without a value ends the setup
 ask_secret() {
   local name="$1"
   local question="$2"
   local answer
+  local ended
+  local problem
   while true; do
-    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer
+    ended=0
+    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer || ended=1
     echo
     answer="${answer:-${!name}}"
-    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
-      echo "Quotes and backslashes are not supported."
-    elif [[ -n "$answer" ]]; then
+    problem="$(answer_problem "$answer")"
+    if [[ -z "$problem" ]]; then
       break
-    else
-      echo "A value is needed."
     fi
+    end_of_input "$ended" "$question" "$problem"
+    echo "$problem"
   done
   printf -v "$name" '%s' "$answer"
+}
+
+# answer_problem <answer> [optional]: the reason ask and ask_secret refuse an answer, empty for a valid one
+answer_problem() {
+  if [[ "$1" == *"'"* || "$1" == *"\\"* ]]; then
+    echo "Quotes and backslashes are not supported."
+  elif [[ -z "$1" && -z "$2" ]]; then
+    echo "A value is needed."
+  fi
+}
+
+# end_of_input <ended 0|1> <question> <problem>: ends the setup with exit 1 when the input ended (read failed) with an
+# answer that is not taken, a question would be asked again forever
+end_of_input() {
+  if [[ "$1" -eq 1 ]]; then
+    echo
+    echo_warning "The input ended at the question '${2}': ${3} Run ./zebrunner.sh setup again with an answer."
+    exit 1
+  fi
 }
 
 # valid_host <host>: succeeds for a host name or an IPv4 address
@@ -1122,14 +1147,17 @@ set_sign_in() {
     question="zebrunner (Zebrunner IAM of Zebrunner CE), ${question}"
   fi
   ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-${2:-mock}}"
+  local ended
   while true; do
-    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer
+    ended=0
+    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer || ended=1
     answer="${answer:-$ZBR_MCLOUD_SIGN_IN}"
     if [[ "$answer" =~ ^(${choices})$ ]]; then
       ZBR_MCLOUD_SIGN_IN="$answer"
       break
     fi
     answer="${choices%|*}"
+    end_of_input "$ended" "Sign-in of STF" "Please answer ${answer//|/, } or ${choices##*|}."
     echo "Please answer ${answer//|/, } or ${choices##*|}."
   done
   export ZBR_MCLOUD_SIGN_IN
