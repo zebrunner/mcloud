@@ -196,6 +196,12 @@ headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status"
 for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN"; do
   check_contains "the hub: ${header}" "$header" "$headers"
 done
+grid_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mcloud-grid)"
+check_contains "the grid gets STF_TOKEN of variables.env" "STF_TOKEN=" "$grid_env"
+for name in SECRET STF_STORAGE_TOKEN RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SECRET_KEY \
+  STF_AUTH_MOCK_BASIC_AUTH_PASSWORD; do
+  check "the grid does not get ${name}" "" "$(grep "^${name}=" <<< "$grid_env")"
+done
 check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
 # an Appium node without a node token registers at the port of the nodes (4446): the grid refuses it (500)

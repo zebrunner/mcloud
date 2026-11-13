@@ -156,6 +156,9 @@ check "the triproxies and the storage read the nodes from stf-api" "http://stf-a
   "$(value variables.env STF_NODES_API_URL)"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 check "the Playwright sessions are off by default" "false" "$(value variables.env PLAYWRIGHT_ENABLED)"
+check "the grid gets STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only" "STF_TOKEN=
+PLAYWRIGHT_ENABLED=false" "$(grep -v '^#' "${MCLOUD}/grid.env")"
+check "grid.env is readable for its owner only" "-rw-------" "$(mode grid.env)"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
@@ -182,6 +185,8 @@ check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_ST
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the Playwright sessions stay on" "true" "$(value variables.env PLAYWRIGHT_ENABLED)"
 check "the option of the Playwright sessions is in variables.env once" "1" "$(grep -c '^PLAYWRIGHT_ENABLED=' "${MCLOUD}/variables.env")"
+check "the grid gets the kept STF_TOKEN and PLAYWRIGHT_ENABLED" "STF_TOKEN=api-token
+PLAYWRIGHT_ENABLED=true" "$(grep -v '^#' "${MCLOUD}/grid.env")"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
@@ -546,6 +551,11 @@ if docker compose version > /dev/null 2>&1; then
   check "adb-relay runs with its profile only" "adb-relay" \
     "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) \
       <(docker compose --profile adb-relay config --services | sort))"
+  # the variables of the grid, sorted; none of the secrets of STF
+  check "the grid gets none of the secrets of variables.env" \
+    "CHECK_APPIUM_STATUS GRID_NEW_SESSION_WAIT_TIMEOUT PLAYWRIGHT_ENABLED STF_TOKEN STF_URL" \
+    "$(cd "$MCLOUD" && docker compose config --format json | python3 -c 'import json, sys
+print(" ".join(sorted(json.load(sys.stdin)["services"]["mcloud-grid"]["environment"])))')"
 else
   skip_check "docker compose config of the settings of the setup" "requires docker compose"
 fi
@@ -563,6 +573,7 @@ check_contains "start shows the URLs" "MCloud: http://203.0.113.10:80/stf, the S
 check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
 check_not_contains "start with STF_TOKEN does not ask it" "STF_TOKEN of variables.env is empty" "$(zbr "" start)"
+check "start gives the grid the new STF_TOKEN" "STF_TOKEN=token" "$(grep '^STF_TOKEN=' "${MCLOUD}/grid.env")"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=token" "STF_TOKEN="
 zbr_env=(ZBR_INSTALLER=1)
 check_not_contains "Zebrunner CE shows no next steps" "MCloud: " "$(zbr "" start)"
@@ -640,6 +651,7 @@ owner="$(stat -c '%u:%g' "$MCLOUD" 2> /dev/null || stat -f '%u:%g' "$MCLOUD")"
 check_contains "root gives variables.env back to the owner of the folder" "${owner}|variables.env" "$(calls chown)"
 check_contains "root gives stf-token back to the owner of the folder" \
   "${owner}|configuration/adb-relay/stf-token" "$(calls chown)"
+check_contains "root gives grid.env back to the owner of the folder" "${owner}|grid.env" "$(calls chown)"
 
 section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
@@ -995,7 +1007,7 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
+for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
