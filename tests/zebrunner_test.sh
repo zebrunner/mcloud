@@ -1001,10 +1001,13 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
-  variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
-  configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak; do
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
+done
+
+for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+  configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak; do
+  check "shutdown removes the backup ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
 check "shutdown keeps the copies of the certificate of the user" "yes" \
