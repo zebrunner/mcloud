@@ -1,7 +1,8 @@
 ---
 # The services of MCloud: STF, the grid and the nginx in front of them (README.md).
 # The image tags and the ports come from .env, the settings of the services from variables.env:
-# ./zebrunner.sh setup writes both from their *.original files.
+# ./zebrunner.sh setup writes both from their *.original files, the variables of the grid from variables.env into
+# grid.env (setup and start).
 networks:
   default:
     name: infra
@@ -103,8 +104,11 @@ services:
   mcloud-grid:
     image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
+    # STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only, written by ./zebrunner.sh setup and start: the grid gets
+    # none of the secrets of STF; optional, so stop and down of a deployment of an earlier MCloud work without it
     env_file:
-      - variables.env
+      - path: grid.env
+        required: false
     environment:
       - STF_URL=http://stf-api:3000
       # 10 min session wait timeout as 20 min is configured on NGiNX

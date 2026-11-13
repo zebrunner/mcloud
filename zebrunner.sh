@@ -193,6 +193,7 @@ setup() {
   # the user input for the next setup
   export_settings
   write_stf_token
+  write_grid_env
   protect_files
 
   echo "
@@ -243,6 +244,7 @@ shutdown() {
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf
   rm -f configuration/adb-relay/stf-token
+  rm -f grid.env
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
 }
@@ -262,6 +264,10 @@ start() {
     exit 1
   fi
 
+  # STF_TOKEN of variables.env may have changed since the setup; before protect_files, which gives it to the owner
+  if ! write_grid_env; then
+    return 1
+  fi
   protect_files
   # nginx of stf-proxy does not start without the certificate of https; the containers of another folder are not
   # replaced
@@ -825,7 +831,7 @@ protect_files() {
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
-    configuration/stf-proxy/ssl/ssl.crt.bak \
+    configuration/stf-proxy/ssl/ssl.crt.bak grid.env \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
@@ -834,7 +840,7 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
+    variables.env* | grid.env | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac
@@ -1097,6 +1103,20 @@ write_stf_token() {
     return
   fi
   chmod 600 "$file"
+}
+
+# write_grid_env: grid.env, the env file of mcloud-grid (docker-compose.yml): the lines of STF_TOKEN and
+# PLAYWRIGHT_ENABLED of variables.env, the only variables of it the grid reads, so the grid gets none of the other
+# secrets; readable for its owner only. Fails when it cannot be written: the grid would start with an old token
+write_grid_env() {
+  if ! (umask 077 && {
+    echo "# written by ./zebrunner.sh setup and start from variables.env: change variables.env, then ./zebrunner.sh restart"
+    grep -E '^(STF_TOKEN|PLAYWRIGHT_ENABLED)=' variables.env || true
+  } 2> /dev/null > grid.env); then
+    echo_warning "grid.env is not writable for $(id -un): remove it (rm -f grid.env) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    return 1
+  fi
+  chmod 600 grid.env
 }
 
 # valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535

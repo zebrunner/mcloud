@@ -16,6 +16,7 @@ variables.env_*
 *.tar.gz
 .env
 variables.env
+grid.env
 configuration/stf-proxy/nginx.conf
 configuration/adb-relay/stf-token
 configuration/stf-proxy/htpasswd/mcloud.htpasswd

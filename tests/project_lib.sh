@@ -8,7 +8,7 @@ copy_repo() {
   (cd "$REPO" && tar --exclude=.git --exclude=.venv --exclude=.idea -cf - .) | (cd "$1" && tar -xf -)
   (cd "$1" && rm -f .env variables.env .disabled backup/settings.env configuration/stf-proxy/nginx.conf \
     configuration/adb-relay/stf-token \
-    configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/htpasswd/mcloud.htpasswd &&
+    configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/htpasswd/mcloud.htpasswd grid.env &&
     find . -name '*.bak' -delete)
 }
 

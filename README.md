@@ -87,7 +87,7 @@ The commands of `./zebrunner.sh`:
 | `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in [Zebrunner CE](#zebrunner-ce) by default |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
-`variables.env`, the settings of the STF units and of the grid:
+`variables.env`, the settings of the STF units and of the grid: the STF units get all of them, the grid only `STF_TOKEN` and `PLAYWRIGHT_ENABLED`, which `setup` and `start` copy into `grid.env` (its env file, readable for its owner only), so it gets none of the other secrets; change them in `variables.env`, then `./zebrunner.sh restart`:
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.m
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -378,6 +378,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | the screen of a device stays gray; `nodes check` shows `NOT REACHABLE` | `stf-proxy` does not reach `<address of the node>:<screen port>`: the address of the invite is not the one the server reaches the node at (a new invite with the right address), the firewall of the node closes the ports of its devices for the server, or a public address inside the LAN (NAT hairpin, use the LAN address) |
 | the screen of a device stays gray, `/d/<node>/...` answers `403` | `stf-api` refuses it: the user does not use the device, the device is not bound to an active node, or the host or the port of the URL are not the address of its node and its screen port (see [Screens of the devices](#screens-of-the-devices)); `401`: the user is not signed in; `500`: the STF of `TAG_STF` has no `/api/v1/zebrunner/screen-auth` |
 | the screenshots or the app installs of the devices fail with `401` / `403` | the storage refuses the token of the node: the node is revoked or its containers run with an old token (`./zebrunner.sh ansible` and `zebrunner-farm restart` on the node); `self-signed certificate` in the logs of `stf-storage-plugin-image` or `stf-storage-plugin-apk`: the STF units do not trust the certificate of `STF_URL`, see [https](#https) |
+| `grid.env is not writable`, `./zebrunner.sh start` starts nothing | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f grid.env`) and `./zebrunner.sh start`, which writes it again from `variables.env` |
 | `configuration/adb-relay/stf-token is not writable` | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f configuration/adb-relay/stf-token`) and `./zebrunner.sh restart`; `adb-relay` keeps the token it has until then |
 | `adb connect` of STF to a device of a node in a private network times out or fails | `REMOTE_CONNECT_HOST` of mcloud-agent is not the public name of MCloud, the relay skips the port or the firewall of the server closes it, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay): `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason (e.g. a port out of `ADB_RELAY_PORTS`, a port of two devices), a new device is relayed within `ADB_RELAY_SYNC_SECONDS`; it also shows the sessions and why a node refused one |
 | `docker logs adb-relay` shows `The STF API ... failed` or `answered without devices` | the relay does not read the devices: `401` is an invalid `STF_TOKEN` of `variables.env` (a new access token of STF, Settings, Keys, then `./zebrunner.sh start` writes it into `configuration/adb-relay/stf-token`), `403` a token of a user that is not an admin, `404` an STF of `TAG_STF` without the registry of the nodes; a failed connection is `stf-proxy` not running or not with the scheme of `STF_URL` (http or https); the relay keeps its devices until the next successful sync |
