@@ -58,8 +58,8 @@ The commands of `./zebrunner.sh`:
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
 | `down` | stops and removes the containers, the data is kept |
-| `shutdown` | removes the containers, the data and the settings |
-| `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently |
+| `shutdown` | removes the containers, the data and the settings with their backup copies (`*.bak`, they hold the secrets); the certificate of `configuration/stf-proxy/ssl` (and its copies) and the archive of the database `backup/rethinkdb.tar.gz` stay, remove the archive by hand |
+| `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently; `restore` stops the services, puts the settings back and extracts the archive over the volume of the database (it is not emptied first: the files of the archive replace their copies, the files that are not in the archive stay), then removes the containers: `./zebrunner.sh start` runs it again |
 | `version` | the version of MCloud, the tag of the STF image |
 | `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
 | `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
