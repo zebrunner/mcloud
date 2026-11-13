@@ -664,6 +664,13 @@ sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
 
 section "version"
 check "the version is the STF tag" "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+replace "${MCLOUD}/.env" "TAG_STF=" "TAG_STF=9."
+check "the version is the STF tag of .env" "mcloud: 9.$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+replace "${MCLOUD}/.env" "TAG_STF=9." "TAG_STF="
+mv "${MCLOUD}/.env" "${WORK}/env.saved"
+check "the version before the setup is the one of .env.original" \
+  "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+mv "${WORK}/env.saved" "${MCLOUD}/.env"
 
 section "backup and restore"
 reset_calls
