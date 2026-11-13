@@ -58,7 +58,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q socat
-          pipx install ansible-core
+          # the ansible of tests/requirements-lint.txt of mcloud-agent, the one its playbooks are checked with
+          pipx install ansible-core==2.22.0
           ansible-playbook --version
       - name: Build the images of the branches
         run: |
