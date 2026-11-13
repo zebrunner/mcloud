@@ -314,7 +314,14 @@ echo 'declare -x ZBR_HOSTNAME="bad host"' >> "${MCLOUD}/backup/settings.env"
 output="$(zbr "\n" setup)"
 check "the end of the input with an invalid value fails" "1" "$?"
 check_contains "the invalid host is reported" "A host name or an IP address only" "$output"
+# the first setup offers ZBR_HOSTNAME of the environment instead of the address of ifconfig.me (README.md#run)
+rm -f "${MCLOUD}/backup/settings.env"
+zbr_env=(ZBR_HOSTNAME=env.example.com)
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+zbr_env=()
+check "the first setup offers ZBR_HOSTNAME of the environment" "http://env.example.com:80" "$(value .env STF_URL)"
 mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+zbr "$(answers "" "" 8082 "" "")" setup > /dev/null
 
 section "the host of the nodes"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.5" "AGENTS_ADDRESS=10.0.0.6"
