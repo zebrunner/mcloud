@@ -66,7 +66,7 @@ The commands of `./zebrunner.sh`:
 
 ## Configuration
 
-`./zebrunner.sh setup` writes the settings from the `*.original` files, `./zebrunner.sh restart` applies their changes. The next setup writes `.env` again and keeps the values of the variables of `variables.env.original` in `variables.env` (but `STF_URL` and the `ZEBRUNNER_*` URLs, which come from the protocol, host and port); the other variables added to `variables.env` are added again after it.
+`./zebrunner.sh setup` writes the settings from the `*.original` files, `./zebrunner.sh restart` applies their changes. The next setup keeps every value of the previous `.env` and `variables.env`, also the ones changed by hand and the variables added to them (e.g. `COMPOSE_PROJECT_NAME` of `.env`, which names the volume of the database, or `STF_SESSION_TTL_SECONDS` of `variables.env`), but the ones it writes itself: `STF_URL` and `STF_PORT` (the protocol, host and port of its answers), `NODES_HOST`, the sign-in (`AUTH_SYSTEM`, `AUTH_URL`, `OAUTH_CALLBACK_URL`, the `ZEBRUNNER_*` URLs of Zebrunner CE) and the image tags `TAG_*` of `.env.original`, the images of the release (see [Upgrade](#upgrade)). The previous values are the defaults of its questions (the admin of `STF_ADMIN_*` too), the generated secrets are kept. A value with other characters than letters, digits and `_./:@%+,=-` is written in single quotes.
 
 `.env`, the settings of `docker-compose.yml`:
 

@@ -10,21 +10,14 @@ setup() {
   local url
   local is_new=1
   local sign_in="zebrunner"
-  local agents_address=""
-  local log_max_size=""
-  local log_max_file=""
-  local relay_settings=""
-  local setting
+  local previous_env=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
   fi
-  # the addresses of the published ports of the previous setup (README.md#firewall)
+  # the values of the previous .env (e.g. AGENTS_ADDRESS, COMPOSE_PROJECT_NAME), see keep_env
   if [[ -f .env ]]; then
-    agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
-    log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
-    log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
-    relay_settings="$(grep -E '^ADB_RELAY(_PORTS|_SYNC_SECONDS)?=' .env)"
+    previous_env="$(< .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -51,6 +44,7 @@ setup() {
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
     ZBR_MCLOUD_PORT=8082
     echo "Zebrunner MCloud of Zebrunner CE: ${url} (the setup of Zebrunner CE changes it)"
+    previous_admin "$is_new"
     set_admin
     set_sign_in "$url" zebrunner
     sign_in="$ZBR_MCLOUD_SIGN_IN"
@@ -65,6 +59,7 @@ setup() {
       source backup/settings.env
     fi
 
+    previous_admin "$is_new"
     set_mcloud_settings
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
     set_sign_in "$url"
@@ -89,15 +84,7 @@ setup() {
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
-  replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
-  # the settings of the auto mode of adb-relay of the previous setup
-  while read -r setting; do
-    if [[ -n "$setting" ]]; then
-      replace .env "$(grep "^${setting%%=*}=" .env)" "$setting"
-    fi
-  done <<< "$relay_settings"
-  replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
-  replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
+  keep_env "$previous_env"
   set_nodes_host
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
@@ -135,47 +122,24 @@ setup() {
     added="$(awk -F '=' 'NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) known[$1] = 1; next }
       /^[A-Za-z_][A-Za-z0-9_]*=/ && !($1 in known)' variables.env.original variables.env)"
   fi
-  cp variables.env.original variables.env
-  replace variables.env "http://localhost:8082" "${url}"
-  replace variables.env "localhost" "${ZBR_HOSTNAME}"
-
-  replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
-  replace variables.env "SECRET=password" "SECRET=${SECRET}"
-  replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
-  replace variables.env "RETHINKDB_ENV_AUTHKEY=" "RETHINKDB_ENV_AUTHKEY=${RETHINKDB_ENV_AUTHKEY}"
-  replace variables.env "STF_ZMQ_CURVE_SERVER_SECRET_KEY=" "STF_ZMQ_CURVE_SERVER_SECRET_KEY=${STF_ZMQ_CURVE_SERVER_SECRET_KEY}"
-  replace variables.env "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=${STF_ZMQ_CURVE_SERVER_PUBLIC_KEY}"
-  replace variables.env "STF_ZMQ_CURVE_SECRET_KEY=" "STF_ZMQ_CURVE_SECRET_KEY=${STF_ZMQ_CURVE_SECRET_KEY}"
-  # the settings of the sign-in, quoted: the values the user typed are not read as a script by the next setup
+  # the values of the setup, the other variables keep the values of the previous variables.env (write_variables)
+  STF_URL="$url"
+  # read by write_variables through ${!name}
+  # shellcheck disable=SC2034
   if [[ "$sign_in" == "oauth2" ]]; then
-    # shellcheck disable=SC2034 # read by the loop below through ${!name}
     OAUTH_CALLBACK_URL="${url}/auth/oauth/callback"
   fi
-  local name
-  for name in STF_AUTH_MOCK_BASIC_AUTH_USERNAME STF_AUTH_MOCK_BASIC_AUTH_PASSWORD OAUTH_AUTHORIZATION_URL \
-    OAUTH_TOKEN_URL OAUTH_USERINFO_URL OAUTH_CLIENT_ID OAUTH_CLIENT_SECRET OAUTH_CALLBACK_URL OAUTH_SCOPE OAUTH_DOMAIN \
-    LDAP_URL LDAP_BIND_DN LDAP_BIND_CREDENTIALS LDAP_SEARCH_DN LDAP_SEARCH_FIELD; do
-    replace variables.env "${name}=''" "${name}='${!name}'"
-  done
-  if [[ -z "$ZBR_MCLOUD_ADMIN_NAME" && -n "$STF_ADMIN_NAME" ]]; then
-    ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
-  fi
-  if [[ -z "$ZBR_MCLOUD_ADMIN_EMAIL" && -n "$STF_ADMIN_EMAIL" ]]; then
-    ZBR_MCLOUD_ADMIN_EMAIL="$STF_ADMIN_EMAIL"
-  fi
-  # the option of the Playwright sessions of the previous setup, off for any other value than true
-  if [[ "$PLAYWRIGHT_ENABLED" == "true" ]]; then
-    replace variables.env "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED=true"
-  fi
-  replace variables.env "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME=${STF_ROOT_GROUP_NAME}"
-  replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
-  replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
-
+  STF_ADMIN_NAME="${ZBR_MCLOUD_ADMIN_NAME:-$STF_ADMIN_NAME}"
+  STF_ADMIN_EMAIL="${ZBR_MCLOUD_ADMIN_EMAIL:-$STF_ADMIN_EMAIL}"
+  ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
+  ZBR_MCLOUD_ADMIN_EMAIL="$STF_ADMIN_EMAIL"
+  # auth-zebrunner of STF signs in through Zebrunner IAM; read by write_variables through ${!name}
+  # shellcheck disable=SC2034
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
-    # auth-zebrunner of STF signs in through Zebrunner IAM
-    replace variables.env "ZEBRUNNER_LOGIN_URL=" "ZEBRUNNER_LOGIN_URL=${url}/api/iam/v1/auth/login"
-    replace variables.env "ZEBRUNNER_USERINFO_URL=" "ZEBRUNNER_USERINFO_URL=${url}/api/iam/v1/users"
+    ZEBRUNNER_LOGIN_URL="${url}/api/iam/v1/auth/login"
+    ZEBRUNNER_USERINFO_URL="${url}/api/iam/v1/users"
   fi
+  write_variables
   if [[ -n "$added" ]]; then
     printf '%s\n' "$added" >> variables.env
   fi
@@ -944,6 +908,55 @@ abort_setup() {
       The setup is not finished, nothing but your answers is written: fix the problem above and run ./zebrunner.sh setup
       again, your answers are its defaults."
   exit 1
+}
+
+# previous_admin <is_new>: the admin of the previous variables.env is the default of the question of the setup, also
+# when it was changed there by hand
+previous_admin() {
+  if [[ "$1" -eq 0 ]]; then
+    ZBR_MCLOUD_ADMIN_NAME="${STF_ADMIN_NAME:-$ZBR_MCLOUD_ADMIN_NAME}"
+    ZBR_MCLOUD_ADMIN_EMAIL="${STF_ADMIN_EMAIL:-$ZBR_MCLOUD_ADMIN_EMAIL}"
+  fi
+}
+
+# keep_env <previous .env>: the variables of .env (a copy of .env.original) get their values of the previous .env, the
+# ones that are not in .env.original (e.g. COMPOSE_PROJECT_NAME, it names the volume of the database) are added; but
+# the ones of the setup (STF_URL, STF_PORT, NODES_HOST, the sign-in AUTH_*), the images of this MCloud (TAG_*) and the
+# ones of earlier MCloud releases
+keep_env() {
+  local line
+  while IFS= read -r line; do
+    if [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      continue
+    fi
+    case "${line%%=*}" in
+    STF_URL | STF_PORT | NODES_HOST | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
+    *)
+      set_line .env "$line"
+      ;;
+    esac
+  done <<< "$1"
+}
+
+# write_variables: variables.env from variables.env.original, every variable with the value of the shell variable of
+# its name: the value of the previous variables.env (sourced by the setup) or of the setup. In single quotes when it is
+# quoted in variables.env.original (the values the user typed are not read as a script by the next setup) or has other
+# characters than these, which a shell or docker compose reads otherwise; a value with a single quote as it is
+write_variables() {
+  local line name value
+  local content=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      name="${BASH_REMATCH[1]}"
+      value="${!name}"
+      if [[ "${BASH_REMATCH[2]}" == "''" || ! "$value" =~ ^[A-Za-z0-9_./:@%+,=-]*$ ]] && [[ "$value" != *"'"* ]]; then
+        value="'${value}'"
+      fi
+      line="${name}=${value}"
+    fi
+    content+="${line}"$'\n'
+  done < variables.env.original
+  printf '%s' "$content" > variables.env
 }
 
 # compose_project: the project name of docker compose for this folder, COMPOSE_PROJECT_NAME or the name of the folder
