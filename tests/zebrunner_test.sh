@@ -988,6 +988,12 @@ check "shutdown of a disabled copy removes .disabled only" "no:yes" \
   "$([[ -f "${MCLOUD}/.disabled" ]] && echo yes || echo no):$([[ -f "${MCLOUD}/.env" ]] && echo yes)"
 
 section "shutdown"
+# the backup of the settings (of the section backup and restore) and an archive of the database
+for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx.conf; do
+  check "the backup ${file}.bak is there before the shutdown" "yes" "$([[ -f "${MCLOUD}/${file}.bak" ]] && echo yes)"
+done
+echo 'user:x' > "${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak"
+touch "${MCLOUD}/backup/rethinkdb.tar.gz"
 reset_calls
 zbr "n\n" shutdown > /dev/null
 check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$(docker_calls)"
@@ -995,10 +1001,15 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
+for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
+  variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+  configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
+check "shutdown keeps the copies of the certificate of the user" "yes" \
+  "$([[ -f "${SSL}/ssl.crt.bak" && -f "${SSL}/ssl.key.bak" ]] && echo yes)"
+check "shutdown keeps the archive of the database" "yes" "$([[ -f "${MCLOUD}/backup/rethinkdb.tar.gz" ]] && echo yes)"
 check_contains "shutdown without settings" "Unable to erase as nothing is configured!" "$(zbr "" shutdown)"
 
 finish
