@@ -72,15 +72,17 @@ http {
       proxy_connect_timeout   120;
       proxy_send_timeout      1200;
       proxy_read_timeout      1200;
-      proxy_buffers           32 64m;
+      # the answers of the hub (a screenshot, a page source) above 64k are buffered in up to 32 MiB, then in a temporary
+      # file: the memory of a request stays bounded
+      proxy_buffers           32 1m;
       proxy_buffer_size       64k;
       proxy_next_upstream    error timeout http_502 http_503 http_504;
       client_max_body_size    64m;
       client_body_buffer_size 64m;
       add_header Access-Control-Allow-Methods "GET,PUT,OPTIONS,POST,DELETE";
+      # any origin, without credentials: a browser refuses Allow-Credentials with the origin *
       add_header Access-Control-Allow-Origin "*";
       add_header Access-Control-Allow-Headers "Content-Type,Authorization";
-      add_header Access-Control-Allow-Credentials "true";
       add_header Referrer-Policy "no-referrer" always;
       add_header X-Content-Type-Options "nosniff" always;
       add_header X-Frame-Options "SAMEORIGIN" always;

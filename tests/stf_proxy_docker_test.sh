@@ -132,6 +132,15 @@ done
 check "the screen decision of the API is not an internal route (401 of stf-api)" "401" \
   "$(http_code /api/v1/zebrunner/screen-auth)"
 
+section "the hub"
+check "the hub goes to the grid" "grid /wd/hub/status upgrade=[] connection=[] agent=[curl]" "$(body /mcloud/wd/hub/status -A curl)"
+headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status" | tr -d '\r')"
+check_contains "the hub allows any origin" "Access-Control-Allow-Origin: *" "$headers"
+check "the hub does not allow credentials with any origin (invalid CORS)" "" \
+  "$(grep -i '^access-control-allow-credentials:' <<< "$headers")"
+check "the buffers of an answer of the hub are bounded" "proxy_buffers           32 1m;" \
+  "$(docker exec stf-proxy-test nginx -T 2> /dev/null | grep -o 'proxy_buffers .*;')"
+
 section "the record of a node for itself"
 check "the record of a node goes to stf-api" "upstream GET /api/v1/nodes/self" \
   "$(body /api/v1/nodes/self -H "Authorization: Bearer node-token")"
