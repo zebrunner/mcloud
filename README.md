@@ -184,14 +184,14 @@ The ports of the host and who needs them; close the others:
 | --- | --- | --- |
 | `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the diagnostics) |
 | `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the nodes |
-| `4446` (`AGENTS_ADDRESS`) | `mcloud-grid` | the nodes (Appium registers to the grid); the tests use `/mcloud/wd/hub` of `STF_PORT` |
+| `4446` (`AGENTS_ADDRESS`) | `stf-proxy` -> `mcloud-grid` | the nodes: the registration of Appium only (`/grid/register`, `GET /grid/api/proxy`), the other paths answer `403`; the tests use `/mcloud/wd/hub` of `STF_PORT` |
 | `ADB_RELAY_PORTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the nodes in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
 `AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
 ### Basic authentication of the grid
 
-See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md).
+See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md). The port of the nodes (`4446`) serves the registration of the nodes only, so the hub and the console are behind the authentication there too.
 
 ### Files and secrets
 
@@ -295,7 +295,7 @@ All the services but `adb-relay` (the network of the host) are in the external d
 | Service | Image | What it does |
 | --- | --- | --- |
 | `stf-proxy` | `nginx` | the entry point on `STF_PORT`: STF, the grid under `/mcloud`, the static files of the grid console, the screens of the devices |
-| `mcloud-grid` | `public.ecr.aws/zebrunner/mcloud-grid` | the Selenium/Appium hub of the devices, also on the port `4446` of the host (`AGENTS_ADDRESS`) |
+| `mcloud-grid` | `public.ecr.aws/zebrunner/mcloud-grid` | the Selenium/Appium hub of the devices, not published: `/mcloud` of `stf-proxy` for the users, the port `4446` of `stf-proxy` (`AGENTS_ADDRESS`) for the registration of the nodes |
 | `rethinkdb` | `rethinkdb` | the database of STF, the volume `stf-db-volume`, with the password `RETHINKDB_ENV_AUTHKEY` and without its web console, not published on the host |
 | `stf-migrate` | `public.ecr.aws/zebrunner/stf` | creates and updates the tables of the database (the registry of the nodes too), the other STF units start after it |
 | `stf-app`, `stf-auth`, `stf-api`, `stf-websocket` | `public.ecr.aws/zebrunner/stf` | the UI, the sign-in, the REST API (the registry of the nodes too) and the websocket of STF |
