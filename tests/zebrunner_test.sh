@@ -196,6 +196,43 @@ secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
 check "the added variables are added once" "1" "$(grep -c '^STF_CUSTOM_KEY=' "${MCLOUD}/variables.env")"
 
+section "basic authentication of the grid"
+conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
+htpasswd="${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd"
+echo 'user:x' > "$htpasswd"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check "the htpasswd file turns the authentication of the /mcloud locations on" "3 3" \
+  "$(grep -c '^      auth_basic "Private MCloud Selenium Hub";$' "$conf") $(grep -c '^      auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;$' "$conf")"
+check_contains "the Playwright sessions ask the password too" 'auth_basic "Private MCloud Selenium Hub";' \
+  "$(awk '/location ~ \^\/mcloud\/playwright/ { found = 1 } found { print } found && /^    }$/ { exit }' "$conf")"
+check_not_contains "the authentication is not a change by hand" "nginx.conf.previous" "$output"
+check "no previous configuration for the authentication" "no" "$([[ -f "${conf}.previous" ]] && echo yes || echo no)"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the setup again keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+reset_calls
+zbr "" start > /dev/null
+check "start keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+check "start does not reload an unchanged stf-proxy" "" "$(calls docker | grep '^exec|stf-proxy')"
+rm -f "$htpasswd"
+reset_calls
+zbr "" start > /dev/null
+check "start without the htpasswd file turns it off" "0 3" \
+  "$(grep -c '^      auth_basic "Private' "$conf") $(grep -c '^      #auth_basic "Private' "$conf")"
+check "start reloads the changed stf-proxy" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+echo 'user:x' > "$htpasswd"
+reset_calls
+zbr "" start > /dev/null
+check "start with a new htpasswd file turns it on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+check "start reloads stf-proxy for the new htpasswd file" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+rm -f "$htpasswd"
+zbr "" start > /dev/null
+replace "$conf" "frame-ancestors 'self'" "frame-ancestors 'self' https://reporting.example.com"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_contains "a configuration changed by hand is reported" "the previous one is configuration/stf-proxy/nginx.conf.previous" "$output"
+check_contains "a configuration changed by hand is kept aside" "https://reporting.example.com" "$(cat "${conf}.previous")"
+check_not_contains "the new configuration is the original one" "https://reporting.example.com" "$(cat "$conf")"
+rm -f "${conf}.previous"
+
 section "setup without the secrets"
 for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY; do
   sed -i.orig "/^${name}=/d" "${MCLOUD}/variables.env"
@@ -277,7 +314,14 @@ echo 'declare -x ZBR_HOSTNAME="bad host"' >> "${MCLOUD}/backup/settings.env"
 output="$(zbr "\n" setup)"
 check "the end of the input with an invalid value fails" "1" "$?"
 check_contains "the invalid host is reported" "A host name or an IP address only" "$output"
+# the first setup offers ZBR_HOSTNAME of the environment instead of the address of ifconfig.me (README.md#run)
+rm -f "${MCLOUD}/backup/settings.env"
+zbr_env=(ZBR_HOSTNAME=env.example.com)
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+zbr_env=()
+check "the first setup offers ZBR_HOSTNAME of the environment" "http://env.example.com:80" "$(value .env STF_URL)"
 mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+zbr "$(answers "" "" 8082 "" "")" setup > /dev/null
 
 section "the host of the nodes"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.5" "AGENTS_ADDRESS=10.0.0.6"
