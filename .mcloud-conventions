@@ -1,7 +1,7 @@
 # The shared files of zebrunner/mcloud-conventions and their checksums, written by its sync
 # and checked by `make lint`: change the shared files in mcloud-conventions, not here.
-# synced from zebrunner/mcloud-conventions@4449bc788901d300fe38a8bff8327a23f55ea905
-67cdf815d6ab744a4d2570feae810941c79f1daca8e450af7ab2a0ba1999f64e  CONVENTIONS.md
+# synced from zebrunner/mcloud-conventions@e96c6ac7f344e81ac70bcffdd38629b5f1071f03
+0406205a74a58fe70f22b264ab3ad5ba68092acd251d0219600046223d0ec1f4  CONVENTIONS.md
 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  LICENSE
 4f8c453ec14975ba97959c7cf9f0250f2d6c92134e69e8dd6dc5a2d9eacca84a  .shellcheckrc
 254f78623164a54f3b43058cad1fc7c9ec75406d389ba424a26fccac0048cb7b  .pymarkdown
