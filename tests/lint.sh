@@ -74,8 +74,18 @@ for dockerfile in "${dockerfiles[@]}"; do
   run_check "hadolint ${dockerfile}" hadolint "$dockerfile"
 done
 
+# the files of the project but the generated ones
+prune=(-name .git -o -name .venv -o -name .idea)
+for path in "${generated[@]}"; do
+  prune+=(-o -path "./${path}")
+done
+
 section "markdown"
-run_check "pymarkdown" pymarkdown scan ./*.md
+markdown_files=()
+while IFS= read -r file; do
+  markdown_files+=("$file")
+done < <(find . \( "${prune[@]}" \) -prune -o -type f -name '*.md' -print | sort)
+run_check "pymarkdown" pymarkdown scan "${markdown_files[@]}"
 
 section "README"
 if [[ -f Dockerfile ]]; then
@@ -88,6 +98,9 @@ fi
 # the license of CONVENTIONS.md: LICENSE and the README section
 check_contains "LICENSE is the Apache License 2.0" "Apache License" "$(head -3 LICENSE 2> /dev/null)"
 check_contains "README links LICENSE" "[Apache License 2.0](LICENSE)" "$(cat README.md)"
+# the headings of level 2 outside of the code blocks
+check "the last section of README is License" "## License" \
+  "$(awk '/^(```|~~~)/ { code = !code } !code && /^## / { last = $0 } END { print last }' README.md 2> /dev/null)"
 
 project_checks
 
@@ -125,10 +138,6 @@ fi
 
 section "text files"
 # every text file of the project but the generated ones
-prune=(-name .git -o -name .venv -o -name .idea)
-for path in "${generated[@]}"; do
-  prune+=(-o -path "./${path}")
-done
 text_files=()
 while IFS= read -r file; do
   grep -Iq '' "$file" 2> /dev/null && text_files+=("$file")

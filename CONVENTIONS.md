@@ -59,7 +59,7 @@ This file is the same in all of them: a change of a convention is made in every 
 
 The shared files live in [mcloud-conventions](https://github.com/zebrunner/mcloud-conventions) and are changed there only:
 
-- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`;
+- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`; in mcloud and mcloud-agent also `patch/curve_keygen.py`, the CURVE keys of STF;
 - the shared blocks of `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile`: the lines between `# >>> mcloud-conventions` and `# <<< mcloud-conventions`, the other lines are the project part.
 
 A merge into mcloud-conventions syncs them: its workflow opens (or updates) the pull request `mcloud-conventions-sync` into `develop` of every repository it changes, which is reviewed and merged like any other one. The sync also writes `.mcloud-conventions`, the checksums of the shared files and blocks, and `make lint` fails when one of them is changed in the repository.
@@ -260,7 +260,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 - The workflow is `.github/workflows/ci.yml`: `push` and `pull_request` on `develop`, `main`, `master` and `workflow_dispatch`; `concurrency` cancels the outdated runs of a pull request; `permissions: contents: read`.
 - The `lint` job is the reusable workflow of mcloud-conventions: `uses: zebrunner/mcloud-conventions/.github/workflows/lint.yml@v1` (`with: java-version` for the Maven checks).
 - The other jobs are `tests`, `docker` (those that apply, plus the project ones), each with `timeout-minutes` (10 unless the project needs more) and a JUnit report step `mikepenz/action-junit-report` with `annotate_only: true`, `detailed_summary: true`, `require_tests: true`.
-- The `tests` job runs the tests of `make test`; the jobs upload their JUnit XML as artifacts (`junit-docker` of the `docker` job).
+- The `tests` job runs the tests of `make test`; the JUnit report step is enough for it, an artifact only when the job has more to keep (e.g. the XML of every OS of a matrix, the coverage). The `docker` job uploads its JUnit XML as the artifact `junit-docker` (with its other reports when it has them), the `lint` job as `junit-lint`.
 - The repositories of an image have the `publish` job last: the reusable workflow `uses: zebrunner/mcloud-conventions/.github/workflows/docker-publish.yml@v1` with `needs` of all the other jobs, `if: github.event_name == 'push' && github.ref == 'refs/heads/develop'` and `permissions: contents: read, id-token: write`; it pushes the image of every merge into `develop` (see [Versions](#versions)).
 - A job that pulls from public.ecr.aws logs docker in first with `uses: zebrunner/mcloud-conventions/.github/actions/ecr-public-login@v1` and `permissions: contents: read, id-token: write` of the job: the anonymous pulls are limited to 1 per second per IP of the runners.
 - The `actions/*` are referenced by their major version tag, the other actions by the full commit SHA with the version in a comment: `uses: mikepenz/action-junit-report@<sha> # v6.6.0`.
@@ -268,7 +268,7 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=120s --retries=3 \
 
 ## Markdown
 
-- pymarkdown with `.pymarkdown`: the line length is not limited, the allowed HTML is `p`, `a`, `img`, `b`, `br`.
+- pymarkdown with `.pymarkdown` checks every `*.md` of the repository but the `generated` ones: the line length is not limited, the allowed HTML is `p`, `a`, `img`, `b`, `br`.
 - A paragraph or a list item is one line, no hard wraps.
 - `-` for the list items, 2 spaces for a nested list.
 - Tables with `| --- |` delimiters and spaces around the cell content.
