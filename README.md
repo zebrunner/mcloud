@@ -53,7 +53,7 @@ The commands of `./zebrunner.sh`:
 
 | Command | What it does |
 | --- | --- |
-| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept |
+| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept, a `nginx.conf` changed by hand is kept as `nginx.conf.previous` (its changes are made again in the new one) |
 | `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty and while `AGENTS_ADDRESS` is `0.0.0.0`; the first start runs `setup` |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
@@ -129,7 +129,7 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 ### Security headers
 
-`stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`.
+`stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`; `./zebrunner.sh setup` writes it again from `nginx.conf.original` and keeps the changed one as `nginx.conf.previous`.
 
 ### Authentication of the nodes
 
@@ -191,7 +191,7 @@ The ports of the host and who needs them; close the others:
 
 ### Basic authentication of the grid
 
-See [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md).
+The hub, the console and the Playwright sessions of `/mcloud` ask a user and a password while `configuration/stf-proxy/htpasswd/mcloud.htpasswd` exists, see [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md); `setup` and `start` keep it on.
 
 ### Files and secrets
 

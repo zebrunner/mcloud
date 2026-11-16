@@ -180,6 +180,11 @@ setup() {
     printf '%s\n' "$added" >> variables.env
   fi
 
+  # a changed configuration of the previous setup is kept aside: its changes are made again in the new one
+  local previous_conf=""
+  if [[ -f configuration/stf-proxy/nginx.conf ]]; then
+    previous_conf="$(< configuration/stf-proxy/nginx.conf)"
+  fi
   cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
   replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '${ZBR_HOSTNAME}'"
   # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
@@ -188,6 +193,14 @@ setup() {
 
     # uncomment the default ssl settings
     replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
+  fi
+  set_grid_auth > /dev/null
+  # the basic authentication of the grid is not a change by hand: set_grid_auth makes it again
+  local new_conf
+  new_conf="$(< configuration/stf-proxy/nginx.conf)"
+  if [[ -n "$previous_conf" && "${previous_conf//#auth_basic/auth_basic}" != "${new_conf//#auth_basic/auth_basic}" ]]; then
+    printf '%s\n' "$previous_conf" > configuration/stf-proxy/nginx.conf.previous
+    echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one. The basic authentication of the grid follows configuration/stf-proxy/htpasswd/mcloud.htpasswd by itself."
   fi
 
   # the user input for the next setup
@@ -241,7 +254,7 @@ shutdown() {
   rm -f backup/settings.env
   rm -f .env
   rm -f variables.env
-  rm -f configuration/stf-proxy/nginx.conf
+  rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous
   rm -f configuration/adb-relay/stf-token
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
   # the certificate of https is the one of the user (README.md#https), it is kept
@@ -270,6 +283,11 @@ start() {
   fi
   # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
+  # the htpasswd file of the grid may have been created or removed since
+  local reload_proxy=""
+  if set_grid_auth; then
+    reload_proxy=1
+  fi
   check_agents_address
   check_adb_relay_auto
   write_stf_token
@@ -278,6 +296,10 @@ start() {
     docker compose --profile adb-relay up -d || return
   else
     docker compose up -d || return
+  fi
+  # a running stf-proxy reads the changed configuration again (the file is written in place, its bind mount sees it)
+  if [[ -n "$reload_proxy" ]]; then
+    docker exec stf-proxy nginx -s reload > /dev/null 2>&1 || true
   fi
 
   # the next steps of a deployment without Zebrunner CE (README.md#run)
@@ -823,7 +845,7 @@ protect_files() {
     owner="$(stat -c '%u:%g' . 2> /dev/null || stat -f '%u:%g' .)"
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
-    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
+    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf.previous \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
@@ -915,6 +937,27 @@ certificate_mismatch() {
   local dir="configuration/stf-proxy/ssl"
   command -v openssl > /dev/null 2>&1 &&
     [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]
+}
+
+# set_grid_auth: the basic authentication of the /mcloud locations of stf-proxy (the grid) on when
+# configuration/stf-proxy/htpasswd/mcloud.htpasswd exists, off otherwise; 0 when it changed the configuration
+set_grid_auth() {
+  local conf=configuration/stf-proxy/nginx.conf
+  local before
+  if [[ ! -f "$conf" ]]; then
+    return 1
+  fi
+  before="$(< "$conf")"
+  local realm='auth_basic "Private MCloud Selenium Hub";'
+  local file='auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;'
+  if [[ -s configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
+    replace "$conf" "#${realm}" "$realm"
+    replace "$conf" "#${file}" "$file"
+  else
+    replace "$conf" "      ${realm}" "      #${realm}"
+    replace "$conf" "      ${file}" "      #${file}"
+  fi
+  [[ "$before" != "$(< "$conf")" ]]
 }
 
 # check_certificate: the certificate of stf-proxy is there when its nginx configuration has the ssl settings of https
