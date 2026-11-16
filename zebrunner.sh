@@ -123,6 +123,7 @@ setup() {
       /^[A-Za-z_][A-Za-z0-9_]*=/ && !($1 in known)' variables.env.original variables.env)"
   fi
   # the values of the setup, the other variables keep the values of the previous variables.env (write_variables)
+  # shellcheck disable=SC2034 # read by write_variables through ${!name}
   STF_URL="$url"
   # read by write_variables through ${!name}
   # shellcheck disable=SC2034
