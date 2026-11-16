@@ -32,7 +32,8 @@ http {
     listen 80;
     server_name stf-proxy;
 
-    # Uncomment below block to setup SSL on this NGiNX instance. make sure to put ssl.crt and ssl.key to nginx/ssl shared folder
+    # the ssl of https: ./zebrunner.sh setup uncomments these lines and listens with ssl, the certificate is
+    # configuration/stf-proxy/ssl/ssl.crt and its key ssl.key (README.md#https)
 #    ssl_certificate /etc/nginx/ssl/ssl.crt;
 #    ssl_certificate_key /etc/nginx/ssl/ssl.key;
 #    ssl_session_timeout 5m;
@@ -72,15 +73,17 @@ http {
       proxy_connect_timeout   120;
       proxy_send_timeout      1200;
       proxy_read_timeout      1200;
-      proxy_buffers           32 64m;
+      # the answers of the hub (a screenshot, a page source) above 64k are buffered in up to 32 MiB, then in a temporary
+      # file: the memory of a request stays bounded
+      proxy_buffers           32 1m;
       proxy_buffer_size       64k;
       proxy_next_upstream    error timeout http_502 http_503 http_504;
       client_max_body_size    64m;
       client_body_buffer_size 64m;
       add_header Access-Control-Allow-Methods "GET,PUT,OPTIONS,POST,DELETE";
+      # any origin, without credentials: a browser refuses Allow-Credentials with the origin *
       add_header Access-Control-Allow-Origin "*";
       add_header Access-Control-Allow-Headers "Content-Type,Authorization";
-      add_header Access-Control-Allow-Credentials "true";
       add_header Referrer-Policy "no-referrer" always;
       add_header X-Content-Type-Options "nosniff" always;
       add_header X-Frame-Options "SAMEORIGIN" always;
@@ -90,6 +93,9 @@ http {
     # the WebSocket of a Playwright session of the grid: /mcloud/playwright/<session id>, see README.md#playwright; the
     # grid passes it on to the node of the session, the WebSocket lives as long as the test (the grid pings both sides)
     location ~ ^/mcloud/playwright/([^/]+)$ {
+      #auth_basic "Private MCloud Selenium Hub";
+      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/grid/admin/PlaywrightServlet/$1;
       proxy_http_version 1.1;
@@ -252,6 +258,39 @@ http {
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_app stf-app:3000;
       proxy_pass http://$upstream_app;
+    }
+  }
+
+  # the grid of the nodes (AGENTS_ADDRESS:4446, the grid of the join string): the registration of Appium only, the
+  # grid checks the node token of it. The hub and the console are /mcloud of the server above, behind its basic
+  # authentication
+  server {
+    listen 4446;
+    server_name stf-proxy-grid;
+
+    resolver 127.0.0.11 valid=30s;
+    resolver_timeout 10s;
+
+    location = /grid/register {
+      set $upstream_grid mcloud-grid:4444;
+      proxy_pass http://$upstream_grid;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # the check of a registered node: GET /grid/api/proxy?id=<node url>
+    location = /grid/api/proxy {
+      limit_except GET {
+        deny all;
+      }
+      set $upstream_grid mcloud-grid:4444;
+      proxy_pass http://$upstream_grid;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location / {
+      return 403;
     }
   }
 }

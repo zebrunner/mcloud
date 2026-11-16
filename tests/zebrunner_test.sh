@@ -49,6 +49,19 @@ zbr() {
     "${zbr_env[@]}" /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
 }
 
+# zbr_end <stdin text> <zebrunner.sh arguments...>: zbr for an input that ends, then "exit <status>"; at most 20
+# seconds (timeout) and 50 lines: a question asked again forever is cut there
+zbr_end() {
+  local input="$1"
+  shift
+  {
+    printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
+      "$TIMEOUT" 20 /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
+    echo "exit $?"
+  } | head -n 50
+}
+TIMEOUT="$(command -v timeout || command -v gtimeout)"
+
 # mode <file>: the permissions of a file of the copy, as ls shows them (-rw-------)
 mode() {
   # shellcheck disable=SC2012 # one known file, ls is the same on Linux and macOS
@@ -112,6 +125,8 @@ check_contains "the missing certificate of the default https is reported" "https
 # the other checks: http, the answers of the user
 output="$(zbr "$(answers http mcloud.example.com 80 "" "")" setup)"
 check "the setup succeeds" "0" "$?"
+# the change of the protocol kept the configuration of https as nginx.conf.previous, the next checks start without it
+rm -f "${MCLOUD}/configuration/stf-proxy/nginx.conf.previous"
 check "STF_URL of .env" "http://mcloud.example.com:80" "$(value .env STF_URL)"
 check "STF_PORT of .env" "80" "$(value .env STF_PORT)"
 check "the mock sign-in" "auth-mock" "$(value .env AUTH_SYSTEM)"
@@ -162,6 +177,9 @@ check "the triproxies and the storage read the nodes from stf-api" "http://stf-a
   "$(value variables.env STF_NODES_API_URL)"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 check "the Playwright sessions are off by default" "false" "$(value variables.env PLAYWRIGHT_ENABLED)"
+check "the grid gets STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only" "STF_TOKEN=
+PLAYWRIGHT_ENABLED=false" "$(grep -v '^#' "${MCLOUD}/grid.env")"
+check "grid.env is readable for its owner only" "-rw-------" "$(mode grid.env)"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
@@ -169,6 +187,14 @@ replace "${MCLOUD}/variables.env" "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED
 printf '%s\n' "STF_SESSION_TTL_SECONDS=3600" "STF_CUSTOM_KEY=${keys//0/a}" >> "${MCLOUD}/variables.env"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=10.0.0.5"
 replace "${MCLOUD}/.env" "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=200m"
+# the changes by hand of variables.env and .env, also of the variables the setup does not ask
+replace "${MCLOUD}/variables.env" "STF_AUTH_MOCK_USE_BASIC_AUTH=true" "STF_AUTH_MOCK_USE_BASIC_AUTH=false"
+replace "${MCLOUD}/variables.env" "STF_NODES_API_URL=http://stf-api:3000" "STF_NODES_API_URL=http://stf-api-2:3000"
+replace "${MCLOUD}/variables.env" "RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015" "RETHINKDB_PORT_28015_TCP=tcp://db.example.com:28015"
+replace "${MCLOUD}/variables.env" "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=ops"
+replace "${MCLOUD}/variables.env" "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME='Mobile Lab'"
+replace "${MCLOUD}/.env" "TAG_STF=" "TAG_STF=old-"
+printf '%s\n' "COMPOSE_PROJECT_NAME=mcloud-prod" "AGENT_HOSTS=192.0.2.5" >> "${MCLOUD}/.env"
 reset_calls
 output="$(zbr "$(answers "" "" 8082 "" ops@example.com)" setup)"
 check "the setup again calls no docker" "" "$(calls docker)"
@@ -188,7 +214,21 @@ check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_ST
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
 check "the Playwright sessions stay on" "true" "$(value variables.env PLAYWRIGHT_ENABLED)"
 check "the option of the Playwright sessions is in variables.env once" "1" "$(grep -c '^PLAYWRIGHT_ENABLED=' "${MCLOUD}/variables.env")"
+check "the grid gets the kept STF_TOKEN and PLAYWRIGHT_ENABLED" "STF_TOKEN=api-token
+PLAYWRIGHT_ENABLED=true" "$(grep -v '^#' "${MCLOUD}/grid.env")"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
+check "the admin name changed in variables.env is kept" "ops" "$(value variables.env STF_ADMIN_NAME)"
+check_contains "the admin name of variables.env is the default of the question" \
+  "Zebrunner MCloud admin username: ops; email: ops@example.com" "$output"
+check "STF_AUTH_MOCK_USE_BASIC_AUTH is kept" "false" "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH)"
+check "STF_NODES_API_URL is kept" "http://stf-api-2:3000" "$(value variables.env STF_NODES_API_URL)"
+check "RETHINKDB_PORT_28015_TCP is kept" "tcp://db.example.com:28015" "$(value variables.env RETHINKDB_PORT_28015_TCP)"
+check "a value with a space is kept in quotes" "'Mobile Lab'" "$(value variables.env STF_ROOT_GROUP_NAME)"
+check "COMPOSE_PROJECT_NAME of .env is kept" "mcloud-prod" "$(value .env COMPOSE_PROJECT_NAME)"
+check "a variable of an earlier MCloud is not kept in .env" "" "$(value .env AGENT_HOSTS)"
+check "the image tags are the ones of .env.original" "$(grep '^TAG_' "${REPO}/.env.original")" "$(grep '^TAG_' "${MCLOUD}/.env")"
+check "every variable of .env.original is in .env once" "" \
+  "$(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MCLOUD}/.env" | sort | uniq -d)"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 
@@ -201,6 +241,52 @@ zbr "$(answers "" "" "" "" "")" setup > /dev/null
 secret="$(value variables.env SECRET)"
 check "an empty SECRET is generated" "48" "${#secret}"
 check "the added variables are added once" "1" "$(grep -c '^STF_CUSTOM_KEY=' "${MCLOUD}/variables.env")"
+check "the values are kept by every setup" "false 'Mobile Lab' ops mcloud-prod" \
+  "$(value variables.env STF_AUTH_MOCK_USE_BASIC_AUTH) $(value variables.env STF_ROOT_GROUP_NAME) $(value variables.env STF_ADMIN_NAME) $(value .env COMPOSE_PROJECT_NAME)"
+# the defaults again for the next sections
+replace "${MCLOUD}/variables.env" "STF_AUTH_MOCK_USE_BASIC_AUTH=false" "STF_AUTH_MOCK_USE_BASIC_AUTH=true"
+replace "${MCLOUD}/variables.env" "STF_NODES_API_URL=http://stf-api-2:3000" "STF_NODES_API_URL=http://stf-api:3000"
+replace "${MCLOUD}/variables.env" "RETHINKDB_PORT_28015_TCP=tcp://db.example.com:28015" "RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015"
+replace "${MCLOUD}/variables.env" "STF_ADMIN_NAME=ops" "STF_ADMIN_NAME=admin"
+replace "${MCLOUD}/variables.env" "STF_ROOT_GROUP_NAME='Mobile Lab'" "STF_ROOT_GROUP_NAME=MCloud"
+sed -i.orig '/^COMPOSE_PROJECT_NAME=/d' "${MCLOUD}/.env"
+
+section "basic authentication of the grid"
+conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
+htpasswd="${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd"
+echo 'user:x' > "$htpasswd"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check "the htpasswd file turns the authentication of the /mcloud locations on" "3 3" \
+  "$(grep -c '^      auth_basic "Private MCloud Selenium Hub";$' "$conf") $(grep -c '^      auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;$' "$conf")"
+check_contains "the Playwright sessions ask the password too" 'auth_basic "Private MCloud Selenium Hub";' \
+  "$(awk '/location ~ \^\/mcloud\/playwright/ { found = 1 } found { print } found && /^    }$/ { exit }' "$conf")"
+check_not_contains "the authentication is not a change by hand" "nginx.conf.previous" "$output"
+check "no previous configuration for the authentication" "no" "$([[ -f "${conf}.previous" ]] && echo yes || echo no)"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+check "the setup again keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+reset_calls
+zbr "" start > /dev/null
+check "start keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+check "start does not reload an unchanged stf-proxy" "" "$(calls docker | grep '^exec|stf-proxy')"
+rm -f "$htpasswd"
+reset_calls
+zbr "" start > /dev/null
+check "start without the htpasswd file turns it off" "0 3" \
+  "$(grep -c '^      auth_basic "Private' "$conf") $(grep -c '^      #auth_basic "Private' "$conf")"
+check "start reloads the changed stf-proxy" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+echo 'user:x' > "$htpasswd"
+reset_calls
+zbr "" start > /dev/null
+check "start with a new htpasswd file turns it on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+check "start reloads stf-proxy for the new htpasswd file" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+rm -f "$htpasswd"
+zbr "" start > /dev/null
+replace "$conf" "frame-ancestors 'self'" "frame-ancestors 'self' https://reporting.example.com"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_contains "a configuration changed by hand is reported" "the previous one is configuration/stf-proxy/nginx.conf.previous" "$output"
+check_contains "a configuration changed by hand is kept aside" "https://reporting.example.com" "$(cat "${conf}.previous")"
+check_not_contains "the new configuration is the original one" "https://reporting.example.com" "$(cat "$conf")"
+rm -f "${conf}.previous"
 
 section "setup without the secrets"
 for name in RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SERVER_PUBLIC_KEY STF_ZMQ_CURVE_SECRET_KEY; do
@@ -283,7 +369,14 @@ echo 'declare -x ZBR_HOSTNAME="bad host"' >> "${MCLOUD}/backup/settings.env"
 output="$(zbr "\n" setup)"
 check "the end of the input with an invalid value fails" "1" "$?"
 check_contains "the invalid host is reported" "A host name or an IP address only" "$output"
+# the first setup offers ZBR_HOSTNAME of the environment instead of the address of ifconfig.me (README.md#run)
+rm -f "${MCLOUD}/backup/settings.env"
+zbr_env=(ZBR_HOSTNAME=env.example.com)
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+zbr_env=()
+check "the first setup offers ZBR_HOSTNAME of the environment" "https://env.example.com:443" "$(value .env STF_URL)"
 mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+zbr "$(answers "" "" 8082 "" "")" setup > /dev/null
 
 section "the host of the nodes"
 replace "${MCLOUD}/.env" "AGENTS_ADDRESS=10.0.0.5" "AGENTS_ADDRESS=10.0.0.6"
@@ -425,6 +518,33 @@ check "the LDAP URL" "'ldap://ldap.example.com:389'" "$(value variables.env LDAP
 check "the attribute of the user name by default" "'uid'" "$(value variables.env LDAP_SEARCH_FIELD)"
 output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y oracle mock n)" setup)"
 check_contains "an unknown sign-in is asked again" "Please answer mock, oauth2 or ldap." "$output"
+# the end of the input at a question without a valid answer ends the setup, it is not asked again forever
+if [[ -n "$TIMEOUT" ]]; then
+  cp "${MCLOUD}/variables.env" "${WORK}/variables.before"
+  sed -i.orig "s|^OAUTH_AUTHORIZATION_URL=.*|OAUTH_AUTHORIZATION_URL=''|" "${MCLOUD}/variables.env"
+  cp "${MCLOUD}/variables.env" "${WORK}/variables.saved"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y oauth2)" setup)"
+  check_contains "the end of the input without a value fails" "exit 1" "$output"
+  check_contains "the end of the input is explained" \
+    "The input ended at the question 'Authorization URL': A value is needed." "$output"
+  check "the question is not asked again" "1" "$(grep -c 'A value is needed' <<< "$output")"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y ldap ldap://ldap.example.com:389 "cn=admin")" setup)"
+  check_contains "the end of the input without a secret fails" "exit 1" "$output"
+  check_contains "the end of the input at a secret is explained" \
+    "The input ended at the question 'Bind password': A value is needed." "$output"
+  cp "${MCLOUD}/backup/settings.env" "${WORK}/settings.saved"
+  echo 'declare -x ZBR_MCLOUD_SIGN_IN="zebrunner"' >> "${MCLOUD}/backup/settings.env"
+  output="$(zbr_end "$(printf '%s\n' "" "" "" y "" "" y)" setup)"
+  check_contains "the end of the input with an invalid sign-in fails" "exit 1" "$output"
+  check_contains "the end of the input at the sign-in is explained" \
+    "The input ended at the question 'Sign-in of STF': Please answer mock, oauth2 or ldap." "$output"
+  mv "${WORK}/settings.saved" "${MCLOUD}/backup/settings.env"
+  check "the setup that ended wrote no variables.env" "same" \
+    "$(cmp -s "${MCLOUD}/variables.env" "${WORK}/variables.saved" && echo same)"
+  mv "${WORK}/variables.before" "${MCLOUD}/variables.env"
+else
+  skip_check "the end of the input at a question without a valid answer" "requires timeout"
+fi
 check "the mock sign-in again" "auth-mock" "$(value .env AUTH_SYSTEM)"
 
 section "setup of Zebrunner CE"
@@ -552,6 +672,11 @@ if docker compose version > /dev/null 2>&1; then
   check "adb-relay runs with its profile only" "adb-relay" \
     "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) \
       <(docker compose --profile adb-relay config --services | sort))"
+  # the variables of the grid, sorted; none of the secrets of STF
+  check "the grid gets none of the secrets of variables.env" \
+    "CHECK_APPIUM_STATUS GRID_NEW_SESSION_WAIT_TIMEOUT PLAYWRIGHT_ENABLED STF_TOKEN STF_URL" \
+    "$(cd "$MCLOUD" && docker compose config --format json | python3 -c 'import json, sys
+print(" ".join(sorted(json.load(sys.stdin)["services"]["mcloud-grid"]["environment"])))')"
 else
   skip_check "docker compose config of the settings of the setup" "requires docker compose"
 fi
@@ -569,6 +694,7 @@ check_contains "start shows the URLs" "MCloud: https://203.0.113.10:443/stf, the
 check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
 check_not_contains "start with STF_TOKEN does not ask it" "STF_TOKEN of variables.env is empty" "$(zbr "" start)"
+check "start gives the grid the new STF_TOKEN" "STF_TOKEN=token" "$(grep '^STF_TOKEN=' "${MCLOUD}/grid.env")"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=token" "STF_TOKEN="
 zbr_env=(ZBR_INSTALLER=1)
 check_not_contains "Zebrunner CE shows no next steps" "MCloud: " "$(zbr "" start)"
@@ -646,6 +772,7 @@ owner="$(stat -c '%u:%g' "$MCLOUD" 2> /dev/null || stat -f '%u:%g' "$MCLOUD")"
 check_contains "root gives variables.env back to the owner of the folder" "${owner}|variables.env" "$(calls chown)"
 check_contains "root gives stf-token back to the owner of the folder" \
   "${owner}|configuration/adb-relay/stf-token" "$(calls chown)"
+check_contains "root gives grid.env back to the owner of the folder" "${owner}|grid.env" "$(calls chown)"
 
 section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
@@ -670,6 +797,13 @@ sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
 
 section "version"
 check "the version is the STF tag" "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+replace "${MCLOUD}/.env" "TAG_STF=" "TAG_STF=9."
+check "the version is the STF tag of .env" "mcloud: 9.$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+replace "${MCLOUD}/.env" "TAG_STF=9." "TAG_STF="
+mv "${MCLOUD}/.env" "${WORK}/env.saved"
+check "the version before the setup is the one of .env.original" \
+  "mcloud: $(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(zbr "" version)"
+mv "${WORK}/env.saved" "${MCLOUD}/.env"
 
 section "backup and restore"
 reset_calls
@@ -994,6 +1128,12 @@ check "shutdown of a disabled copy removes .disabled only" "no:yes" \
   "$([[ -f "${MCLOUD}/.disabled" ]] && echo yes || echo no):$([[ -f "${MCLOUD}/.env" ]] && echo yes)"
 
 section "shutdown"
+# the backup of the settings (of the section backup and restore) and an archive of the database
+for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx.conf; do
+  check "the backup ${file}.bak is there before the shutdown" "yes" "$([[ -f "${MCLOUD}/${file}.bak" ]] && echo yes)"
+done
+echo 'user:x' > "${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak"
+touch "${MCLOUD}/backup/rethinkdb.tar.gz"
 reset_calls
 zbr "n\n" shutdown > /dev/null
 check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$(docker_calls)"
@@ -1001,10 +1141,18 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
-for file in .env variables.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
+for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
+
+for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+  configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak; do
+  check "shutdown removes the backup ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
+done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
+check "shutdown keeps the copies of the certificate of the user" "yes" \
+  "$([[ -f "${SSL}/ssl.crt.bak" && -f "${SSL}/ssl.key.bak" ]] && echo yes)"
+check "shutdown keeps the archive of the database" "yes" "$([[ -f "${MCLOUD}/backup/rethinkdb.tar.gz" ]] && echo yes)"
 check_contains "shutdown without settings" "Unable to erase as nothing is configured!" "$(zbr "" shutdown)"
 
 finish

@@ -10,21 +10,14 @@ setup() {
   local url
   local is_new=1
   local sign_in="zebrunner"
-  local agents_address=""
-  local log_max_size=""
-  local log_max_file=""
-  local relay_settings=""
-  local setting
+  local previous_env=""
   # the settings of the previous setup (the generated secrets, the tokens) are kept
   if [[ -f variables.env ]]; then
     is_new=0
   fi
-  # the addresses of the published ports of the previous setup (README.md#firewall)
+  # the values of the previous .env (e.g. AGENTS_ADDRESS, COMPOSE_PROJECT_NAME), see keep_env
   if [[ -f .env ]]; then
-    agents_address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
-    log_max_size="$(sed -n 's/^LOG_MAX_SIZE=//p' .env)"
-    log_max_file="$(sed -n 's/^LOG_MAX_FILE=//p' .env)"
-    relay_settings="$(grep -E '^ADB_RELAY(_PORTS|_SYNC_SECONDS)?=' .env)"
+    previous_env="$(< .env)"
   fi
   # the variables of variables.env.original, overridden by the current variables.env, even the manual changes
   # shellcheck source=variables.env.original
@@ -51,6 +44,7 @@ setup() {
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
     ZBR_MCLOUD_PORT=8082
     echo "Zebrunner MCloud of Zebrunner CE: ${url} (the setup of Zebrunner CE changes it)"
+    previous_admin "$is_new"
     set_admin
     set_sign_in "$url" zebrunner
     sign_in="$ZBR_MCLOUD_SIGN_IN"
@@ -65,6 +59,7 @@ setup() {
       source backup/settings.env
     fi
 
+    previous_admin "$is_new"
     set_mcloud_settings
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_MCLOUD_PORT}"
     set_sign_in "$url"
@@ -89,15 +84,7 @@ setup() {
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
-  replace .env "AGENTS_ADDRESS=0.0.0.0" "AGENTS_ADDRESS=${agents_address:-0.0.0.0}"
-  # the settings of the auto mode of adb-relay of the previous setup
-  while read -r setting; do
-    if [[ -n "$setting" ]]; then
-      replace .env "$(grep "^${setting%%=*}=" .env)" "$setting"
-    fi
-  done <<< "$relay_settings"
-  replace .env "LOG_MAX_SIZE=50m" "LOG_MAX_SIZE=${log_max_size:-50m}"
-  replace .env "LOG_MAX_FILE=5" "LOG_MAX_FILE=${log_max_file:-5}"
+  keep_env "$previous_env"
   set_nodes_host
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
@@ -135,53 +122,35 @@ setup() {
     added="$(awk -F '=' 'NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) known[$1] = 1; next }
       /^[A-Za-z_][A-Za-z0-9_]*=/ && !($1 in known)' variables.env.original variables.env)"
   fi
-  cp variables.env.original variables.env
-  replace variables.env "http://localhost:8082" "${url}"
-  replace variables.env "localhost" "${ZBR_HOSTNAME}"
-
-  replace variables.env "STF_TOKEN=" "STF_TOKEN=${STF_TOKEN}"
-  replace variables.env "SECRET=password" "SECRET=${SECRET}"
-  replace variables.env "STF_STORAGE_TOKEN=" "STF_STORAGE_TOKEN=${STF_STORAGE_TOKEN}"
-  replace variables.env "RETHINKDB_ENV_AUTHKEY=" "RETHINKDB_ENV_AUTHKEY=${RETHINKDB_ENV_AUTHKEY}"
-  replace variables.env "STF_ZMQ_CURVE_SERVER_SECRET_KEY=" "STF_ZMQ_CURVE_SERVER_SECRET_KEY=${STF_ZMQ_CURVE_SERVER_SECRET_KEY}"
-  replace variables.env "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY=${STF_ZMQ_CURVE_SERVER_PUBLIC_KEY}"
-  replace variables.env "STF_ZMQ_CURVE_SECRET_KEY=" "STF_ZMQ_CURVE_SECRET_KEY=${STF_ZMQ_CURVE_SECRET_KEY}"
-  # the settings of the sign-in, quoted: the values the user typed are not read as a script by the next setup
+  # the values of the setup, the other variables keep the values of the previous variables.env (write_variables)
+  # shellcheck disable=SC2034 # read by write_variables through ${!name}
+  STF_URL="$url"
+  # read by write_variables through ${!name}
+  # shellcheck disable=SC2034
   if [[ "$sign_in" == "oauth2" ]]; then
-    # shellcheck disable=SC2034 # read by the loop below through ${!name}
     OAUTH_CALLBACK_URL="${url}/auth/oauth/callback"
   fi
-  local name
-  for name in STF_AUTH_MOCK_BASIC_AUTH_USERNAME STF_AUTH_MOCK_BASIC_AUTH_PASSWORD OAUTH_AUTHORIZATION_URL \
-    OAUTH_TOKEN_URL OAUTH_USERINFO_URL OAUTH_CLIENT_ID OAUTH_CLIENT_SECRET OAUTH_CALLBACK_URL OAUTH_SCOPE OAUTH_DOMAIN \
-    LDAP_URL LDAP_BIND_DN LDAP_BIND_CREDENTIALS LDAP_SEARCH_DN LDAP_SEARCH_FIELD; do
-    replace variables.env "${name}=''" "${name}='${!name}'"
-  done
-  if [[ -z "$ZBR_MCLOUD_ADMIN_NAME" && -n "$STF_ADMIN_NAME" ]]; then
-    ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
-  fi
-  if [[ -z "$ZBR_MCLOUD_ADMIN_EMAIL" && -n "$STF_ADMIN_EMAIL" ]]; then
-    ZBR_MCLOUD_ADMIN_EMAIL="$STF_ADMIN_EMAIL"
-  fi
-  # the option of the Playwright sessions of the previous setup, off for any other value than true
-  if [[ "$PLAYWRIGHT_ENABLED" == "true" ]]; then
-    replace variables.env "PLAYWRIGHT_ENABLED=false" "PLAYWRIGHT_ENABLED=true"
-  fi
-  replace variables.env "STF_ROOT_GROUP_NAME=MCloud" "STF_ROOT_GROUP_NAME=${STF_ROOT_GROUP_NAME}"
-  replace variables.env "STF_ADMIN_NAME=admin" "STF_ADMIN_NAME=${ZBR_MCLOUD_ADMIN_NAME}"
-  replace variables.env "STF_ADMIN_EMAIL=admin@zebrunner.com" "STF_ADMIN_EMAIL=${ZBR_MCLOUD_ADMIN_EMAIL}"
-
+  STF_ADMIN_NAME="${ZBR_MCLOUD_ADMIN_NAME:-$STF_ADMIN_NAME}"
+  STF_ADMIN_EMAIL="${ZBR_MCLOUD_ADMIN_EMAIL:-$STF_ADMIN_EMAIL}"
+  ZBR_MCLOUD_ADMIN_NAME="$STF_ADMIN_NAME"
+  ZBR_MCLOUD_ADMIN_EMAIL="$STF_ADMIN_EMAIL"
+  # auth-zebrunner of STF signs in through Zebrunner IAM; read by write_variables through ${!name}
+  # shellcheck disable=SC2034
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
-    # auth-zebrunner of STF signs in through Zebrunner IAM
-    replace variables.env "ZEBRUNNER_LOGIN_URL=" "ZEBRUNNER_LOGIN_URL=${url}/api/iam/v1/auth/login"
-    replace variables.env "ZEBRUNNER_USERINFO_URL=" "ZEBRUNNER_USERINFO_URL=${url}/api/iam/v1/users"
+    ZEBRUNNER_LOGIN_URL="${url}/api/iam/v1/auth/login"
+    ZEBRUNNER_USERINFO_URL="${url}/api/iam/v1/users"
   fi
+  write_variables
   if [[ -n "$added" ]]; then
     printf '%s\n' "$added" >> variables.env
   fi
 
+  # a changed configuration of the previous setup is kept aside: its changes are made again in the new one
+  local previous_conf=""
+  if [[ -f configuration/stf-proxy/nginx.conf ]]; then
+    previous_conf="$(< configuration/stf-proxy/nginx.conf)"
+  fi
   cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
-  replace configuration/stf-proxy/nginx.conf "server_name localhost" "server_name '${ZBR_HOSTNAME}'"
   # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
   if [[ "$ZBR_PROTOCOL" == "https" ]]; then
     replace configuration/stf-proxy/nginx.conf "listen 80" "listen 80 ssl"
@@ -189,10 +158,19 @@ setup() {
     # uncomment the default ssl settings
     replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
   fi
+  set_grid_auth > /dev/null
+  # the basic authentication of the grid is not a change by hand: set_grid_auth makes it again
+  local new_conf
+  new_conf="$(< configuration/stf-proxy/nginx.conf)"
+  if [[ -n "$previous_conf" && "${previous_conf//#auth_basic/auth_basic}" != "${new_conf//#auth_basic/auth_basic}" ]]; then
+    printf '%s\n' "$previous_conf" > configuration/stf-proxy/nginx.conf.previous
+    echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one. The basic authentication of the grid follows configuration/stf-proxy/htpasswd/mcloud.htpasswd by itself."
+  fi
 
   # the user input for the next setup
   export_settings
   write_stf_token
+  write_grid_env
   protect_files
 
   echo "
@@ -241,10 +219,15 @@ shutdown() {
   rm -f backup/settings.env
   rm -f .env
   rm -f variables.env
-  rm -f configuration/stf-proxy/nginx.conf
+  rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous
   rm -f configuration/adb-relay/stf-token
+  rm -f grid.env
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
-  # the certificate of https is the one of the user (README.md#https), it is kept
+  # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
+  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+    configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
+  # the certificate of https is the one of the user (README.md#https), it is kept with its copies; the archive of the
+  # database (backup/rethinkdb.tar.gz) too, the user removes it
 }
 
 # start: starts the services, the first start runs the setup instead
@@ -262,6 +245,10 @@ start() {
     exit 1
   fi
 
+  # STF_TOKEN of variables.env may have changed since the setup; before protect_files, which gives it to the owner
+  if ! write_grid_env; then
+    return 1
+  fi
   protect_files
   # nginx of stf-proxy does not start without the certificate of https; the containers of another folder are not
   # replaced
@@ -270,6 +257,11 @@ start() {
   fi
   # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
+  # the htpasswd file of the grid may have been created or removed since
+  local reload_proxy=""
+  if set_grid_auth; then
+    reload_proxy=1
+  fi
   check_agents_address
   check_adb_relay_auto
   write_stf_token
@@ -278,6 +270,10 @@ start() {
     docker compose --profile adb-relay up -d || return
   else
     docker compose up -d || return
+  fi
+  # a running stf-proxy reads the changed configuration again (the file is written in place, its bind mount sees it)
+  if [[ -n "$reload_proxy" ]]; then
+    docker exec stf-proxy nginx -s reload > /dev/null 2>&1 || true
   fi
 
   # the next steps of a deployment without Zebrunner CE (README.md#run)
@@ -409,9 +405,10 @@ version() {
     exit 0
   fi
 
-  # shellcheck source=.env.original
-  source .env
-  echo "mcloud: ${TAG_STF}"
+  # .env is read, not sourced; before the setup the version of this folder
+  local tag
+  tag="$(sed -n 's/^TAG_STF=//p' .env 2> /dev/null | tail -1)"
+  echo "mcloud: ${tag:-$(sed -n 's/^TAG_STF=//p' .env.original)}"
 }
 
 #### Nodes
@@ -823,9 +820,9 @@ protect_files() {
     owner="$(stat -c '%u:%g' . 2> /dev/null || stat -f '%u:%g' .)"
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
-    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak \
+    configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf.previous \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
-    configuration/stf-proxy/ssl/ssl.crt.bak \
+    configuration/stf-proxy/ssl/ssl.crt.bak grid.env \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
@@ -834,7 +831,7 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
+    variables.env* | grid.env | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac
@@ -917,6 +914,27 @@ certificate_mismatch() {
     [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]
 }
 
+# set_grid_auth: the basic authentication of the /mcloud locations of stf-proxy (the grid) on when
+# configuration/stf-proxy/htpasswd/mcloud.htpasswd exists, off otherwise; 0 when it changed the configuration
+set_grid_auth() {
+  local conf=configuration/stf-proxy/nginx.conf
+  local before
+  if [[ ! -f "$conf" ]]; then
+    return 1
+  fi
+  before="$(< "$conf")"
+  local realm='auth_basic "Private MCloud Selenium Hub";'
+  local file='auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;'
+  if [[ -s configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
+    replace "$conf" "#${realm}" "$realm"
+    replace "$conf" "#${file}" "$file"
+  else
+    replace "$conf" "      ${realm}" "      #${realm}"
+    replace "$conf" "      ${file}" "      #${file}"
+  fi
+  [[ "$before" != "$(< "$conf")" ]]
+}
+
 # check_certificate: the certificate of stf-proxy is there when its nginx configuration has the ssl settings of https
 # (README.md#https), nginx does not start without it or with a key of another certificate; warns and fails otherwise
 check_certificate() {
@@ -944,6 +962,55 @@ abort_setup() {
       The setup is not finished, nothing but your answers is written: fix the problem above and run ./zebrunner.sh setup
       again, your answers are its defaults."
   exit 1
+}
+
+# previous_admin <is_new>: the admin of the previous variables.env is the default of the question of the setup, also
+# when it was changed there by hand
+previous_admin() {
+  if [[ "$1" -eq 0 ]]; then
+    ZBR_MCLOUD_ADMIN_NAME="${STF_ADMIN_NAME:-$ZBR_MCLOUD_ADMIN_NAME}"
+    ZBR_MCLOUD_ADMIN_EMAIL="${STF_ADMIN_EMAIL:-$ZBR_MCLOUD_ADMIN_EMAIL}"
+  fi
+}
+
+# keep_env <previous .env>: the variables of .env (a copy of .env.original) get their values of the previous .env, the
+# ones that are not in .env.original (e.g. COMPOSE_PROJECT_NAME, it names the volume of the database) are added; but
+# the ones of the setup (STF_URL, STF_PORT, NODES_HOST, the sign-in AUTH_*), the images of this MCloud (TAG_*) and the
+# ones of earlier MCloud releases
+keep_env() {
+  local line
+  while IFS= read -r line; do
+    if [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      continue
+    fi
+    case "${line%%=*}" in
+    STF_URL | STF_PORT | NODES_HOST | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
+    *)
+      set_line .env "$line"
+      ;;
+    esac
+  done <<< "$1"
+}
+
+# write_variables: variables.env from variables.env.original, every variable with the value of the shell variable of
+# its name: the value of the previous variables.env (sourced by the setup) or of the setup. In single quotes when it is
+# quoted in variables.env.original (the values the user typed are not read as a script by the next setup) or has other
+# characters than these, which a shell or docker compose reads otherwise; a value with a single quote as it is
+write_variables() {
+  local line name value
+  local content=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      name="${BASH_REMATCH[1]}"
+      value="${!name}"
+      if [[ "${BASH_REMATCH[2]}" == "''" || ! "$value" =~ ^[A-Za-z0-9_./:@%+,=-]*$ ]] && [[ "$value" != *"'"* ]]; then
+        value="'${value}'"
+      fi
+      line="${name}=${value}"
+    fi
+    content+="${line}"$'\n'
+  done < variables.env.original
+  printf '%s' "$content" > variables.env
 }
 
 # compose_project: the project name of docker compose for this folder, COMPOSE_PROJECT_NAME or the name of the folder
@@ -986,44 +1053,69 @@ check_other_deployment() {
 }
 
 # ask <variable> <question> [optional]: reads a value of the interactive setup, the current one by default; a value
-# with a quote or a backslash is asked again (variables.env keeps it in quotes), an empty one too unless optional
+# with a quote or a backslash is asked again (variables.env keeps it in quotes), an empty one too unless optional; the
+# end of the input with such a value ends the setup
 ask() {
   local name="$1"
   local question="$2"
   local optional="$3"
   local answer
+  local ended
+  local problem
   while true; do
-    read -r -p "${question} [${!name}]: " answer
+    ended=0
+    read -r -p "${question} [${!name}]: " answer || ended=1
     answer="${answer:-${!name}}"
-    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
-      echo "Quotes and backslashes are not supported."
-    elif [[ -n "$answer" || -n "$optional" ]]; then
+    problem="$(answer_problem "$answer" "$optional")"
+    if [[ -z "$problem" ]]; then
       break
-    else
-      echo "A value is needed."
     fi
+    end_of_input "$ended" "$question" "$problem"
+    echo "$problem"
   done
   printf -v "$name" '%s' "$answer"
 }
 
-# ask_secret <variable> <question>: ask without echo, the current value is kept on an empty answer
+# ask_secret <variable> <question>: ask without echo, the current value is kept on an empty answer; the end of the
+# input without a value ends the setup
 ask_secret() {
   local name="$1"
   local question="$2"
   local answer
+  local ended
+  local problem
   while true; do
-    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer
+    ended=0
+    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer || ended=1
     echo
     answer="${answer:-${!name}}"
-    if [[ "$answer" == *"'"* || "$answer" == *"\\"* ]]; then
-      echo "Quotes and backslashes are not supported."
-    elif [[ -n "$answer" ]]; then
+    problem="$(answer_problem "$answer")"
+    if [[ -z "$problem" ]]; then
       break
-    else
-      echo "A value is needed."
     fi
+    end_of_input "$ended" "$question" "$problem"
+    echo "$problem"
   done
   printf -v "$name" '%s' "$answer"
+}
+
+# answer_problem <answer> [optional]: the reason ask and ask_secret refuse an answer, empty for a valid one
+answer_problem() {
+  if [[ "$1" == *"'"* || "$1" == *"\\"* ]]; then
+    echo "Quotes and backslashes are not supported."
+  elif [[ -z "$1" && -z "$2" ]]; then
+    echo "A value is needed."
+  fi
+}
+
+# end_of_input <ended 0|1> <question> <problem>: ends the setup with exit 1 when the input ended (read failed) with an
+# answer that is not taken, a question would be asked again forever
+end_of_input() {
+  if [[ "$1" -eq 1 ]]; then
+    echo
+    echo_warning "The input ended at the question '${2}': ${3} Run ./zebrunner.sh setup again with an answer."
+    exit 1
+  fi
 }
 
 # valid_host <host>: succeeds for a host name or an IPv4 address
@@ -1099,6 +1191,20 @@ write_stf_token() {
   chmod 600 "$file"
 }
 
+# write_grid_env: grid.env, the env file of mcloud-grid (docker-compose.yml): the lines of STF_TOKEN and
+# PLAYWRIGHT_ENABLED of variables.env, the only variables of it the grid reads, so the grid gets none of the other
+# secrets; readable for its owner only. Fails when it cannot be written: the grid would start with an old token
+write_grid_env() {
+  if ! (umask 077 && {
+    echo "# written by ./zebrunner.sh setup and start from variables.env: change variables.env, then ./zebrunner.sh restart"
+    grep -E '^(STF_TOKEN|PLAYWRIGHT_ENABLED)=' variables.env || true
+  } 2> /dev/null > grid.env); then
+    echo_warning "grid.env is not writable for $(id -un): remove it (rm -f grid.env) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    return 1
+  fi
+  chmod 600 grid.env
+}
+
 # valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535
 valid_port_range() {
   local first
@@ -1122,14 +1228,17 @@ set_sign_in() {
     question="zebrunner (Zebrunner IAM of Zebrunner CE), ${question}"
   fi
   ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-${2:-mock}}"
+  local ended
   while true; do
-    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer
+    ended=0
+    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer || ended=1
     answer="${answer:-$ZBR_MCLOUD_SIGN_IN}"
     if [[ "$answer" =~ ^(${choices})$ ]]; then
       ZBR_MCLOUD_SIGN_IN="$answer"
       break
     fi
     answer="${choices%|*}"
+    end_of_input "$ended" "Sign-in of STF" "Please answer ${answer//|/, } or ${choices##*|}."
     echo "Please answer ${answer//|/, } or ${choices##*|}."
   done
   export ZBR_MCLOUD_SIGN_IN

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests of patch/utility.sh: confirm, random_string, replace, export_settings and the messages.
+# Tests of patch/utility.sh: confirm, random_string, replace, set_line, export_settings and the messages.
 source "$(dirname "$0")/lib.sh"
 cd "$REPO" || exit 1
 # shellcheck source=../patch/utility.sh
@@ -41,6 +41,19 @@ check "the final newline is kept" "" "$(tail -c 1 "${WORK}/file")"
 printf 'SECRET=password\n' > "${WORK}/file"
 replace "${WORK}/file" "SECRET=password" 'SECRET=a&b\c'
 check "the new text is taken as it is" 'SECRET=a&b\c' "$(cat "${WORK}/file")"
+
+section "set_line"
+printf 'A=1\nAB=2\n# A=3\n' > "${WORK}/file"
+set_line "${WORK}/file" "A=x&y"
+check "the line of the variable is replaced, not the ones of other names" "A=x&y
+AB=2
+# A=3" "$(cat "${WORK}/file")"
+set_line "${WORK}/file" "C=new value"
+check "a missing variable is added at the end" "C=new value" "$(tail -1 "${WORK}/file")"
+printf 'A=1' > "${WORK}/file"
+set_line "${WORK}/file" "A=2"
+check "a last line without a newline" "A=2" "$(cat "${WORK}/file")"
+check "the final newline is written" "" "$(tail -c 1 "${WORK}/file")"
 
 section "export_settings"
 mkdir -p "${WORK}/settings/backup"

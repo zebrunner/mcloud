@@ -196,6 +196,12 @@ headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status"
 for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN"; do
   check_contains "the hub: ${header}" "$header" "$headers"
 done
+grid_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mcloud-grid)"
+check_contains "the grid gets STF_TOKEN of variables.env" "STF_TOKEN=" "$grid_env"
+for name in SECRET STF_STORAGE_TOKEN RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_SECRET_KEY STF_ZMQ_CURVE_SECRET_KEY \
+  STF_AUTH_MOCK_BASIC_AUTH_PASSWORD; do
+  check "the grid does not get ${name}" "" "$(grep "^${name}=" <<< "$grid_env")"
+done
 check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
 check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
 # an Appium node without a node token registers at the port of the nodes (4446): the grid refuses it (500)
@@ -204,6 +210,12 @@ node='{"capabilities": [{"maxInstances": 1, "platformName": "ANDROID", "udid": "
   "host": "192.0.2.1", "port": 4723, "id": "http://192.0.2.1:4723", "maxSession": 1, "register": true}}'
 check "the grid refuses a node without a node token" "500" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST --data-binary "$node" http://127.0.0.1:4446/grid/register)"
+check "the hub is not open on the port of the nodes" "403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:4446/wd/hub/status)"
+check "the console is not open on the port of the nodes" "403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:4446/grid/admin/DevicesServlet)"
+check "the check of a node is open on the port of the nodes" "200" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 'http://127.0.0.1:4446/grid/api/proxy?id=http://192.0.2.1:4723')"
 curl -s -o /dev/null --max-time 10 "${URL}/mcloud/lifecycle-manager?action=shutdown"
 sleep 2
 check "/lifecycle-manager does not shut the grid down" "200" "$(http_code /mcloud/wd/hub/status)"

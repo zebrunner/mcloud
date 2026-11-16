@@ -94,7 +94,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
 docker network create stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
   --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
-run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 \
+run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 -p 127.0.0.1:18446:4446 \
   -v "${MCLOUD}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy answers" wait_for 30 curl -sf --max-time 2 "${URL}/api/v1/user"
 
@@ -124,6 +124,24 @@ check "the other paths of the grid stay with the grid" "grid /grid/admin/Devices
 check "a nested path is not a Playwright session" "grid /playwright/a/b upgrade=[] connection=[] agent=[curl]" \
   "$(body /mcloud/playwright/a/b -A curl)"
 
+section "the grid of the nodes"
+# grid_code <method> <path>: the status of a request to the port of the nodes (4446)
+grid_code() {
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --path-as-is -X "$1" "http://127.0.0.1:18446$2"
+}
+check "the registration of a node goes to the grid" "grid /grid/register upgrade=[] connection=[] agent=[curl]" \
+  "$(curl -s --max-time 10 -A curl -X POST --data '{}' http://127.0.0.1:18446/grid/register)"
+check "the check of a registered node goes to the grid" \
+  "grid /grid/api/proxy?id=http://192.0.2.1:4723 upgrade=[] connection=[] agent=[curl]" \
+  "$(curl -s --max-time 10 -A curl 'http://127.0.0.1:18446/grid/api/proxy?id=http://192.0.2.1:4723')"
+for request in "POST /grid/api/proxy" "GET /wd/hub/status" "POST /wd/hub/session" "GET /grid/console" \
+  "GET /grid/admin/DevicesServlet" "GET /grid/admin/PlaywrightServlet/x" "GET /grid/registerx" "GET /lifecycle-manager" \
+  "GET /grid/register/../admin/DevicesServlet" "GET /"; do
+  # the method and the path of the request
+  # shellcheck disable=SC2086
+  check "${request} of the port of the nodes is refused" "403" "$(grid_code ${request})"
+done
+
 section "internal routes of the registry"
 for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Zebrunner/Nodes/keys/ \
   //api//v1/zebrunner/nodes/keys /api/v1/zebrunner/%6Eodes/keys /api/v1/zebrunner/nodes; do
@@ -131,6 +149,15 @@ for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Z
 done
 check "the screen decision of the API is not an internal route (401 of stf-api)" "401" \
   "$(http_code /api/v1/zebrunner/screen-auth)"
+
+section "the hub"
+check "the hub goes to the grid" "grid /wd/hub/status upgrade=[] connection=[] agent=[curl]" "$(body /mcloud/wd/hub/status -A curl)"
+headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status" | tr -d '\r')"
+check_contains "the hub allows any origin" "Access-Control-Allow-Origin: *" "$headers"
+check "the hub does not allow credentials with any origin (invalid CORS)" "" \
+  "$(grep -i '^access-control-allow-credentials:' <<< "$headers")"
+check "the buffers of an answer of the hub are bounded" "proxy_buffers           32 1m;" \
+  "$(docker exec stf-proxy-test nginx -T 2> /dev/null | grep -o 'proxy_buffers .*;')"
 
 section "the record of a node for itself"
 check "the record of a node goes to stf-api" "upstream GET /api/v1/nodes/self" \

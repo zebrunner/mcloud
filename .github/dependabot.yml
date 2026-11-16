@@ -8,3 +8,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # ruff, the project linter of tests/requirements-lint.txt; the shared linters are updated in mcloud-conventions
+  - package-ecosystem: pip
+    directory: /tests
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: actionlint-py
+      - dependency-name: hadolint-py
+      - dependency-name: pymarkdownlnt
+      - dependency-name: shellcheck-py
+      - dependency-name: shfmt-py
+      - dependency-name: yamllint
+  # @playwright/test of the example of the Playwright tests (package-lock.json)
+  - package-ecosystem: npm
+    directory: /examples/playwright
+    schedule:
+      interval: weekly

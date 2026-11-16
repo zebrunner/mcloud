@@ -1,7 +1,8 @@
 ---
 # The services of MCloud: STF, the grid and the nginx in front of them (README.md).
 # The image tags and the ports come from .env, the settings of the services from variables.env:
-# ./zebrunner.sh setup writes both from their *.original files.
+# ./zebrunner.sh setup writes both from their *.original files, the variables of the grid from variables.env into
+# grid.env (setup and start).
 networks:
   default:
     name: infra
@@ -58,6 +59,8 @@ services:
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
+      # the grid of the nodes, the grid of the join string of ./zebrunner.sh node-invite: the registration of Appium only
+      - "${AGENTS_ADDRESS}:4446:4446"
     depends_on:
       stf-app:
         condition: service_healthy
@@ -103,8 +106,11 @@ services:
   mcloud-grid:
     image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
+    # STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only, written by ./zebrunner.sh setup and start: the grid gets
+    # none of the secrets of STF; optional, so stop and down of a deployment of an earlier MCloud work without it
     env_file:
-      - variables.env
+      - path: grid.env
+        required: false
     environment:
       - STF_URL=http://stf-api:3000
       # 10 min session wait timeout as 20 min is configured on NGiNX
@@ -112,9 +118,7 @@ services:
       - CHECK_APPIUM_STATUS=true
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
-    # the nodes register on AGENTS_ADDRESS:4446, the grid of the join string of ./zebrunner.sh node-invite
-    ports:
-      - "${AGENTS_ADDRESS}:4446:4444"
+    # not published: the users reach it through /mcloud of stf-proxy, the nodes register through its port 4446
     # the healthcheck is the one of the image (/wd/hub/status)
     logging: *logging
     restart: always
