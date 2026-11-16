@@ -224,7 +224,11 @@ shutdown() {
   rm -f configuration/adb-relay/stf-token
   rm -f grid.env
   rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
-  # the certificate of https is the one of the user (README.md#https), it is kept
+  # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
+  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+    configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
+  # the certificate of https is the one of the user (README.md#https), it is kept with its copies; the archive of the
+  # database (backup/rethinkdb.tar.gz) too, the user removes it
 }
 
 # start: starts the services, the first start runs the setup instead
