@@ -89,7 +89,7 @@ curve_keys() {
   secret="$(value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY)"
   units="$(value variables.env STF_ZMQ_CURVE_SECRET_KEY)"
   if [[ "$secret" =~ ^[0-9a-f]{64}$ && "$units" =~ ^[0-9a-f]{64}$ && "$units" != "$secret" &&
-    "public=${public}" == "$(python3 "${REPO}/patch/curve_keygen.py" "$secret" | head -1)" ]]; then
+    "public=${public}" == "$(printf '%s\n' "$secret" | python3 "${REPO}/patch/curve_keygen.py" - | head -1)" ]]; then
     echo ok
   fi
 }
@@ -629,7 +629,7 @@ check "the setup of Zebrunner CE keeps its port" "8082" "$(value .env STF_PORT)"
 section "the CURVE keys without openssl"
 check "patch/curve_keygen.py: the X25519 test vector of RFC 7748" \
   "public=8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a" \
-  "$(python3 "${REPO}/patch/curve_keygen.py" 77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a | head -1)"
+  "$(echo 77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a | python3 "${REPO}/patch/curve_keygen.py" - | head -1)"
 rm -f "${MCLOUD}/variables.env" "${MCLOUD}/backup/settings.env"
 # openssl without X25519 (the LibreSSL of macOS): patch/curve_keygen.py makes them
 stub openssl 'exit 1'
