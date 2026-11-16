@@ -20,12 +20,50 @@ jobs:
   lint:
     uses: zebrunner/mcloud-conventions/.github/workflows/lint.yml@v1
 
+  # the OS of the tests: zebrunner.sh runs on Linux and macOS servers; a macOS runner waits ~10 minutes for a 1 minute
+  # job, so a pull request runs on macOS only when it changes a file of `make test` (the scripts, their settings and
+  # tests, this workflow); the pushes and the manual runs always do
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      os: ${{ steps.os.outputs.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: The OS of the tests
+        id: os
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          macos=true
+          if [[ "$EVENT" == pull_request ]]; then
+            # the checkout is the merge commit of the pull request, its first parent the base branch
+            files="$(git diff --name-only HEAD^1 HEAD)"
+            # the files of `make test`: zebrunner.sh, what it sources and reads, the scripts of configuration and patch,
+            # the tests and the Makefile
+            paths=(
+              'zebrunner\.sh' 'Makefile' '\.env\.original' 'variables\.env\.original' 'docker-compose\.yml' 'backup/'
+              'configuration/' 'patch/' 'tests/[^/]+\.sh' 'tests/fixtures/' '\.github/workflows/ci\.yml'
+            )
+            if ! grep -qE "^($(IFS='|' && echo "${paths[*]}"))" <<< "$files"; then
+              macos=false
+              echo "::notice::no file of make test changed: the tests run on Linux only"
+            fi
+          fi
+          if [[ "$macos" == true ]]; then
+            echo 'os=["ubuntu-latest", "macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   tests:
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
-        # zebrunner.sh runs on Linux and macOS servers
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
