@@ -29,7 +29,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 The server:
 
-1. Clone [mcloud](https://github.com/zebrunner/mcloud), put the certificate of the host into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` ([https](#https)) and set it up with the protocol `https`, the host name and the port:
+1. Clone [mcloud](https://github.com/zebrunner/mcloud), put the certificate of the host into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` ([https](#https)) and set it up with the protocol `https`, the host name and the port (the setup offers `https` and `443` by default):
 
    ```bash
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup

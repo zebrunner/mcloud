@@ -105,6 +105,12 @@ check "an unknown command fails" "1" "$?"
 
 section "setup"
 output="$(zbr "$(answers "" mcloud.example.com "" "" "")" setup)"
+check "the setup with the defaults succeeds" "0" "$?"
+check "https is the default protocol, 443 the default port" "https://mcloud.example.com:443" "$(value .env STF_URL)"
+check "STF_PORT 443 by default" "443" "$(value .env STF_PORT)"
+check_contains "the missing certificate of the default https is reported" "https needs the certificate of mcloud.example.com" "$output"
+# the other checks: http, the answers of the user
+output="$(zbr "$(answers http mcloud.example.com 80 "" "")" setup)"
 check "the setup succeeds" "0" "$?"
 check "STF_URL of .env" "http://mcloud.example.com:80" "$(value .env STF_URL)"
 check "STF_PORT of .env" "80" "$(value .env STF_PORT)"
@@ -559,7 +565,7 @@ reset_calls
 output="$(zbr "" start)"
 check "start starts the services in the infra network" "network|inspect|infra
 compose|up|-d" "$(docker_calls)"
-check_contains "start shows the URLs" "MCloud: http://203.0.113.10:80/stf, the Selenium/Appium hub: http://203.0.113.10:80/mcloud/wd/hub" "$output"
+check_contains "start shows the URLs" "MCloud: https://203.0.113.10:443/stf, the Selenium/Appium hub: https://203.0.113.10:443/mcloud/wd/hub" "$output"
 check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
 check_not_contains "start with STF_TOKEN does not ask it" "STF_TOKEN of variables.env is empty" "$(zbr "" start)"
