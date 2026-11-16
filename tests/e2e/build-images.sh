@@ -1,9 +1,11 @@
 #!/bin/bash
-# tests/e2e/build-images.sh <dir>: the images of the farm with an Android device built from the branches of their
-# repositories cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (versions.yml) use them.
+# tests/e2e/build-images.sh <dir>: the images of the farm with an Android device of the branches of their repositories
+# cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (versions.yml) use them.
 # E2E_REF is the branch of every repository (develop), <REPOSITORY>_REF the one of a repository (e.g. STF_REF=fix/x,
 # MCLOUD_AGENT_REF=feat/y), also as the words of E2E_REFS ("STF_REF=fix/x MCLOUD_AGENT_REF=feat/y"); mcloud is this
-# checkout. The uploader is pulled: artifacts-uploader is private.
+# checkout. A repository on develop gives the image its CI published for the commit (<VERSION>-develop-<sha>) or, while
+# the CI of the commit still runs, the one of the commit before (<VERSION>-develop-latest); the other branches are
+# built. The uploader is pulled: artifacts-uploader is private.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -50,6 +52,35 @@ build() {
   }
 }
 
+# image <repository> <tag>: the image of the repository tagged <tag>, the published one of develop when it is on
+# develop, built otherwise; BUILT is true when it was built
+image() {
+  local published
+  local sha
+  local version
+  BUILT=true
+  if [[ "$(ref "$1")" == develop ]]; then
+    sha="$(git -C "${DIR}/$1" rev-parse HEAD | cut -c 1-7)"
+    version="$(tr -d '[:space:]' < "${DIR}/$1/VERSION")"
+    for published in "${version}-develop-${sha}" "${version}-develop-latest"; do
+      published="public.ecr.aws/zebrunner/$1:${published}"
+      if docker pull --quiet "$published" > /dev/null 2>&1; then
+        docker tag "$published" "public.ecr.aws/zebrunner/$1:$2"
+        if [[ "$published" == *-latest ]]; then
+          log "$1:$2 is ${published}: ${sha} of develop is not published yet, an earlier commit"
+        else
+          log "$1:$2 is ${published}"
+        fi
+        BUILT=false
+        return
+      fi
+    done
+    log "$1: develop is not published"
+  fi
+  log "$1:$2 is built"
+  build "$1" "$2"
+}
+
 # mcloud_tag <variable>: a tag of .env.original of mcloud
 mcloud_tag() {
   sed -n "s/^$1=//p" "${REPO}/.env.original"
@@ -65,20 +96,22 @@ for repository in stf mcloud-grid mcloud-device appium mcloud-android-connector 
 done
 
 stf_tag="$(mcloud_tag TAG_STF)"
-log "stf:${stf_tag}"
-build stf "$stf_tag"
-log "mcloud-grid:$(mcloud_tag TAG_SELENIUM_HUB)"
-build mcloud-grid "$(mcloud_tag TAG_SELENIUM_HUB)"
+image stf "$stf_tag"
+stf_built="$BUILT"
+image mcloud-grid "$(mcloud_tag TAG_SELENIUM_HUB)"
 
-# mcloud-device is built on the stf image above: its FROM (a published tag, maybe pinned by digest) is replaced
+# a build of mcloud-device is on the stf image above: its FROM (a published tag, maybe pinned by digest) is replaced;
+# the published mcloud-device of develop is on the stf of develop, so it is built when stf is
 sed -i.bak -E "s#^FROM public\.ecr\.aws/zebrunner/stf:[^ ]+#FROM public.ecr.aws/zebrunner/stf:${stf_tag}#" \
   "${DIR}/mcloud-device/Dockerfile"
-log "mcloud-device:$(agent_tag DEVICE_VERSION)"
-build mcloud-device "$(agent_tag DEVICE_VERSION)"
-log "appium:$(agent_tag APPIUM_VERSION)"
-build appium "$(agent_tag APPIUM_VERSION)"
-log "mcloud-android-connector:$(agent_tag ANDROID_CONNECTOR_VERSION)"
-build mcloud-android-connector "$(agent_tag ANDROID_CONNECTOR_VERSION)"
+if [[ "$stf_built" == true ]]; then
+  log "mcloud-device:$(agent_tag DEVICE_VERSION) is built on the built stf"
+  build mcloud-device "$(agent_tag DEVICE_VERSION)"
+else
+  image mcloud-device "$(agent_tag DEVICE_VERSION)"
+fi
+image appium "$(agent_tag APPIUM_VERSION)"
+image mcloud-android-connector "$(agent_tag ANDROID_CONNECTOR_VERSION)"
 log "uploader:$(agent_tag UPLOADER_VERSION)"
 docker pull --quiet "public.ecr.aws/zebrunner/uploader:$(agent_tag UPLOADER_VERSION)"
 

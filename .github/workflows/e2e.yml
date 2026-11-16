@@ -1,8 +1,8 @@
 ---
 name: E2E
 
-# The farm end to end (README.md#development): the images built from the branches of their repositories
-# (tests/e2e/build-images.sh), MCloud of this checkout, a device host of mcloud-agent and an Android emulator
+# The farm end to end (README.md#development): the images of the branches of their repositories, the published ones
+# of develop, the others built (tests/e2e/build-images.sh), MCloud of this checkout, a device host of mcloud-agent and an Android emulator
 on:
   push:
     branches: [develop, main, master]
@@ -31,7 +31,7 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    # id-token: the login to public.ecr.aws (the base images of the builds)
+    # id-token: the login to public.ecr.aws (the published images of develop, the base images of the builds)
     permissions:
       contents: read
       id-token: write
@@ -61,7 +61,7 @@ jobs:
           # the ansible of tests/requirements-lint.txt of mcloud-agent, the one its playbooks are checked with
           pipx install ansible-core==2.22.0
           ansible-playbook --version
-      - name: Build the images of the branches
+      - name: The images of the branches (pulled or built)
         run: |
           tests/e2e/build-images.sh "$E2E_DIR"
           docker builder prune -af > /dev/null
