@@ -31,7 +31,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 
 The server:
 
-1. Clone [mcloud](https://github.com/zebrunner/mcloud), put the certificate of the host into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` ([https](#https)) and set it up with the protocol `https`, the host name and the port (e.g. `443`): the first interactive setup offers `http`, the public IPv4 address of the host and the port `80`, the next ones the answers of the previous setup (`backup/settings.env`). The first setup asks the third-party service `ifconfig.me` for the public address (`curl -s ifconfig.me`); `ZBR_HOSTNAME=<host> ./zebrunner.sh setup` offers that host instead and sends no request.
+1. Clone [mcloud](https://github.com/zebrunner/mcloud), put the certificate of the host into `configuration/stf-proxy/ssl/ssl.crt` and its key into `configuration/stf-proxy/ssl/ssl.key` ([https](#https)) and set it up with the protocol `https`, the host name and the port (e.g. `443`): the first interactive setup offers `https`, the public IPv4 address of the host and the port `443`, the next ones the answers of the previous setup (`backup/settings.env`). The first setup asks the third-party service `ifconfig.me` for the public address (`curl -s ifconfig.me`); `ZBR_HOSTNAME=<host> ./zebrunner.sh setup` offers that host instead and sends no request.
 
    ```bash
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
@@ -74,7 +74,7 @@ The commands of `./zebrunner.sh`:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `STF_URL` | the setup | the public URL of MCloud: the protocol, host and port of the setup, `https` for the nodes (the interactive setup offers `http` and the port `80` first, see [Run](#run)) |
+| `STF_URL` | the setup | the public URL of MCloud: the protocol, host and port of the setup, `https` for the nodes (the interactive setup offers `https` and the port `443` first, see [Run](#run)) |
 | `STF_PORT` | the setup | the port of `stf-proxy` on the host, the one of the setup; `8082` in [Zebrunner CE](#zebrunner-ce), its nginx is in front |
 | `AGENTS_ADDRESS` | `0.0.0.0` | the address of the host the ports of the nodes are published on (ZeroMQ of STF and the grid, see [Firewall](#firewall)) and the host of the join string: the LAN address of the server for the nodes in its network or on the server itself; `0.0.0.0` publishes them on every address and gives the nodes the host of `STF_URL`, `start` warns about it; the value of the previous setup is kept |
 | `NODES_HOST` | `localhost` | written by `setup` and `start`, not set by hand: `AGENTS_ADDRESS`, the host of `STF_URL` for `0.0.0.0`; the host of the join string and of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) |
