@@ -1,16 +1,11 @@
 # Basic authentication of the grid
 
-1. Create the `mcloud.htpasswd` file, replace the user and the password by your values:
+1. Create the `mcloud.htpasswd` file in this folder, replace the user by your value (`htpasswd` asks the password):
 
    ```bash
-   htpasswd -bc mcloud.htpasswd <user> <password>
+   htpasswd -c mcloud.htpasswd <user>
    ```
 
-2. Uncomment the basic authentication rules of the `/mcloud` locations in `../nginx.conf`:
+2. Restart the services: `./zebrunner.sh restart`.
 
-   ```nginx
-   auth_basic "Private MCloud Selenium Hub";
-   auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
-   ```
-
-3. Restart the services: `./zebrunner.sh restart`.
+While `mcloud.htpasswd` exists, `./zebrunner.sh setup` and `start` turn on the basic authentication of the `/mcloud` locations of `../nginx.conf` (the hub, the console and the Playwright sessions); without it they turn it off.
