@@ -3,9 +3,9 @@
 # cloned into <dir>, tagged as mcloud (.env.original) and mcloud-agent (versions.yml) use them.
 # E2E_REF is the branch of every repository (develop), <REPOSITORY>_REF the one of a repository (e.g. STF_REF=fix/x,
 # MCLOUD_AGENT_REF=feat/y), also as the words of E2E_REFS ("STF_REF=fix/x MCLOUD_AGENT_REF=feat/y"); mcloud is this
-# checkout. A repository on develop gives the image its CI published for the commit (<VERSION>-develop-<sha>), the
-# other branches and a commit without it (its CI still runs) are built. The uploader is pulled: artifacts-uploader
-# is private.
+# checkout. A repository on develop gives the image its CI published for the commit (<VERSION>-develop-<sha>) or, while
+# the CI of the commit still runs, the one of the commit before (<VERSION>-develop-latest); the other branches are
+# built. The uploader is pulled: artifacts-uploader is private.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -52,22 +52,30 @@ build() {
   }
 }
 
-# image <repository> <tag>: the image of the repository tagged <tag>, pulled when it is on develop and its commit is
-# published, built otherwise; BUILT is true when it was built
+# image <repository> <tag>: the image of the repository tagged <tag>, the published one of develop when it is on
+# develop, built otherwise; BUILT is true when it was built
 image() {
   local published
   local sha
+  local version
   BUILT=true
   if [[ "$(ref "$1")" == develop ]]; then
-    sha="$(git -C "${DIR}/$1" rev-parse HEAD)"
-    published="public.ecr.aws/zebrunner/$1:$(tr -d '[:space:]' < "${DIR}/$1/VERSION")-develop-${sha:0:7}"
-    if docker pull --quiet "$published" > /dev/null; then
-      docker tag "$published" "public.ecr.aws/zebrunner/$1:$2"
-      log "$1:$2 is ${published}"
-      BUILT=false
-      return
-    fi
-    log "$1: ${published} is not published (yet), it is built"
+    sha="$(git -C "${DIR}/$1" rev-parse HEAD | cut -c 1-7)"
+    version="$(tr -d '[:space:]' < "${DIR}/$1/VERSION")"
+    for published in "${version}-develop-${sha}" "${version}-develop-latest"; do
+      published="public.ecr.aws/zebrunner/$1:${published}"
+      if docker pull --quiet "$published" > /dev/null 2>&1; then
+        docker tag "$published" "public.ecr.aws/zebrunner/$1:$2"
+        if [[ "$published" == *-latest ]]; then
+          log "$1:$2 is ${published}: ${sha} of develop is not published yet, an earlier commit"
+        else
+          log "$1:$2 is ${published}"
+        fi
+        BUILT=false
+        return
+      fi
+    done
+    log "$1: develop is not published"
   fi
   log "$1:$2 is built"
   build "$1" "$2"
