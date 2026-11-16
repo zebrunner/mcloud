@@ -1,12 +1,13 @@
 # The shared files of zebrunner/mcloud-conventions and their checksums, written by its sync
 # and checked by `make lint`: change the shared files in mcloud-conventions, not here.
-# synced from zebrunner/mcloud-conventions@458e5c8b294ba1b469ec009732d0c116e0ea7ffc
-eaae835f46be9a413a8081a7c4727c2e3d154d114f8f8bfd4f5cb37028329ca7  CONVENTIONS.md
+# synced from zebrunner/mcloud-conventions@4449bc788901d300fe38a8bff8327a23f55ea905
+67cdf815d6ab744a4d2570feae810941c79f1daca8e450af7ab2a0ba1999f64e  CONVENTIONS.md
 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  LICENSE
 4f8c453ec14975ba97959c7cf9f0250f2d6c92134e69e8dd6dc5a2d9eacca84a  .shellcheckrc
 254f78623164a54f3b43058cad1fc7c9ec75406d389ba424a26fccac0048cb7b  .pymarkdown
 91deeb6425e1be7a6b236c6f4f04ac37cbfd8394b9c935465b9e108449571299  tests/lib.sh
-e87b0d3647678fc4b9f9e3b4a2af7f990c2b087574a36de37708fcb51abaaee6  tests/lint.sh
+fcc58b78c8c73bdf91935fe268effa346bdf443cae13d93cca186ac19b38cac3  tests/lint.sh
+bf3212e2e59f427895afd4d8c1c8b1ac04aba08e8afa7779539725f810083980  patch/curve_keygen.py
 8fdb1e4dfb8b2531726bb4ee38657f933ef88595792cfbd289c4936d3f5cfcb0  .editorconfig#block
 6fa6e1908e605a4e3c52748600077ea69dc52441f2aa7633da35f7762a43eeb8  .gitignore#block
 02085a7b5925229c7c45503b23c584b6a7f228810bf70dd527b41bb4e53eb81d  tests/requirements-lint.txt#block
