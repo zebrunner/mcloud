@@ -140,11 +140,12 @@ s3() {
     --endpoint-url "http://${MINIO}:9000" "$@"
 }
 
-# artifacts_uploaded: the artifacts of the session SESSION_ID are in the bucket
+# artifacts_uploaded: the log and the video of the session SESSION_ID are in the bucket
+# the uploader puts them one by one: the log can be listed before the video
 # shellcheck disable=SC2329
 artifacts_uploaded() {
   s3 s3 ls --recursive "s3://${BUCKET}/artifacts/test-sessions/${SESSION_ID}/" > "${WORK}/artifacts.txt" 2>&1 &&
-    [[ -s "${WORK}/artifacts.txt" ]]
+    grep -q 'session\.log$' "${WORK}/artifacts.txt" && grep -q '\.mp4$' "${WORK}/artifacts.txt"
 }
 
 UPLOADER_IMAGE="public.ecr.aws/zebrunner/uploader:$(sed -n 's/^UPLOADER_VERSION: *//p' "${AGENT}/versions.yml")"
@@ -303,6 +304,7 @@ check "the image is resized" "50x25" \
 
 section "artifacts"
 run_check "the artifacts of the session are uploaded to S3" wait_for 300 artifacts_uploaded
+check_contains "the log of the session" "session.log" "$(cat "${WORK}/artifacts.txt" 2> /dev/null)"
 check_contains "the video of the session" ".mp4" "$(cat "${WORK}/artifacts.txt" 2> /dev/null)"
 cp "${WORK}/artifacts.txt" "${LOGS}/artifacts.txt" 2> /dev/null
 
