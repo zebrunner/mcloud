@@ -79,6 +79,11 @@ value() {
   sed -n "s/^$2=//p" "${MCLOUD}/$1"
 }
 
+# sha256_of <file>: the SHA-256 of a file, independent of the one of zebrunner.sh
+sha256_of() {
+  python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+}
+
 # curve_keys: ok when variables.env has the CURVE keys of a new deployment, 64 hex characters, the public key of the
 # triproxies the one of their secret key (X25519 of patch/curve_keygen.py, the check of the keys of openssl too)
 curve_keys() {
@@ -125,8 +130,9 @@ check_contains "the missing certificate of the default https is reported" "https
 # the other checks: http, the answers of the user
 output="$(zbr "$(answers http mcloud.example.com 80 "" "")" setup)"
 check "the setup succeeds" "0" "$?"
-# the change of the protocol kept the configuration of https as nginx.conf.previous, the next checks start without it
-rm -f "${MCLOUD}/configuration/stf-proxy/nginx.conf.previous"
+check_not_contains "the change of the protocol is not a change by hand of nginx.conf" "nginx.conf.previous" "$output"
+check "the change of the protocol keeps no nginx.conf.previous" "no" \
+  "$([[ -e "${MCLOUD}/configuration/stf-proxy/nginx.conf.previous" ]] && echo yes || echo no)"
 check "STF_URL of .env" "http://mcloud.example.com:80" "$(value .env STF_URL)"
 check "STF_PORT of .env" "80" "$(value .env STF_PORT)"
 check "the mock sign-in" "auth-mock" "$(value .env AUTH_SYSTEM)"
@@ -161,6 +167,8 @@ check "the password of the basic authentication is generated" "26" "${#mock_pass
 check_contains "the password of the sign-in is shown" "the password ${mock_password}" "$output"
 check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
+check "the checksum of the nginx configuration is stored" "$(sha256_of "${MCLOUD}/configuration/stf-proxy/nginx.conf")" \
+  "$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256")"
 check_contains "the settings are saved" 'ZBR_HOSTNAME="mcloud.example.com"' "$(cat "${MCLOUD}/backup/settings.env")"
 check_not_contains "the CURVE keys need no docker" "run|" "$(calls docker)"
 keys="$(printf '%064d' 0)"
@@ -305,6 +313,34 @@ output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check_contains "a configuration changed by hand is reported" "the previous one is configuration/stf-proxy/nginx.conf.previous" "$output"
 check_contains "a configuration changed by hand is kept aside" "https://reporting.example.com" "$(cat "${conf}.previous")"
 check_not_contains "the new configuration is the original one" "https://reporting.example.com" "$(cat "$conf")"
+rm -f "${conf}.previous"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_not_contains "an unchanged configuration is not reported" "nginx.conf.previous" "$output"
+check "an unchanged configuration is not kept aside" "no" "$([[ -e "${conf}.previous" ]] && echo yes || echo no)"
+# an upgrade: a new nginx.conf.original is not a change by hand
+cp "${MCLOUD}/configuration/stf-proxy/nginx.conf.original" "${WORK}/nginx.conf.original"
+printf '# a comment of a new release\n' >> "${MCLOUD}/configuration/stf-proxy/nginx.conf.original"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_not_contains "a new nginx.conf.original is not reported" "nginx.conf.previous" "$output"
+check "a new nginx.conf.original keeps no nginx.conf.previous" "no" "$([[ -e "${conf}.previous" ]] && echo yes || echo no)"
+check_contains "the configuration of the new nginx.conf.original is written" "# a comment of a new release" "$(cat "$conf")"
+cp "${WORK}/nginx.conf.original" "${MCLOUD}/configuration/stf-proxy/nginx.conf.original"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+# the first setup after the upgrade from a release without the checksum: the configuration the setup writes for http or
+# https is not a change by hand, another one is (the one of an earlier nginx.conf.original too)
+rm -f "${conf}.sha256"
+sed -e 's/listen 80/listen 80 ssl/' -e 's/#    ssl_/    ssl_/' "${MCLOUD}/configuration/stf-proxy/nginx.conf.original" > "$conf"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_not_contains "without the checksum the configuration of the other protocol is not reported" "nginx.conf.previous" "$output"
+check "without the checksum the configuration of the other protocol is not kept aside" "no" \
+  "$([[ -e "${conf}.previous" ]] && echo yes || echo no)"
+check "the setup without the checksum stores it" "$(sha256_of "$conf")" "$(cat "${conf}.sha256")"
+rm -f "${conf}.sha256"
+grep -v 'frame-ancestors' "${MCLOUD}/configuration/stf-proxy/nginx.conf.original" > "$conf"
+output="$(zbr "$(answers "" "" "" "" "")" setup)"
+check_contains "without the checksum another configuration is reported" "the previous one is configuration/stf-proxy/nginx.conf.previous" \
+  "$output"
+check_not_contains "without the checksum another configuration is kept aside" "frame-ancestors" "$(cat "${conf}.previous")"
 rm -f "${conf}.previous"
 
 section "setup without the secrets"
@@ -827,7 +863,8 @@ mv "${WORK}/env.saved" "${MCLOUD}/.env"
 section "backup and restore"
 reset_calls
 zbr "" backup > /dev/null
-for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/ssl/ssl.crt; do
+for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.sha256 \
+  configuration/stf-proxy/ssl/ssl.crt; do
   check "backup copies ${file}" "same" "$(cmp -s "${MCLOUD}/${file}" "${MCLOUD}/${file}.bak" && echo same)"
 done
 check_contains "backup archives the database" "run|--rm|--volumes-from|rethinkdb" "$(calls docker)"
@@ -856,6 +893,18 @@ check_contains "restore stops the services first" "compose|--profile|adb-relay|s
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
 check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
 check "restore removes the containers at the end" "compose|--profile|adb-relay|down" "$(calls docker | tail -1)"
+check "restore brings the checksum of nginx.conf back" "same" \
+  "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256" "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256.bak" && echo same)"
+# a backup without the checksum (of an earlier MCloud): restore removes the one of the later setup
+rm -f "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256.bak"
+zbr "" restore > /dev/null
+check "restore of a backup without the checksum removes it" "no" \
+  "$([[ -e "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256" ]] && echo yes || echo no)"
+zbr "" backup > /dev/null
+check "backup without the checksum has none" "no" \
+  "$([[ -e "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256.bak" ]] && echo yes || echo no)"
+zbr "$(answers "" "" "" "" "")" setup > /dev/null
+zbr "" backup > /dev/null
 
 section "nodes"
 # a deployment of https on a copy of its own; curl answers the STF API with ${WORK}/answer and ${WORK}/status
@@ -1173,11 +1222,12 @@ zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
 for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
-  configuration/stf-proxy/grid-auth.conf; do
+  configuration/stf-proxy/grid-auth.conf configuration/stf-proxy/nginx.conf.sha256; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 
-for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak; do
+for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+  configuration/stf-proxy/nginx.conf.sha256.bak; do
   check "shutdown removes the backup ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
