@@ -273,6 +273,20 @@ start() {
   if [[ -n "$MDM_PROXY_CHANGED" ]]; then
     reload_proxy=1
   fi
+  # the configuration of stf-proxy of a setup before the MDM has no includes of its locations
+  if [[ -n "$MDM_ON" ]] && ! grep -q 'include /etc/nginx/mdm/' configuration/stf-proxy/nginx.conf 2> /dev/null; then
+    if nginx_conf_generated; then
+      local protocol=http
+      if grep -q '^STF_URL=https://' .env; then
+        protocol=https
+      fi
+      nginx_conf "$protocol" > configuration/stf-proxy/nginx.conf
+      file_sha256 configuration/stf-proxy/nginx.conf > configuration/stf-proxy/nginx.conf.sha256
+      reload_proxy=1
+    else
+      echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and has no includes of the MDM: no device reaches it. Add the include lines of /etc/nginx/mdm of configuration/stf-proxy/nginx.conf.original to it or run ./zebrunner.sh setup (README.md#mdm)."
+    fi
+  fi
   protect_files
   # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay), the MDM with MDM_ENABLED=true
   local profiles=()

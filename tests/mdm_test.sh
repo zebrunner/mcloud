@@ -126,6 +126,25 @@ check "the setup keeps the MDM settings of .env" "true" "$(value .env MDM_ENABLE
 touch "${MCLOUD}/configuration/mdm/android/mcloud-mdm-agent.apk"
 check_not_contains "the agent APK is there" "mcloud-mdm-agent.apk is missing" "$(zbr "" start)"
 
+section "a configuration of stf-proxy of a setup before the MDM"
+conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
+generated="$(cat "$conf")"
+grep -v 'include /etc/nginx/mdm/' "$conf" > "${WORK}/nginx.conf.old"
+cp "${WORK}/nginx.conf.old" "$conf"
+shasum -a 256 "$conf" 2> /dev/null | cut -d ' ' -f 1 > "${conf}.sha256" || sha256sum "$conf" | cut -d ' ' -f 1 > "${conf}.sha256"
+reset_calls
+zbr "" start > /dev/null
+check "start writes the includes of the MDM into a generated configuration" "$generated" "$(cat "$conf")"
+check_contains "a running stf-proxy reads it again" "exec|stf-proxy|nginx|-s|reload" "$(calls docker)"
+check_not_contains "the configuration is still the generated one" "changed by hand" "$(zbr "" start)"
+cp "${WORK}/nginx.conf.old" "$conf"
+echo "# a change by hand" >> "$conf"
+output="$(zbr "" start)"
+check_contains "a configuration changed by hand is reported" "was changed by hand and has no includes of the MDM" "$output"
+check_contains "a configuration changed by hand is kept" "# a change by hand" "$(cat "$conf")"
+printf '%s\n' "$generated" > "$conf"
+shasum -a 256 "$conf" 2> /dev/null | cut -d ' ' -f 1 > "${conf}.sha256" || sha256sum "$conf" | cut -d ' ' -f 1 > "${conf}.sha256"
+
 section "the options"
 setting MDM_ADMIN_PUBLIC true
 zbr "" start > /dev/null
