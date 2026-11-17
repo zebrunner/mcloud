@@ -22,6 +22,9 @@ configuration/stf-proxy/nginx.conf.previous
 configuration/stf-proxy/nginx.conf.sha256
 configuration/adb-relay/stf-token
 configuration/stf-proxy/grid-auth.conf
+# the secrets and the MQTT proxy of the MDM (README.md#mdm)
+mdm.env
+configuration/mdm/mqtt.conf
 # the basic authentication of the grid of an earlier MCloud
 configuration/stf-proxy/htpasswd/
 configuration/stf-proxy/ssl/ssl.crt

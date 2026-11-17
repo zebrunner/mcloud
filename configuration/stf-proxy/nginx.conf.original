@@ -32,6 +32,10 @@ http {
   # the diagnostics of a node with its token (./zebrunner.sh doctor of mcloud-agent): 30 a minute per address
   limit_req_zone $binary_remote_addr zone=node_self:1m rate=30r/m;
 
+  # the MDM of the devices (README.md#mdm): the sites that reach it, written by ./zebrunner.sh with MDM_ENABLED=true;
+  # none without it
+  include /etc/nginx/mdm/http-*.conf;
+
   server {
     listen 80;
     server_name stf-proxy;
@@ -52,6 +56,9 @@ http {
 
     resolver 127.0.0.11 valid=30s;
     resolver_timeout 10s;
+
+    # the MDM of the devices (README.md#mdm): its paths, written by ./zebrunner.sh with MDM_ENABLED=true; none without it
+    include /etc/nginx/mdm/server-*.conf;
 
     # the security headers of every response; a location with its own add_header repeats them, as it does not
     # inherit these ones. MCloud is not embedded into other sites: only its own pages may frame it.

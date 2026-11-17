@@ -81,11 +81,21 @@ The commands of `./zebrunner.sh`:
 | `ADB_RELAY` | `false` | `true`: `adb-relay` relays the remote debug ports of the Android devices of the nodes, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); the value of the previous setup is kept |
 | `ADB_RELAY_PORTS` | | `adb-relay` relays the ports of this range only, `<first>-<last>` (e.g. `7400-7999`): the range opened in the firewall; empty: any port; the value of the previous setup is kept |
 | `ADB_RELAY_SYNC_SECONDS` | `300` | `adb-relay` reads the devices of the nodes every these seconds: a new device is relayed within this time (at once after `./zebrunner.sh restart`); the value of the previous setup is kept |
+| `MDM_ENABLED` | `false` | `true`: the MDM of the devices (the profile `mdm`), with an `https` `STF_URL` only, see [MDM](#mdm); the value of the previous setup is kept |
+| `MDM_SITE_ADDRESSES` | | the fixed public addresses of the sites of the devices and of the nodes, comma separated (`203.0.113.10,198.51.100.0/24`): the only ones that reach the MDM; the value of the previous setup is kept |
+| `MDM_MQTT_PORT` | `31443` | the port of MQTT over TLS of the Android agents (`mcloud-mdm-mqtt`), opened in the firewall for `MDM_SITE_ADDRESSES`; the value of the previous setup is kept |
+| `MDM_ADMIN_PORT` | `9101` | the admin UI of `mcloud-mdm` on `127.0.0.1` of the server, an ssh tunnel; the value of the previous setup is kept |
+| `MDM_ADMIN_PUBLIC` | `false` | `true`: the admin UI is also `/mcloud/mdm/` for the admins of STF; the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
 | `TAG_SELENIUM_HUB` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/mcloud-grid`: on `develop` the newest image of the `develop` of mcloud-grid, a release has its version |
 | `TAG_RETHINKDB` | `2.4.4-bookworm-slim` | the tag of `rethinkdb` |
 | `TAG_STF` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/stf`: on `develop` the newest image of the `develop` of zebrunner/stf, a release has its version |
+| `TAG_MDM` | `0.1` | the tag of `public.ecr.aws/zebrunner/mcloud-mdm` (the MDM) |
+| `TAG_NANOHUB` | `0.2.0` | the tag of `ghcr.io/micromdm/nanohub` (the MDM of iOS) |
+| `TAG_MDM_MYSQL` | `8.4` | the tag of `mysql` (the storage of NanoHUB) |
+| `TAG_HMDM` | `0.1.9` | the tag of `headwindmdm/hmdm` (the MDM of Android, amd64 only) |
+| `TAG_MDM_POSTGRES` | `16-alpine` | the tag of `postgres` (the storage of Headwind MDM) |
 | `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in [Zebrunner CE](#zebrunner-ce) by default |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
@@ -179,6 +189,28 @@ The relay reads the API with `STF_TOKEN` of `variables.env`, an access token of 
 
 The relay has no authentication of its own, it makes its ports public as they are. The remote debug port of a device listens only while a user of STF uses the device (the Remote debug of its dashboard starts it) and accepts an adb client with an adb key of that user only (STF, Settings, ADB keys): an unknown key makes STF ask that user to add it, add only your own keys.
 
+### MDM
+
+The MDM of the devices, [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm): iOS with NanoHUB, Android with Headwind MDM and the agent of mcloud-mdm as the device owner (no factory reset), the admin UI of mcloud-mdm. Optional (the profile `mdm`), `https` only, on the domain of MCloud: no DNS name or certificate of its own.
+
+1. Set `MDM_ENABLED=true` of `.env` and `MDM_SITE_ADDRESSES` to the fixed public addresses of the sites of the devices and of the nodes (`curl ifconfig.me` on a node and on a device on the Wi-Fi of the site; a site in the network of the server: its private network too).
+2. Put the agent of mcloud-mdm (`make agent` of mcloud-mdm, signed with the key of the farms) into `configuration/mdm/android/mcloud-mdm-agent.apk`.
+3. Run `./zebrunner.sh start`: it generates `mdm.env`, the secrets of the MDM (the enrollment token of the nodes, the API key of NanoHUB, the passwords of the databases and of Headwind MDM, the shared secret of the agents), and the locations of `stf-proxy` (`configuration/stf-proxy/mdm`), then starts the profile `mdm`. Open `MDM_MQTT_PORT` for `MDM_SITE_ADDRESSES`, see [Firewall](#firewall).
+4. Open the admin UI: `ssh -L 9101:127.0.0.1:9101 <server>`, then `http://127.0.0.1:9101` (`MDM_ADMIN_PORT`; `MDM_ADMIN_PUBLIC=true`: also `/mcloud/mdm/` for the admins of STF). Upload the APNs push certificate of iOS there.
+5. The nodes enroll their devices with `zebrunner-farm mdm enroll <device>` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent): they reach the MDM with their node token, `stf-proxy` checks it (`GET /api/v1/nodes/self` of `stf-api`) and calls `mcloud-mdm` with `MDM_ENROLL_TOKEN` of `mdm.env`; the nodes need no setting of their own.
+
+`stf-proxy` publishes for `MDM_SITE_ADDRESSES` only (`403` for any other address):
+
+| Path | Service | Clients |
+| --- | --- | --- |
+| `/mdm`, `/checkin` | `mcloud-mdm-nanohub` | the iOS devices (the MDM protocol, signed with their device identities) |
+| `/scep`, `/android/agent.apk` | `mcloud-mdm` | the iOS devices (SCEP with one-time challenges), the nodes |
+| `/mdm/enroll`, `/mdm/status`, `/mdm/release`, `/android/enroll`, `/android/status`, `/android/release` | `mcloud-mdm` | the nodes, with their node token (`401` without it) |
+| `/hmdm/...` | `mcloud-mdm-hmdm` | the Android agents: their paths only, the web panel and the API of Headwind MDM are not published (`404`) |
+| `MDM_MQTT_PORT` (TLS, the certificate of `stf-proxy`) | `mcloud-mdm-mqtt` -> `mcloud-mdm-hmdm` | the Android agents (the push of the commands) |
+
+`mdm.env` is readable for its owner only and kept from setup to setup (`backup` copies it); keep a copy in the store of the secrets: without `HMDM_SHARED_SECRET` and the server only a factory reset removes the device owner of the Android agents. The databases of the MDM are the volumes `mcloud-mdm-*`: `mcloud-mdm-data` has the SCEP CA, without it every iOS device enrolls again. `MDM_ENABLED=false` and `./zebrunner.sh restart` remove the services of the MDM, their volumes stay; `shutdown` removes them.
+
 ### Firewall
 
 The ports of the host and who needs them; close the others:
@@ -188,6 +220,7 @@ The ports of the host and who needs them; close the others:
 | `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the diagnostics) |
 | `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the nodes |
 | `4446` (`AGENTS_ADDRESS`) | `stf-proxy` -> `mcloud-grid` | the nodes: the registration of Appium only (`/grid/register`, `GET /grid/api/proxy`), the other paths answer `403`; the tests use `/mcloud/wd/hub` of `STF_PORT` |
+| `MDM_MQTT_PORT` (`31443`) | `mcloud-mdm-mqtt` (optional) | the Android agents of `MDM_SITE_ADDRESSES`: MQTT over TLS of the MDM, see [MDM](#mdm) |
 | `ADB_RELAY_PORTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the nodes in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
 `AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
@@ -222,7 +255,7 @@ https://<user>:<token>@<host>:<port>/mcloud/wd/hub
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -330,6 +363,7 @@ All the services but `adb-relay` (the network of the host) are in the external d
 | `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events (the binding of the devices to their nodes), the heartbeats and the groups of STF |
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; for the STF units and the tokens of the nodes only |
+| `mcloud-mdm`, `mcloud-mdm-nanohub`, `mcloud-mdm-mysql`, `mcloud-mdm-hmdm`, `mcloud-mdm-postgres`, `mcloud-mdm-hmdm-init`, `mcloud-mdm-mqtt` | `public.ecr.aws/zebrunner/mcloud-mdm`, `ghcr.io/micromdm/nanohub`, `mysql`, `headwindmdm/hmdm`, `postgres`, `nginx` | optional, with `MDM_ENABLED=true` only: the MDM of the devices, see [MDM](#mdm) |
 | `adb-relay` | `nginx` | optional, with `ADB_RELAY=true` only: the TCP relay of the remote debug ports of the devices of the nodes in a private network, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
 Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `adb-relay` (nginx listens on its ports), `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
@@ -342,6 +376,7 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 | `/api/v1/` | the REST API of STF, with an access token |
 | `POST /api/v1/nodes/enroll` | the enrollment of a node with its invite, limited to 6 a minute per address (a burst of 3, then `429`), see [Nodes](#nodes) |
 | `GET /api/v1/nodes/self` | the record of a node and its devices, with the token of the node (`./zebrunner.sh doctor` of mcloud-agent), limited to 30 a minute per address (a burst of 10, then `429`) |
+| `/mdm`, `/checkin`, `/scep`, `/mdm/*`, `/android/*`, `/hmdm/*` | the MDM, from `MDM_SITE_ADDRESSES` only, see [MDM](#mdm) |
 | `/d/<address of the node>/<serial>/<port>/` | the screen of a device, see [Screens of the devices](#screens-of-the-devices) |
 | `/mcloud/wd/hub` | the Selenium/Appium hub URL, with an access token of STF: `https://<user>:<token>@<host>:<port>/mcloud/wd/hub`, see [Access to the grid](#access-to-the-grid) |
 | `/mcloud/wd/hub/status` | the status of the hub, without a user |

@@ -162,6 +162,9 @@ setup() {
     echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one."
   fi
 
+  # the MDM of MDM_ENABLED of .env (README.md#mdm): its secrets and the locations of stf-proxy
+  write_mdm || abort_setup
+
   # the user input for the next setup
   export_settings
   write_stf_token
@@ -209,7 +212,7 @@ shutdown() {
     fi
   fi
 
-  docker compose --profile adb-relay down -v
+  docker compose --profile adb-relay --profile mdm down -v
 
   rm -f backup/settings.env
   rm -f .env
@@ -217,6 +220,8 @@ shutdown() {
   rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256
   rm -f configuration/adb-relay/stf-token
   rm -f grid.env configuration/stf-proxy/grid-auth.conf
+  # the secrets of the MDM go with its volumes; the agent APK of configuration/mdm/android is kept
+  rm -f "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}"/*.conf "$MDM_MQTT_CONF"
   # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
   rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
     configuration/stf-proxy/nginx.conf.sha256.bak
@@ -262,12 +267,22 @@ start() {
   check_agents_address
   check_adb_relay_auto
   write_stf_token
-  # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay)
-  if [[ -n "$adb_relay" ]]; then
-    docker compose --profile adb-relay up -d || return
-  else
-    docker compose up -d || return
+  # the MDM of MDM_ENABLED of .env (README.md#mdm): its secrets and the locations of stf-proxy, changed ones are read
+  # again by a running stf-proxy
+  write_mdm || return 1
+  if [[ -n "$MDM_PROXY_CHANGED" ]]; then
+    reload_proxy=1
   fi
+  protect_files
+  # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay), the MDM with MDM_ENABLED=true
+  local profiles=()
+  if [[ -n "$adb_relay" ]]; then
+    profiles+=(--profile adb-relay)
+  fi
+  if [[ -n "$MDM_ON" ]]; then
+    profiles+=(--profile mdm)
+  fi
+  docker compose "${profiles[@]+"${profiles[@]}"}" up -d || return
   # a running stf-proxy reads the changed configuration again (the file is written in place, its bind mount sees it)
   if [[ -n "$reload_proxy" ]]; then
     docker exec stf-proxy nginx -s reload > /dev/null 2>&1 || true
@@ -282,6 +297,10 @@ start() {
     if [[ -z "$(sed -n 's/^STF_TOKEN=//p' variables.env 2> /dev/null)" ]]; then
       echo_warning "STF_TOKEN of variables.env is empty: the grid reserves no device. Sign in to ${url}/stf, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart."
     fi
+    if [[ -n "$MDM_ON" ]]; then
+      echo "
+      MDM: the admin UI on 127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) of this server (ssh -L $(mdm_setting MDM_ADMIN_PORT):127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) <server>, http://127.0.0.1:$(mdm_setting MDM_ADMIN_PORT))$([[ "$(mdm_setting MDM_ADMIN_PUBLIC)" == "true" ]] && echo ", ${url}/mcloud/mdm/ for the admins of STF"); MQTT over TLS of the Android agents on the port $(mdm_setting MDM_MQTT_PORT) (README.md#mdm)"
+    fi
   fi
 }
 
@@ -291,11 +310,11 @@ stop() {
     exit 0
   fi
 
-  # with the profile: adb-relay stops also when ADB_RELAY was turned off after its start
+  # with the profiles: adb-relay and the MDM stop also when they were turned off after their start
   if ! check_other_deployment stop; then
     return 1
   fi
-  docker compose --profile adb-relay stop
+  docker compose --profile adb-relay --profile mdm stop
 }
 
 # down: stops and removes the containers, the data is kept
@@ -304,11 +323,11 @@ down() {
     exit 0
   fi
 
-  # with the profile: adb-relay is removed also when ADB_RELAY was turned off after its start
+  # with the profiles: adb-relay and the MDM are removed also when they were turned off after their start
   if ! check_other_deployment down; then
     return 1
   fi
-  docker compose --profile adb-relay down
+  docker compose --profile adb-relay --profile mdm down
 }
 
 # backup: copies the settings to *.bak and the database into backup/rethinkdb.tar.gz
@@ -324,6 +343,10 @@ backup() {
   cp .env .env.bak
   cp backup/settings.env backup/settings.env.bak
   cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
+  # the secrets of the MDM (README.md#mdm); its databases are its volumes
+  if [[ -f "$MDM_ENV" ]]; then
+    cp "$MDM_ENV" "${MDM_ENV}.bak"
+  fi
   # the checksum of the configuration the setup wrote goes with it (nginx_conf_generated)
   if [[ -f configuration/stf-proxy/nginx.conf.sha256 ]]; then
     cp configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/nginx.conf.sha256.bak
@@ -383,6 +406,9 @@ restore() {
   cp .env.bak .env
   cp backup/settings.env.bak backup/settings.env
   cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
+  if [[ -f "${MDM_ENV}.bak" ]]; then
+    cp "${MDM_ENV}.bak" "$MDM_ENV"
+  fi
   if [[ -f configuration/stf-proxy/nginx.conf.sha256.bak ]]; then
     cp configuration/stf-proxy/nginx.conf.sha256.bak configuration/stf-proxy/nginx.conf.sha256
   else
@@ -826,7 +852,8 @@ protect_files() {
     configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/nginx.conf.sha256.bak \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak grid.env configuration/stf-proxy/grid-auth.conf \
-    configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
+    configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz \
+    "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}/server-mdm.conf"; do
     if [[ ! -f "$file" ]]; then
       continue
     fi
@@ -834,7 +861,8 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
+    variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz | \
+      mdm.env* | */server-mdm.conf)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac
@@ -1451,6 +1479,8 @@ cd "$BASEDIR" || exit
 
 # shellcheck source=patch/utility.sh
 source patch/utility.sh
+# shellcheck source=patch/mdm.sh
+source patch/mdm.sh
 
 # Zebrunner CE runs the setup with ZBR_INSTALLER=1, the setup of its MCloud reads ZBR_INSTALLER of its settings too
 installer="${ZBR_INSTALLER:-0}"

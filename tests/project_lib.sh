@@ -9,7 +9,8 @@ copy_repo() {
   (cd "$1" && rm -f .env variables.env .disabled backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256 \
     configuration/adb-relay/stf-token \
     configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/htpasswd/mcloud.htpasswd grid.env \
-    configuration/stf-proxy/grid-auth.conf &&
+    configuration/stf-proxy/grid-auth.conf mdm.env configuration/stf-proxy/mdm/*.conf configuration/mdm/mqtt.conf \
+    configuration/mdm/android/*.apk &&
     find . -name '*.bak' -delete)
 }
 

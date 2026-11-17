@@ -58,6 +58,8 @@ services:
       # the secret of the grid (README.md#access-to-the-grid), written by ./zebrunner.sh setup and start
       - ./configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
+      # the locations of the MDM (README.md#mdm), written by ./zebrunner.sh with MDM_ENABLED=true
+      - ./configuration/stf-proxy/mdm:/etc/nginx/mdm:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
       # the grid of the nodes, the grid of the join string of ./zebrunner.sh node-invite: the registration of Appium only
@@ -242,6 +244,173 @@ services:
       stf groups-engine
       --connect-sub tcp://stf-triproxy-app:7150 --connect-push tcp://stf-triproxy-app:7170
       --connect-sub-dev tcp://stf-triproxy-dev:7250 --connect-push-dev tcp://stf-triproxy-dev:7270
+  # The MDM of the devices (README.md#mdm): ./zebrunner.sh starts the profile mdm when MDM_ENABLED of .env is true and
+  # STF_URL is https; the secrets come from mdm.env, stf-proxy publishes the paths of the devices and of the nodes
+  mcloud-mdm:
+    image: "public.ecr.aws/zebrunner/mcloud-mdm:${TAG_MDM}"
+    container_name: mcloud-mdm
+    profiles: [mdm]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - MDM_PUBLIC_URL=${STF_URL}
+      - NANOHUB_URL=http://mcloud-mdm-nanohub:9004
+      - HMDM_URL=http://mcloud-mdm-hmdm:8080
+      - HMDM_MQTT_PORT=${MDM_MQTT_PORT:-31443}
+    volumes:
+      - "mcloud-mdm-data:/data"
+      # the Android agent (configuration/mdm/android/mcloud-mdm-agent.apk), put there by the operator
+      - ./configuration/mdm/android:/android:ro
+    # the admin UI: this server only, an ssh tunnel (MDM_ADMIN_PUBLIC=true publishes it on /mcloud/mdm/ too)
+    ports:
+      - "127.0.0.1:${MDM_ADMIN_PORT:-9101}:8081"
+    logging: *logging
+    restart: always
+  # NanoHUB: the MDM server of iOS, its storage in MySQL; it trusts the SCEP CA of mcloud-mdm (the data volume)
+  mcloud-mdm-nanohub:
+    image: "ghcr.io/micromdm/nanohub:${TAG_NANOHUB}"
+    container_name: mcloud-mdm-nanohub
+    profiles: [mdm]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - NANOHUB_CA=/mdm-data/scep/ca.pem
+      - NANOHUB_STORAGE=mysql
+      - NANOHUB_WEBHOOK_URL=http://mcloud-mdm:8081/webhook
+    volumes:
+      - "mcloud-mdm-data:/mdm-data:ro"
+    depends_on:
+      mcloud-mdm-mysql:
+        condition: service_healthy
+      mcloud-mdm:
+        condition: service_healthy
+    logging: *logging
+    restart: always
+  mcloud-mdm-mysql:
+    image: "mysql:${TAG_MDM_MYSQL}"
+    container_name: mcloud-mdm-mysql
+    profiles: [mdm]
+    # the schema of NanoMDM has foreign keys to non-unique keys, refused by default since MySQL 8.4
+    command: ["--restrict-fk-on-non-standard-key=OFF"]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - MYSQL_DATABASE=nanohub
+      - MYSQL_USER=nanohub
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+    volumes:
+      - "mcloud-mdm-mysql:/var/lib/mysql"
+      # the schemas of NanoHUB, applied at the first start
+      - ./configuration/mdm/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: *logging
+    restart: always
+  # Headwind MDM: the server of the Android agents (amd64 only), plain http and MQTT inside: stf-proxy publishes its
+  # agent paths under /hmdm, mcloud-mdm-mqtt its MQTT over TLS
+  mcloud-mdm-hmdm:
+    image: "headwindmdm/hmdm:${TAG_HMDM}"
+    container_name: mcloud-mdm-hmdm
+    profiles: [mdm]
+    platform: linux/amd64
+    # base.url and secure.enrollment, then the entrypoint of the image
+    entrypoint: ["/bin/sh", "/hmdm-entrypoint.sh"]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - SQL_HOST=mcloud-mdm-postgres
+      - SQL_BASE=hmdm
+      - SQL_USER=hmdm
+      - PROTOCOL=http
+      - BASE_DOMAIN=mcloud-mdm-hmdm
+      - HMDM_PUBLIC_URL=${STF_URL}/hmdm
+      - ADMIN_EMAIL=admin@mcloud-mdm.local
+      - HMDM_VARIANT=os
+      - HMDM_URL=https://h-mdm.com/files/hmdm-5.41.1-os.war
+      - CLIENT_VERSION=6.40
+    volumes:
+      - ./configuration/mdm/hmdm-entrypoint.sh:/hmdm-entrypoint.sh:ro
+      - "mcloud-mdm-hmdm-work:/usr/local/tomcat/work"
+      - "mcloud-mdm-hmdm-config:/usr/local/tomcat/conf/Catalina/localhost"
+    depends_on:
+      mcloud-mdm-postgres:
+        condition: service_healthy
+    logging: *logging
+    restart: always
+  mcloud-mdm-postgres:
+    image: "postgres:${TAG_MDM_POSTGRES}"
+    container_name: mcloud-mdm-postgres
+    profiles: [mdm]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - POSTGRES_USER=hmdm
+      - POSTGRES_DB=hmdm
+    volumes:
+      - "mcloud-mdm-postgres:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hmdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: *logging
+    restart: always
+  # the password of the admin of Headwind MDM (HMDM_PASSWORD) and the public URLs of its files, at every start
+  mcloud-mdm-hmdm-init:
+    image: "postgres:${TAG_MDM_POSTGRES}"
+    container_name: mcloud-mdm-hmdm-init
+    profiles: [mdm]
+    entrypoint: ["/bin/sh", "/hmdm-init.sh"]
+    env_file:
+      - path: mdm.env
+        required: false
+    environment:
+      - PGHOST=mcloud-mdm-postgres
+      - PGUSER=hmdm
+      - PGDATABASE=hmdm
+      - HMDM_PUBLIC_URL=${STF_URL}/hmdm
+      # it waits for the web application: the init.sql of its first start would bring the reset of the password back
+      - HMDM_INTERNAL_URL=http://mcloud-mdm-hmdm:8080
+    volumes:
+      - ./configuration/mdm/hmdm-init.sh:/hmdm-init.sh:ro
+    depends_on:
+      mcloud-mdm-postgres:
+        condition: service_healthy
+    logging: *logging
+    restart: "no"
+  # MQTT over TLS of the Android agents with the certificate of stf-proxy, from MDM_SITE_ADDRESSES only
+  mcloud-mdm-mqtt:
+    image: "nginx:${TAG_NGINX}"
+    container_name: mcloud-mdm-mqtt
+    profiles: [mdm]
+    volumes:
+      - ./configuration/mdm/mqtt.conf:/etc/nginx/nginx.conf:ro
+      - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "${MDM_MQTT_PORT:-31443}:31443"
+    depends_on:
+      - mcloud-mdm-hmdm
+    healthcheck:
+      test: ["CMD", "sh", "-c", "kill -0 $$(cat /run/nginx.pid)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+    restart: always
 volumes:
   stf-db-volume:
   stf-temp-volume:
+  mcloud-mdm-data:
+  mcloud-mdm-mysql:
+  mcloud-mdm-postgres:
+  mcloud-mdm-hmdm-work:
+  mcloud-mdm-hmdm-config:
