@@ -188,7 +188,6 @@ fi
 
 section "grid"
 check_contains "the hub is ready" '"ready"' "$(curl -s --max-time 10 "${URL}/mcloud/wd/hub/status")"
-check "the grid console sends a user without a sign-in to the sign-in of STF" "302" "$(http_code /mcloud/grid/console)"
 check "the static files of the grid console" "200" "$(http_code /grid/resources/org/openqa/grid/images/consoleservlet.css)"
 check "the content type of the static files" "text/css" \
   "$(curl -s -o /dev/null -w '%{content_type}' --max-time 10 "${URL}/grid/resources/org/openqa/grid/images/consoleservlet.css")"
@@ -210,6 +209,7 @@ section "access to the grid"
 if [[ "$(http_code /mcloud/grid/admin/DevicesServlet -b "$jar")" == "500" ]]; then
   skip_check "the access to the grid" "the STF of TAG_STF has no /api/v1/zebrunner/hub-auth"
 else
+  check "the grid console sends a user without a sign-in to the sign-in of STF" "302" "$(http_code /mcloud/grid/console)"
   check "the grid console of a signed-in user" "200" "$(http_code /mcloud/grid/console -b "$jar")"
   check "the devices of the grid need a user" "401" "$(http_code /mcloud/grid/admin/DevicesServlet)"
   check "the devices of the grid of a signed-in user" "200" "$(http_code /mcloud/grid/admin/DevicesServlet -b "$jar")"
