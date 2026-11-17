@@ -55,7 +55,8 @@ services:
     volumes:
       - ./configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
-      - ./configuration/stf-proxy/htpasswd:/etc/nginx/htpasswd:ro
+      # the secret of the grid (README.md#access-to-the-grid), written by ./zebrunner.sh setup and start
+      - ./configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
     ports:
       - "${STF_PORT}:80" # primary HTTP port
@@ -106,8 +107,9 @@ services:
   mcloud-grid:
     image: "public.ecr.aws/zebrunner/mcloud-grid:${TAG_SELENIUM_HUB}"
     container_name: mcloud-grid
-    # STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only, written by ./zebrunner.sh setup and start: the grid gets
-    # none of the secrets of STF; optional, so stop and down of a deployment of an earlier MCloud work without it
+    # STF_TOKEN, PLAYWRIGHT_ENABLED and GRID_AUTH_SECRET of variables.env only, written by ./zebrunner.sh setup and
+    # start: the grid gets none of the secrets of STF; optional, so stop and down of a deployment of an earlier MCloud
+    # work without it
     env_file:
       - path: grid.env
         required: false

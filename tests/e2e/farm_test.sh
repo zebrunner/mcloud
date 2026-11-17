@@ -113,10 +113,10 @@ stf_ready() {
   [[ "$(device "d.get('present') and d.get('ready')")" == "True" ]]
 }
 
-# grid_free: the device of the emulator is registered and free in the grid
+# grid_free: the device of the emulator is registered and free in the grid (with the access token of STF_TOKEN)
 # shellcheck disable=SC2329
 grid_free() {
-  curl -s --max-time 10 "${URL}/mcloud/grid/admin/DevicesServlet" | python3 -c "import json, sys
+  curl -s --max-time 10 -H "Authorization: Bearer ${STF_TOKEN}" "${URL}/mcloud/grid/admin/DevicesServlet" | python3 -c "import json, sys
 sys.exit(0 if any(d['udid'] == sys.argv[1] and d['status'] == 'free' for d in json.load(sys.stdin)['value']) else 1)" \
     "$ADB_ADDRESS"
 }
@@ -240,13 +240,16 @@ check "nodes check of the node" "0" "$?"
 echo "$output" > "${LOGS}/nodes-check.log"
 check_contains "stf-proxy reaches the screen of the device" "reachable" "$(grep "^${ADB_ADDRESS} " <<< "$output")"
 run_check "the device is free in the grid" wait_for 300 grid_free
-python3 - "${URL}/mcloud/wd/hub" "$ADB_ADDRESS" "$APP" > "${WORK}/session.txt" 2> "${LOGS}/session.err" << 'EOF'
-import json, ssl, sys, time, urllib.request
+# the access token of the user in the URL of the hub, as the clients of Selenium send it (README.md#access-to-the-grid)
+STF_TOKEN="$STF_TOKEN" python3 - "${URL}/mcloud/wd/hub" "$ADB_ADDRESS" "$APP" > "${WORK}/session.txt" 2> "${LOGS}/session.err" << 'EOF'
+import base64, json, os, ssl, sys, time, urllib.request
 hub, udid, app = sys.argv[1:]
+authorization = "Basic " + base64.b64encode(("e2e:" + os.environ["STF_TOKEN"]).encode()).decode()
 # the self-signed certificate of stf-proxy of this run
 context = ssl._create_unverified_context()
 def call(method, path, body=None):
-    request = urllib.request.Request(hub + path, method=method, headers={"Content-Type": "application/json"},
+    request = urllib.request.Request(hub + path, method=method,
+                                     headers={"Content-Type": "application/json", "Authorization": authorization},
                                      data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(request, timeout=900, context=context) as response:
         return json.load(response)["value"]

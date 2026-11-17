@@ -49,7 +49,7 @@ Every node (a Linux or macOS host with Android and iOS devices, [mcloud-agent](h
 2. On the node: `./zebrunner.sh setup` of mcloud-agent, then `./zebrunner.sh join` with the join string, the devices of the node in its settings, `./zebrunner.sh ansible` and `zebrunner-farm start`, as mcloud-agent describes; `./zebrunner.sh doctor` of mcloud-agent checks the node.
 3. On the server: `./zebrunner.sh nodes check <label>` shows the node, its devices in STF and whether the server reaches their screens, see [Diagnostics](#diagnostics).
 
-Use `https://<host>:<port>/mcloud/grid/console` to see the devices of the grid and `https://<host>:<port>/mcloud/wd/hub` as the Selenium/Appium hub URL for test automation. Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
+Use `https://<host>:<port>/mcloud/grid/console` to see the devices of the grid (signed in to STF) and `https://<user>:<token>@<host>:<port>/mcloud/wd/hub` as the Selenium/Appium hub URL for test automation, with an access token of the user in STF (Settings, Keys), see [Access to the grid](#access-to-the-grid). Follow the installation and configuration guide in [Zebrunner CE](https://zebrunner.github.io/community-edition) to reuse MCloud components effectively for Test Automation.
 
 The commands of `./zebrunner.sh`:
 
@@ -89,13 +89,14 @@ The commands of `./zebrunner.sh`:
 | `AUTH_SYSTEM` | `auth-mock` | the sign-in unit of STF: `auth-mock`, `auth-oauth2` or `auth-ldap` of the [setup](#sign-in), `auth-zebrunner` in [Zebrunner CE](#zebrunner-ce) by default |
 | `AUTH_URL` | `auth/mock/` | the path of the sign-in: `auth/mock/`, `auth/oauth/`, `auth/ldap/`, `auth/zebrunner/` |
 
-`variables.env`, the settings of the STF units and of the grid: the STF units get all of them, the grid only `STF_TOKEN` and `PLAYWRIGHT_ENABLED`, which `setup` and `start` copy into `grid.env` (its env file, readable for its owner only), so it gets none of the other secrets; change them in `variables.env`, then `./zebrunner.sh restart`:
+`variables.env`, the settings of the STF units and of the grid: the STF units get all of them, the grid only `STF_TOKEN`, `PLAYWRIGHT_ENABLED` and `GRID_AUTH_SECRET`, which `setup` and `start` copy into `grid.env` (its env file, readable for its owner only), so it gets none of the other secrets; change them in `variables.env`, then `./zebrunner.sh restart`:
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SECRET` | generated | the secret of the sessions and the access tokens of STF; the setup generates it once, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
 | `STF_STORAGE_TOKEN` | generated | the internal token of the STF units: the storage, the triproxies and the internal routes of the registry of the nodes; the nodes use their own tokens |
 | `STF_TOKEN` | | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it |
+| `GRID_AUTH_SECRET` | generated | the secret `stf-proxy` gives the grid with the users of STF it let in, see [Access to the grid](#access-to-the-grid); `setup` generates it once (`start` too for a `variables.env` of an earlier MCloud) and writes it into `grid.env` and `configuration/stf-proxy/grid-auth.conf` |
 | `STF_URL` | the setup | the public URL of MCloud, `STF_URL` of `.env`, also the one the enrollment gives the nodes |
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
 | `STF_ADMIN_NAME`, `STF_ADMIN_EMAIL` | `admin`, `admin@zebrunner.com` | the administrator of STF, the owner of the root group |
@@ -191,13 +192,36 @@ The ports of the host and who needs them; close the others:
 
 `AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
-### Basic authentication of the grid
+### Access to the grid
 
-The hub, the console and the Playwright sessions of `/mcloud` ask a user and a password while `configuration/stf-proxy/htpasswd/mcloud.htpasswd` exists, see [configuration/stf-proxy/htpasswd](configuration/stf-proxy/htpasswd/README.md); `setup` and `start` keep it on. The port of the nodes (`4446`) serves the registration of the nodes only, so the hub and the console are behind the authentication there too.
+The grid (`/mcloud`) is for the users of STF only. A test gives the access token of its user in STF (Settings, Keys of STF) in the URL of the hub, the clients of Selenium, Appium and WebdriverIO send it as `Authorization: Basic`; any other client sends `Authorization: Bearer <token>`:
+
+```text
+https://<user>:<token>@<host>:<port>/mcloud/wd/hub
+```
+
+`<user>` is any name, STF knows the user by the token; the clients take no `@` there (an email needs `%40`).
+
+`stf-proxy` asks `stf-api` about every request of the grid (`auth_request` of `/api/v1/zebrunner/hub-auth`, see [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#grid-authentication)) and lets it in with the user STF answered:
+
+| Path | Who | Without |
+| --- | --- | --- |
+| `/mcloud/wd/hub/status` | anyone: the status of the hub, for a monitoring | |
+| `/mcloud/wd/hub`, `/mcloud/playwright/<session id>`, `POST /mcloud/grid/admin/TerminateSessionServlet` | a user with an access token | `401`, an error of WebDriver |
+| `/mcloud/grid/console` | a user signed in to STF (or an access token) | the sign-in of STF |
+| `/mcloud/grid/admin/DevicesServlet`, `/mcloud/grid/admin/AllSessionsServlet` | a user signed in to STF or with an access token | `401` |
+| `/mcloud/grid/admin/MetricsServlet` | an admin of STF (Prometheus: an access token of an admin as `Bearer`) | `401`, `403` for a user |
+| the other paths of `/mcloud` (the API of the hub, the registration of the nodes) | nobody | `404` |
+
+- The hub takes the access token only, never the session cookie of STF: a page of another site would start sessions with it; a `401` asks for a `Bearer` token, so a browser asks no password and keeps none for the pages of other sites.
+- The grid gets the user (`X-MCloud-User`, `X-MCloud-Admin`, `X-MCloud-Token`) with `GRID_AUTH_SECRET` of `variables.env` (`X-MCloud-Auth`, `configuration/stf-proxy/grid-auth.conf` of `stf-proxy`), and trusts these headers only with it; never the `Authorization` or the `Cookie` of the client, nor gives them to a node. See [Authentication of the users of mcloud-grid](https://github.com/zebrunner/mcloud-grid#authentication-of-the-users).
+- A session belongs to its user: the commands of the session of another user are answered `404` (an unknown session), an admin of STF uses any session; the console and `DevicesServlet` show whose a session is, its details to its user only. The device of a session is reserved in STF with the token of its user, so the groups of STF apply; a device the user reserved in STF before stays reserved after the session. A capability `zebrunner:STF_TOKEN` is not needed any more (another token than the one of the URL is refused).
+- STF keeps the user of a token for 30 s: a removed access token or a changed privilege takes effect within that time.
+- The port of the nodes (`4446`) serves the registration of the nodes only. A `configuration/stf-proxy/nginx.conf` of an earlier MCloud does not send the users to the grid: `./zebrunner.sh start` refuses it and starts nothing until `./zebrunner.sh setup` writes the new one; the htpasswd file of the basic authentication of an earlier MCloud (`configuration/stf-proxy/htpasswd/mcloud.htpasswd`) is not used any more, `start` warns about it.
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -279,7 +303,8 @@ What the enrollment gives:
 - the address of a node is the one of the admin, never one the node reports: the grid takes a node token only for an Appium node at that address, a device is bound to the node only with a proof of the token of the node (an HMAC) and at that address, the screens and the remote debug relay go to the registered address only, so a node cannot point the server at another host;
 - the screens are served to the user of the device only, and `stf-proxy` never passes the session cookie, the access token or the `X-Stf-*` headers of the user to the node;
 - `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` gets it alone;
-- `stf-proxy` refuses the internal routes of the registry (`/api/v1/zebrunner/nodes`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) with `403`.
+- `stf-proxy` refuses the internal routes of the registry (`/api/v1/zebrunner/nodes`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) and the decision about the grid (`/api/v1/zebrunner/hub-auth`) with `403`;
+- the grid is for the users of STF only, each with the own sessions, and a node never gets their tokens or cookies, see [Access to the grid](#access-to-the-grid).
 
 The risks that stay:
 
@@ -317,13 +342,14 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 | `POST /api/v1/nodes/enroll` | the enrollment of a node with its invite, limited to 6 a minute per address (a burst of 3, then `429`), see [Nodes](#nodes) |
 | `GET /api/v1/nodes/self` | the record of a node and its devices, with the token of the node (`./zebrunner.sh doctor` of mcloud-agent), limited to 30 a minute per address (a burst of 10, then `429`) |
 | `/d/<address of the node>/<serial>/<port>/` | the screen of a device, see [Screens of the devices](#screens-of-the-devices) |
-| `/mcloud/wd/hub` | the Selenium/Appium hub URL |
-| `/mcloud/playwright/<session id>` | the WebSocket of a Playwright session of the grid, see [Playwright](#playwright) |
-| `/mcloud/grid/console` | the grid console with the devices |
-| `/mcloud/grid/admin/DevicesServlet` | the devices of the grid as JSON: their status and sessions |
-| `/mcloud/grid/admin/AllSessionsServlet` | the active sessions as JSON |
-| `/mcloud/grid/admin/MetricsServlet` | the Prometheus metrics of the grid |
-| `POST /mcloud/grid/admin/TerminateSessionServlet` | terminates the session of a device, see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#terminating-a-session) |
+| `/mcloud/wd/hub` | the Selenium/Appium hub URL, with an access token of STF: `https://<user>:<token>@<host>:<port>/mcloud/wd/hub`, see [Access to the grid](#access-to-the-grid) |
+| `/mcloud/wd/hub/status` | the status of the hub, without a user |
+| `/mcloud/playwright/<session id>` | the WebSocket of a Playwright session of the grid with the access token of its user, see [Playwright](#playwright) |
+| `/mcloud/grid/console` | the grid console with the devices, for the users signed in to STF |
+| `/mcloud/grid/admin/DevicesServlet` | the devices of the grid as JSON: their status and sessions (the details of the own sessions) |
+| `/mcloud/grid/admin/AllSessionsServlet` | the own active sessions as JSON, all of them for an admin |
+| `/mcloud/grid/admin/MetricsServlet` | the Prometheus metrics of the grid, for an admin of STF |
+| `POST /mcloud/grid/admin/TerminateSessionServlet` | terminates a session with the access token of its user (or of an admin), see [mcloud-grid](https://github.com/zebrunner/mcloud-grid#terminating-a-session) |
 
 ## Playwright
 
@@ -333,7 +359,8 @@ The test starts an Appium session of the `Playwright` automation through the gri
 
 ```js
 // POST /mcloud/wd/hub/session {"capabilities": {"alwaysMatch": {"platformName": "Android", "appium:automationName": "Playwright"}}}
-const device = await _android.connect(`wss://mcloud.example.com/mcloud/playwright/${sessionId}`);
+// with the access token of the user of STF in Authorization: Basic base64(<user>:<token>), on the WebSocket too
+const device = await _android.connect(`wss://mcloud.example.com/mcloud/playwright/${sessionId}`, {headers: {authorization}});
 const context = await device.launchBrowser(); // Chrome of the device
 // ... the tests; then DELETE /mcloud/wd/hub/session/<sessionId>
 ```
@@ -341,7 +368,7 @@ const context = await device.launchBrowser(); // Chrome of the device
 [examples/playwright](examples/playwright) has the fixtures of `@playwright/test`: every worker takes a device (`MCLOUD_DEVICES` workers, the devices in parallel) and returns it after its tests, the tests get Chrome of the device as `page` and `context`, the device itself as `device`; the capabilities of the grid select the devices (`MCLOUD_CAPS`, e.g. `{"appium:platformVersion": "14+"}`). Run it from CI:
 
 ```bash
-cd examples/playwright && npm ci && MCLOUD_URL=https://mcloud.example.com MCLOUD_DEVICES=2 npx playwright test
+cd examples/playwright && npm ci && MCLOUD_URL=https://<user>:<token>@mcloud.example.com MCLOUD_DEVICES=2 npx playwright test
 ```
 
 - Any Playwright version works: the node serves the version of the client and installs another one on its first use (the device host needs the npm registry), see [zebrunner/appium](https://github.com/zebrunner/appium#playwright).
@@ -354,7 +381,7 @@ cd examples/playwright && npm ci && MCLOUD_URL=https://mcloud.example.com MCLOUD
 An MCloud release works with mcloud-agent of the same release only (the images of the nodes, the enrollment): update the server and all the nodes together.
 
 1. Update the repository: `git pull`.
-2. Run `./zebrunner.sh setup`: it keeps the settings of the previous setup and generates the missing ones.
+2. Run `./zebrunner.sh setup`: it keeps the settings of the previous setup and generates the missing ones (e.g. `GRID_AUTH_SECRET`), and writes the new `configuration/stf-proxy/nginx.conf`. From the release with the [access to the grid](#access-to-the-grid) on, the tests give the access token of their user in the URL of the hub.
 3. Restart the services: `./zebrunner.sh restart`; `stf-migrate` updates the tables of the database.
 4. Update mcloud-agent of every node to the same release, see its README; a node of a release without the enrollment is enrolled as a new one ([Enrollment](#enrollment)).
 
@@ -380,7 +407,11 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | the screen of a device stays gray; `nodes check` shows `NOT REACHABLE` | `stf-proxy` does not reach `<address of the node>:<screen port>`: the address of the invite is not the one the server reaches the node at (a new invite with the right address), the firewall of the node closes the ports of its devices for the server, or a public address inside the LAN (NAT hairpin, use the LAN address) |
 | the screen of a device stays gray, `/d/<node>/...` answers `403` | `stf-api` refuses it: the user does not use the device, the device is not bound to an active node, or the host or the port of the URL are not the address of its node and its screen port (see [Screens of the devices](#screens-of-the-devices)); `401`: the user is not signed in; `500`: the STF of `TAG_STF` has no `/api/v1/zebrunner/screen-auth` |
 | the screenshots or the app installs of the devices fail with `401` / `403` | the storage refuses the token of the node: the node is revoked or its containers run with an old token (`./zebrunner.sh ansible` and `zebrunner-farm restart` on the node); `self-signed certificate` in the logs of `stf-storage-plugin-image` or `stf-storage-plugin-apk`: the STF units do not trust the certificate of `STF_URL`, see [https](#https) |
-| `grid.env is not writable`, `./zebrunner.sh start` starts nothing | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f grid.env`) and `./zebrunner.sh start`, which writes it again from `variables.env` |
+| `grid.env is not writable` or `configuration/stf-proxy/grid-auth.conf is not writable`, `./zebrunner.sh start` starts nothing | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f grid.env`, `rm -f configuration/stf-proxy/grid-auth.conf`) and `./zebrunner.sh start`, which writes it again from `variables.env` |
+| a test gets `401` from the hub: `MCloud takes the requests of its users` | the URL of the hub has no access token of STF, or one that STF does not know (removed, of another `SECRET`): `https://<user>:<token>@<host>:<port>/mcloud/wd/hub` with a token of Settings, Keys of STF, see [Access to the grid](#access-to-the-grid) |
+| a test gets `401` from the grid itself (`The hub takes the requests of the users of MCloud`), the requests through `stf-proxy` fail | `stf-proxy` and the grid have different `GRID_AUTH_SECRET` (`configuration/stf-proxy/grid-auth.conf`, `grid.env`), or the grid is reached without `stf-proxy`: `./zebrunner.sh restart` writes both from `variables.env` |
+| `./zebrunner.sh start` starts nothing: `configuration/stf-proxy/nginx.conf is the one of an earlier MCloud` | the setup of an earlier MCloud wrote the configuration of `stf-proxy`, without the access to the grid (the grid would be open): `./zebrunner.sh setup` writes the new one (`nginx.conf.previous` keeps the old one), then `./zebrunner.sh start` |
+| a session fails with `The capability 'zebrunner:STF_TOKEN' is not the access token of the URL of the hub` | the test gives another token in the capability than in the URL: remove the capability, the device is reserved with the token of the URL |
 | `configuration/adb-relay/stf-token is not writable` | the file was written by root (`sudo ./zebrunner.sh ...`): remove it (`rm -f configuration/adb-relay/stf-token`) and `./zebrunner.sh restart`; `adb-relay` keeps the token it has until then |
 | `adb connect` of STF to a device of a node in a private network times out or fails | `REMOTE_CONNECT_HOST` of mcloud-agent is not the public name of MCloud, the relay skips the port or the firewall of the server closes it, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay): `docker logs adb-relay` lists the relayed devices and the skipped ones with the reason (e.g. a port out of `ADB_RELAY_PORTS`, a port of two devices), a new device is relayed within `ADB_RELAY_SYNC_SECONDS`; it also shows the sessions and why a node refused one |
 | `docker logs adb-relay` shows `The STF API ... failed` or `answered without devices` | the relay does not read the devices: `401` is an invalid `STF_TOKEN` of `variables.env` (a new access token of STF, Settings, Keys, then `./zebrunner.sh start` writes it into `configuration/adb-relay/stf-token`), `403` a token of a user that is not an admin, `404` an STF of `TAG_STF` without the registry of the nodes; a failed connection is `stf-proxy` not running or not with the scheme of `STF_URL` (http or https); the relay keeps its devices until the next successful sync |
