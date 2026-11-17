@@ -55,7 +55,7 @@ The commands of `./zebrunner.sh`:
 
 | Command | What it does |
 | --- | --- |
-| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept, a `nginx.conf` changed by hand is kept as `nginx.conf.previous` (its changes are made again in the new one) |
+| `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept, a `nginx.conf` changed by hand is kept as `nginx.conf.previous` (its changes are made again in the new one, see [Security headers](#security-headers)) |
 | `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty and while `AGENTS_ADDRESS` is `0.0.0.0`; the first start (no `.env` yet) runs `setup` instead and exits with `1` without starting the services: run `./zebrunner.sh start` again |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
@@ -132,7 +132,7 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 ### Security headers
 
-`stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`; `./zebrunner.sh setup` writes it again from `nginx.conf.original` and keeps the changed one as `nginx.conf.previous`.
+`stf-proxy` adds `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` to every response and removes `X-Powered-By`: MCloud is not embedded into the pages of other sites. A site that frames MCloud (e.g. another host of Zebrunner) needs `frame-ancestors 'self' https://<host>` instead and no `X-Frame-Options` in `configuration/stf-proxy/nginx.conf`; `./zebrunner.sh setup` writes it again from `nginx.conf.original` and keeps the changed one as `nginx.conf.previous`. The setup stores the SHA-256 of the `nginx.conf` it writes in `configuration/stf-proxy/nginx.conf.sha256` (`backup` and `restore` copy it with `nginx.conf`): the previous `nginx.conf` is a changed one only when its checksum is another one, so a change of the protocol or a new `nginx.conf.original` of an upgrade keeps no `nginx.conf.previous`. Without the checksum (the first setup after the upgrade from a release without it) a `nginx.conf` other than the one of the current `nginx.conf.original` for http or https is taken as changed.
 
 ### Authentication of the nodes
 

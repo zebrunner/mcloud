@@ -149,22 +149,15 @@ setup() {
     printf '%s\n' "$added" >> variables.env
   fi
 
-  # a changed configuration of the previous setup is kept aside: its changes are made again in the new one
+  # a configuration of the previous setup changed by hand is kept aside: its changes are made again in the new one; the
+  # differences the setup made itself (the protocol, a new nginx.conf.original) are not changes by hand
   local previous_conf=""
-  if [[ -f configuration/stf-proxy/nginx.conf ]]; then
+  if [[ -f configuration/stf-proxy/nginx.conf ]] && ! nginx_conf_generated; then
     previous_conf="$(< configuration/stf-proxy/nginx.conf)"
   fi
-  cp configuration/stf-proxy/nginx.conf.original configuration/stf-proxy/nginx.conf
-  # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
-  if [[ "$ZBR_PROTOCOL" == "https" ]]; then
-    replace configuration/stf-proxy/nginx.conf "listen 80" "listen 80 ssl"
-
-    # uncomment the default ssl settings
-    replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
-  fi
-  local new_conf
-  new_conf="$(< configuration/stf-proxy/nginx.conf)"
-  if [[ -n "$previous_conf" && "$previous_conf" != "$new_conf" ]]; then
+  nginx_conf "$ZBR_PROTOCOL" > configuration/stf-proxy/nginx.conf
+  file_sha256 configuration/stf-proxy/nginx.conf > configuration/stf-proxy/nginx.conf.sha256
+  if [[ -n "$previous_conf" && "$previous_conf" != "$(< configuration/stf-proxy/nginx.conf)" ]]; then
     printf '%s\n' "$previous_conf" > configuration/stf-proxy/nginx.conf.previous
     echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one."
   fi
@@ -221,11 +214,12 @@ shutdown() {
   rm -f backup/settings.env
   rm -f .env
   rm -f variables.env
-  rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous
+  rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256
   rm -f configuration/adb-relay/stf-token
   rm -f grid.env configuration/stf-proxy/grid-auth.conf
   # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
-  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak
+  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
+    configuration/stf-proxy/nginx.conf.sha256.bak
   # the certificate of https is the one of the user (README.md#https), it is kept with its copies; the archive of the
   # database (backup/rethinkdb.tar.gz) too, the user removes it
 }
@@ -330,6 +324,12 @@ backup() {
   cp .env .env.bak
   cp backup/settings.env backup/settings.env.bak
   cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
+  # the checksum of the configuration the setup wrote goes with it (nginx_conf_generated)
+  if [[ -f configuration/stf-proxy/nginx.conf.sha256 ]]; then
+    cp configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/nginx.conf.sha256.bak
+  else
+    rm -f configuration/stf-proxy/nginx.conf.sha256.bak
+  fi
 
   if [[ -f configuration/stf-proxy/ssl/ssl.crt ]]; then
     cp configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak
@@ -383,6 +383,11 @@ restore() {
   cp .env.bak .env
   cp backup/settings.env.bak backup/settings.env
   cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
+  if [[ -f configuration/stf-proxy/nginx.conf.sha256.bak ]]; then
+    cp configuration/stf-proxy/nginx.conf.sha256.bak configuration/stf-proxy/nginx.conf.sha256
+  else
+    rm -f configuration/stf-proxy/nginx.conf.sha256
+  fi
 
   if [[ -f configuration/stf-proxy/ssl/ssl.crt.bak ]]; then
     cp configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.crt
@@ -818,6 +823,7 @@ protect_files() {
   fi
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf.previous \
+    configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/nginx.conf.sha256.bak \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak grid.env configuration/stf-proxy/grid-auth.conf \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
@@ -909,6 +915,31 @@ certificate_mismatch() {
   local dir="configuration/stf-proxy/ssl"
   command -v openssl > /dev/null 2>&1 &&
     [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]
+}
+
+# nginx_conf <protocol>: the configuration of stf-proxy the setup writes, from nginx.conf.original
+nginx_conf() {
+  local conf
+  conf="$(< configuration/stf-proxy/nginx.conf.original)"
+  # the ssl protocol of the default NGiNX configuration with the certificate of set_certificate
+  if [[ "$1" == "https" ]]; then
+    conf=${conf//"listen 80"/"listen 80 ssl"}
+    # uncomment the default ssl settings
+    conf=${conf//"#    ssl_"/"    ssl_"}
+  fi
+  printf '%s\n' "$conf"
+}
+
+# nginx_conf_generated: configuration/stf-proxy/nginx.conf is the one a setup wrote, its checksum is the one the setup
+# stored; without the checksum (a setup of an earlier MCloud) it is the one of the current nginx.conf.original
+nginx_conf_generated() {
+  local conf
+  if [[ -f configuration/stf-proxy/nginx.conf.sha256 ]]; then
+    [[ "$(file_sha256 configuration/stf-proxy/nginx.conf)" == "$(< configuration/stf-proxy/nginx.conf.sha256)" ]]
+    return
+  fi
+  conf="$(< configuration/stf-proxy/nginx.conf)"
+  [[ "$conf" == "$(nginx_conf http)" || "$conf" == "$(nginx_conf https)" ]]
 }
 
 # check_htpasswd: warns about the htpasswd file of the basic authentication of the grid of an earlier MCloud: the access

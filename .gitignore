@@ -19,6 +19,7 @@ variables.env
 grid.env
 configuration/stf-proxy/nginx.conf
 configuration/stf-proxy/nginx.conf.previous
+configuration/stf-proxy/nginx.conf.sha256
 configuration/adb-relay/stf-token
 configuration/stf-proxy/grid-auth.conf
 # the basic authentication of the grid of an earlier MCloud
