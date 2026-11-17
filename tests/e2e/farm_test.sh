@@ -253,8 +253,9 @@ def call(method, path, body=None):
                                      data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(request, timeout=900, context=context) as response:
         return json.load(response)["value"]
+# a reservation of 60 s in STF: the grid keeps it every 30 s while the session runs
 caps = {"platformName": "android", "appium:automationName": "UiAutomator2", "appium:udid": udid, "appium:app": app,
-        "appium:newCommandTimeout": 120}
+        "appium:newCommandTimeout": 120, "zebrunner:STF_TIMEOUT": 60}
 session = call("POST", "/session", {"capabilities": {"alwaysMatch": caps}})["sessionId"]
 print("session=" + session)
 print("source=%d" % ("API Demos" in call("GET", "/session/%s/source" % session)))
@@ -267,6 +268,9 @@ for name in ["Views", "Text", "Graphics", "Animation", "App", "Views"]:
     call("POST", "/session/%s/back" % session, {})
     time.sleep(1)
 print("navigated=1")
+# longer than the reservation without a command: the device stays the one of the session
+time.sleep(100)
+print("kept=%d" % ("API Demos" in call("GET", "/session/%s/source" % session)))
 call("DELETE", "/session/%s" % session)
 print("deleted=1")
 EOF
@@ -275,6 +279,7 @@ SESSION_ID="$(sed -n 's/^session=//p' "${WORK}/session.txt")"
 check "the page source of the app" "1" "$(sed -n 's/^source=//p' "${WORK}/session.txt")"
 check "a screenshot of the device" "true" "$([[ "$(sed -n 's/^screenshot=//p' "${WORK}/session.txt")" -gt 1000 ]] && echo true || echo false)"
 check "the app is navigated" "1" "$(sed -n 's/^navigated=//p' "${WORK}/session.txt")"
+check "the grid keeps the reservation of a session longer than its timeout in STF" "1" "$(sed -n 's/^kept=//p' "${WORK}/session.txt")"
 check "the session ends" "1" "$(sed -n 's/^deleted=//p' "${WORK}/session.txt")"
 run_check "the device is free again" wait_for 120 grid_free
 
