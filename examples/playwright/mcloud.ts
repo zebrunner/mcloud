@@ -1,10 +1,10 @@
 // The Playwright fixtures of MCloud (README.md#playwright): every worker of Playwright takes an Android device of the
 // farm for its tests, the tests get Chrome of the device (page, context) or the device itself (device).
 //
-//   MCLOUD_URL   the address of MCloud, e.g. https://mcloud.example.com (https://user:password@... with the basic
-//                authentication of the grid)
+//   MCLOUD_URL   the address of MCloud with the access token of the user of STF (Settings, Keys of STF):
+//                https://<user>:<token>@mcloud.example.com, see README.md#access-to-the-grid
 //   MCLOUD_CAPS  optional JSON of more capabilities of the device, e.g. {"appium:platformVersion": "14+"} or
-//                {"appium:deviceName": "Pixel_8", "zebrunner:STF_TOKEN": "<access token of STF>"}
+//                {"appium:deviceName": "Pixel_8"}
 import {test as base, expect, _android, type AndroidDevice, type BrowserContext, type Page} from '@playwright/test';
 import http from 'node:http';
 import https from 'node:https';

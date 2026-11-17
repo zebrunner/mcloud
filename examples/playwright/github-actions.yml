@@ -1,7 +1,7 @@
 ---
 # An example of a workflow of the repository of the tests (.github/workflows/playwright.yml there): the Playwright tests
-# on the Android devices of MCloud; MCLOUD_URL is a secret of the repository (with user:password@ of the basic
-# authentication of the grid, when it has one)
+# on the Android devices of MCloud; MCLOUD_URL is a secret of the repository, with the access token of a user of STF:
+# https://<user>:<token>@mcloud.example.com (README.md#access-to-the-grid of mcloud)
 name: playwright
 
 on:

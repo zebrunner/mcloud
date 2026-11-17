@@ -15,6 +15,10 @@ http {
 
   server_tokens off;
 
+  # $grid_auth_secret: the secret the grid takes the users of this proxy with, GRID_AUTH_SECRET of variables.env;
+  # ./zebrunner.sh setup and start write it
+  include /etc/nginx/grid-auth.conf;
+
   # the scheme of the client for STF (a Secure session cookie behind https): the one of a proxy in front
   # of this one (e.g. the nginx of Zebrunner CE), otherwise the one of this server
   map $http_x_forwarded_proto $forwarded_proto {
@@ -57,19 +61,51 @@ http {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Content-Security-Policy "frame-ancestors 'self'" always;
 
-    # MCloud
+    # MCloud: the grid lets in the users of STF only (README.md#access-to-the-grid). stf-api decides about every request
+    # (/_hub_auth/<scope>): the hub, the Playwright sessions and the termination of a session take an access token of
+    # the user (https://<user>:<token>@<host>/mcloud/wd/hub, or Bearer <token>), the console and the devices also the
+    # session cookie of STF, the metrics an admin. The grid gets the user of the decision with the secret of this proxy
+    # (configuration/stf-proxy/grid-auth.conf), never the Authorization or the Cookie of the client: it would pass them
+    # on to the nodes
+
+    # the status of the hub, the healthcheck of a monitoring: no user, nothing of the devices
+    location = /mcloud/wd/hub/status {
+      set $upstream_hub mcloud-grid:4444;
+      proxy_pass http://$upstream_hub/wd/hub/status;
+      proxy_http_version 1.1;
+      proxy_pass_request_headers off;
+      add_header Access-Control-Allow-Origin "*";
+      add_header Referrer-Policy "no-referrer" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header Content-Security-Policy "frame-ancestors 'self'" always;
+    }
+
     location  ~ ^/mcloud/wd/(.*)$ {
-      #auth_basic "Private MCloud Selenium Hub";
-      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+      # the preflight of a client in a browser has no credential
+      if ($request_method = OPTIONS) {
+        return 204;
+      }
+      auth_request /_hub_auth/hub;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @hub_unauthorized;
 
       set $upstream_hub mcloud-grid:4444;
-      proxy_pass http://$upstream_hub/wd/$1;
+      proxy_pass http://$upstream_hub/wd/$1$is_args$args;
       proxy_http_version 1.1;
 
       proxy_set_header        Connection "";
       proxy_set_header        Host $host;
       proxy_set_header        X-Real-IP $remote_addr;
       proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header        Authorization "";
+      proxy_set_header        Cookie "";
+      proxy_set_header        X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header        X-MCloud-User $hub_user;
+      proxy_set_header        X-MCloud-Admin $hub_admin;
+      proxy_set_header        X-MCloud-Token $hub_token;
       proxy_connect_timeout   120;
       proxy_send_timeout      1200;
       proxy_read_timeout      1200;
@@ -93,8 +129,11 @@ http {
     # the WebSocket of a Playwright session of the grid: /mcloud/playwright/<session id>, see README.md#playwright; the
     # grid passes it on to the node of the session, the WebSocket lives as long as the test (the grid pings both sides)
     location ~ ^/mcloud/playwright/([^/]+)$ {
-      #auth_basic "Private MCloud Selenium Hub";
-      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+      auth_request /_hub_auth/hub;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @hub_unauthorized;
 
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/grid/admin/PlaywrightServlet/$1;
@@ -104,23 +143,139 @@ http {
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header Authorization "";
+      proxy_set_header Cookie "";
+      proxy_set_header X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header X-MCloud-User $hub_user;
+      proxy_set_header X-MCloud-Admin $hub_admin;
+      proxy_set_header X-MCloud-Token $hub_token;
       proxy_connect_timeout 60;
       proxy_send_timeout    3600;
       proxy_read_timeout    3600;
       proxy_buffering off;
     }
 
-    location  ~ ^/mcloud/?(.*)$ {
-      #auth_basic "Private MCloud Selenium Hub";
-      #auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;
+    # the termination of a session (an access token: STF releases the device with it)
+    location ~ ^/mcloud/grid/admin/TerminateSessionServlet/?$ {
+      auth_request /_hub_auth/hub;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @hub_unauthorized;
 
       set $upstream_hub mcloud-grid:4444;
-      proxy_pass http://$upstream_hub/$1;
+      proxy_pass http://$upstream_hub/grid/admin/TerminateSessionServlet$is_args$args;
       proxy_http_version 1.1;
-
+      proxy_set_header Authorization "";
+      proxy_set_header Cookie "";
+      proxy_set_header X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header X-MCloud-User $hub_user;
+      proxy_set_header X-MCloud-Admin $hub_admin;
+      proxy_set_header X-MCloud-Token $hub_token;
       proxy_connect_timeout   60;
       proxy_send_timeout      300;
       proxy_read_timeout      300;
+    }
+
+    # the console of the grid for a signed-in user of STF, the sign-in otherwise
+    location ~ ^/mcloud/grid/console/?$ {
+      auth_request /_hub_auth/console;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @console_sign_in;
+
+      set $upstream_hub mcloud-grid:4444;
+      proxy_pass http://$upstream_hub/grid/console$is_args$args;
+      proxy_http_version 1.1;
+      proxy_set_header Authorization "";
+      proxy_set_header Cookie "";
+      proxy_set_header X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header X-MCloud-User $hub_user;
+      proxy_set_header X-MCloud-Admin $hub_admin;
+      proxy_set_header X-MCloud-Token $hub_token;
+      proxy_connect_timeout   60;
+      proxy_send_timeout      300;
+      proxy_read_timeout      300;
+    }
+
+    # the devices and the sessions of the grid as JSON: a user sees the own sessions, an admin all of them
+    location ~ ^/mcloud/grid/admin/(?<grid_servlet>DevicesServlet|AllSessionsServlet)/?$ {
+      auth_request /_hub_auth/console;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @hub_unauthorized;
+
+      set $upstream_hub mcloud-grid:4444;
+      proxy_pass http://$upstream_hub/grid/admin/$grid_servlet$is_args$args;
+      proxy_http_version 1.1;
+      proxy_set_header Authorization "";
+      proxy_set_header Cookie "";
+      proxy_set_header X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header X-MCloud-User $hub_user;
+      proxy_set_header X-MCloud-Admin $hub_admin;
+      proxy_set_header X-MCloud-Token $hub_token;
+      proxy_connect_timeout   60;
+      proxy_send_timeout      300;
+      proxy_read_timeout      300;
+    }
+
+    # the metrics of the grid for an admin (Prometheus: an access token of an admin as Bearer)
+    location ~ ^/mcloud/grid/admin/MetricsServlet/?$ {
+      auth_request /_hub_auth/admin;
+      auth_request_set $hub_user $upstream_http_x_mcloud_user;
+      auth_request_set $hub_admin $upstream_http_x_mcloud_admin;
+      auth_request_set $hub_token $upstream_http_x_mcloud_token;
+      error_page 401 = @hub_unauthorized;
+
+      set $upstream_hub mcloud-grid:4444;
+      proxy_pass http://$upstream_hub/grid/admin/MetricsServlet$is_args$args;
+      proxy_http_version 1.1;
+      proxy_set_header Authorization "";
+      proxy_set_header Cookie "";
+      proxy_set_header X-MCloud-Auth $grid_auth_secret;
+      proxy_set_header X-MCloud-User $hub_user;
+      proxy_set_header X-MCloud-Admin $hub_admin;
+      proxy_set_header X-MCloud-Token $hub_token;
+      proxy_connect_timeout   60;
+      proxy_send_timeout      300;
+      proxy_read_timeout      300;
+    }
+
+    # the other routes of the hub (its API, the registration of the nodes, /lifecycle-manager) are not for the users
+    location /mcloud {
+      return 404;
+    }
+
+    # the decision of stf-api about a request of the grid: the access token of the request (its Authorization) or the
+    # session cookie of STF; 2xx lets the request in with the user in X-MCloud-*, 401 and 403 refuse it
+    location ~ ^/_hub_auth/(?<hub_scope>hub|console|admin)$ {
+      internal;
+      set $upstream_hub_auth stf-api:3000;
+      proxy_pass http://$upstream_hub_auth/api/v1/zebrunner/hub-auth?scope=$hub_scope;
+      proxy_pass_request_body off;
+      proxy_pass_request_headers off;
+      proxy_set_header Content-Length "";
+      proxy_set_header Cookie $http_cookie;
+      proxy_set_header Authorization $http_authorization;
+      proxy_set_header Host stf-proxy;
+      proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # a client of the hub without a valid access token: the error of WebDriver, no Basic challenge, so a browser does
+    # not ask for a password and send it to the hub from the pages of other sites
+    location @hub_unauthorized {
+      default_type application/json;
+      add_header WWW-Authenticate 'Bearer realm="MCloud"' always;
+      add_header Referrer-Policy "no-referrer" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      return 401 '{"value":{"error":"unknown error","message":"MCloud takes the requests of its users: the STF access token in the URL of the hub, https://<user>:<token>@<host>/mcloud/wd/hub (Settings, Keys of STF)","stacktrace":""}}';
+    }
+
+    # the console without a sign-in: the sign-in of STF
+    location @console_sign_in {
+      return 302 $forwarded_proto://$http_host/;
     }
 
     # the screens of the devices: the WebSocket of the STF provider of a node on a port 1024-65535. stf-api allows it
@@ -165,8 +320,9 @@ http {
     }
 
     # the internal routes of the registry of the nodes: the triproxies and the storage read them on stf-api:3000, never
-    # through stf-proxy. Case-insensitive and with any suffix, as the router of the API matches the path
-    location ~* ^/api/v1/zebrunner/nodes {
+    # through stf-proxy, and the decision about the grid (/_hub_auth above). Case-insensitive and with any suffix, as the
+    # router of the API matches the path
+    location ~* ^/api/v1/zebrunner/(nodes|hub-auth) {
       return 403;
     }
 
@@ -262,8 +418,7 @@ http {
   }
 
   # the grid of the nodes (AGENTS_ADDRESS:4446, the grid of the join string): the registration of Appium only, the
-  # grid checks the node token of it. The hub and the console are /mcloud of the server above, behind its basic
-  # authentication
+  # grid checks the node token of it. The hub and the console are /mcloud of the server above, for the users of STF
   server {
     listen 4446;
     server_name stf-proxy-grid;

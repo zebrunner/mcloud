@@ -20,6 +20,8 @@ grid.env
 configuration/stf-proxy/nginx.conf
 configuration/stf-proxy/nginx.conf.previous
 configuration/adb-relay/stf-token
-configuration/stf-proxy/htpasswd/mcloud.htpasswd
+configuration/stf-proxy/grid-auth.conf
+# the basic authentication of the grid of an earlier MCloud
+configuration/stf-proxy/htpasswd/
 configuration/stf-proxy/ssl/ssl.crt
 configuration/stf-proxy/ssl/ssl.key

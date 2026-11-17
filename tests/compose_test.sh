@@ -188,7 +188,7 @@ fi
 
 section "grid"
 check_contains "the hub is ready" '"ready"' "$(curl -s --max-time 10 "${URL}/mcloud/wd/hub/status")"
-check "the grid console" "200" "$(http_code /mcloud/grid/console)"
+check "the grid console sends a user without a sign-in to the sign-in of STF" "302" "$(http_code /mcloud/grid/console)"
 check "the static files of the grid console" "200" "$(http_code /grid/resources/org/openqa/grid/images/consoleservlet.css)"
 check "the content type of the static files" "text/css" \
   "$(curl -s -o /dev/null -w '%{content_type}' --max-time 10 "${URL}/grid/resources/org/openqa/grid/images/consoleservlet.css")"
@@ -202,8 +202,50 @@ for name in SECRET STF_STORAGE_TOKEN RETHINKDB_ENV_AUTHKEY STF_ZMQ_CURVE_SERVER_
   STF_AUTH_MOCK_BASIC_AUTH_PASSWORD; do
   check "the grid does not get ${name}" "" "$(grep "^${name}=" <<< "$grid_env")"
 done
-check "the devices of the grid" "200" "$(http_code /mcloud/grid/admin/DevicesServlet)"
-check_contains "the metrics of the grid" "mcloud_grid_sessions" "$(curl -s --max-time 10 "${URL}/mcloud/grid/admin/MetricsServlet")"
+check_contains "the grid gets GRID_AUTH_SECRET of variables.env" \
+  "GRID_AUTH_SECRET=$(sed -n 's/^GRID_AUTH_SECRET=//p' "${MCLOUD}/variables.env")" "$grid_env"
+
+section "access to the grid"
+# stf-api decides (/api/v1/zebrunner/hub-auth); stf-proxy answers 500 for an STF without it (an older TAG_STF)
+if [[ "$(http_code /mcloud/grid/admin/DevicesServlet -b "$jar")" == "500" ]]; then
+  skip_check "the access to the grid" "the STF of TAG_STF has no /api/v1/zebrunner/hub-auth"
+else
+  check "the grid console of a signed-in user" "200" "$(http_code /mcloud/grid/console -b "$jar")"
+  check "the devices of the grid need a user" "401" "$(http_code /mcloud/grid/admin/DevicesServlet)"
+  check "the devices of the grid of a signed-in user" "200" "$(http_code /mcloud/grid/admin/DevicesServlet -b "$jar")"
+  check "the metrics of the grid are refused to a user" "403" "$(http_code /mcloud/grid/admin/MetricsServlet -b "$jar")"
+  session='{"capabilities":{"alwaysMatch":{"platformName":"Android"}}}'
+  check "the hub needs an access token" "401" "$(http_code /mcloud/wd/hub/session -X POST -d "$session")"
+  check "the hub takes no session cookie" "401" "$(http_code /mcloud/wd/hub/session -X POST -d "$session" -b "$jar")"
+  # an access token of the signed-in user (Settings, Keys of STF)
+  xsrf="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$jar")"
+  token="$(curl -s -b "$jar" --max-time 10 -X POST -H "X-XSRF-TOKEN: ${xsrf}" "${URL}/api/v1/user/accessTokens?title=compose-test" |
+    sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+  check "an access token of the user" "yes" "$([[ -n "$token" ]] && echo yes)"
+  # no node: the grid answers that no device matches, after stf-proxy let the request in
+  check_contains "the hub takes the access token of the user in the URL" "Empty pool of VM for setup" \
+    "$(curl -s --max-time 30 -X POST -H "Content-Type: application/json" -d "$session" \
+      "${URL/:\/\//://tester:${token}@}/mcloud/wd/hub/session")"
+  check "a wrong access token is refused" "401" \
+    "$(http_code /mcloud/wd/hub/session -X POST -d "$session" -u "tester@example.com:wrong-token")"
+  check "the devices of the grid with the access token" "200" \
+    "$(http_code /mcloud/grid/admin/DevicesServlet -H "Authorization: Bearer ${token}")"
+  check "the API of the hub is not for the users" "404" "$(http_code /mcloud/grid/api/hub -H "Authorization: Bearer ${token}")"
+  check "the decision about the grid is not a route of the users" "403" \
+    "$(http_code /api/v1/zebrunner/hub-auth -H "Authorization: Bearer ${token}")"
+  # the grid takes the users of stf-proxy only, not a request of another container of the docker network (a grid of
+  # an older TAG_SELENIUM_HUB has no authentication)
+  if docker logs mcloud-grid 2>&1 | grep -q 'The hub lets in the users of stf-proxy only'; then
+    check "the grid refuses a request without stf-proxy" "401" \
+      "$(docker run --rm --network infra "$(docker inspect --format '{{.Config.Image}}' stf-proxy)" \
+        curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "X-MCloud-User: admin@zebrunner.com" -H "X-MCloud-Admin: true" \
+        http://mcloud-grid:4444/grid/admin/DevicesServlet)"
+  else
+    skip_check "the grid refuses a request without stf-proxy" "the grid of TAG_SELENIUM_HUB has no authentication of the users"
+  fi
+fi
+
+section "the nodes and the grid"
 # an Appium node without a node token registers at the port of the nodes (4446): the grid refuses it (500)
 node='{"capabilities": [{"maxInstances": 1, "platformName": "ANDROID", "udid": "compose-test", "deviceName": "Pixel"}],
   "configuration": {"proxy": "com.zebrunner.mcloud.grid.MobileRemoteProxy", "url": "http://192.0.2.1:4723/wd/hub",
@@ -216,7 +258,7 @@ check "the console is not open on the port of the nodes" "403" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:4446/grid/admin/DevicesServlet)"
 check "the check of a node is open on the port of the nodes" "200" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 'http://127.0.0.1:4446/grid/api/proxy?id=http://192.0.2.1:4723')"
-curl -s -o /dev/null --max-time 10 "${URL}/mcloud/lifecycle-manager?action=shutdown"
+check "/lifecycle-manager is not for the users" "404" "$(http_code '/mcloud/lifecycle-manager?action=shutdown')"
 sleep 2
 check "/lifecycle-manager does not shut the grid down" "200" "$(http_code /mcloud/wd/hub/status)"
 
@@ -286,6 +328,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost -keyout "$
 printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.sh" setup > /dev/null 2>&1
 run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "${HTTPS}/configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 run_check "the configuration of adb-relay" \
   docker run --rm -e NGINX_ENTRYPOINT_QUIET_LOGS=1 -v "${HTTPS}/configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro" \

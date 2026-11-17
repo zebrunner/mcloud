@@ -115,6 +115,10 @@ setup() {
   if [[ -z "$STF_STORAGE_TOKEN" ]]; then
     STF_STORAGE_TOKEN="$(random_string 64)"
   fi
+  # the secret stf-proxy gives the grid with the users of STF (README.md#access-to-the-grid)
+  if [[ -z "$GRID_AUTH_SECRET" ]]; then
+    GRID_AUTH_SECRET="$(random_string 48)"
+  fi
 
   # the variables added to variables.env (e.g. STF_SESSION_TTL_SECONDS) are added again
   local added=""
@@ -158,13 +162,11 @@ setup() {
     # uncomment the default ssl settings
     replace configuration/stf-proxy/nginx.conf "#    ssl_" "    ssl_"
   fi
-  set_grid_auth > /dev/null
-  # the basic authentication of the grid is not a change by hand: set_grid_auth makes it again
   local new_conf
   new_conf="$(< configuration/stf-proxy/nginx.conf)"
-  if [[ -n "$previous_conf" && "${previous_conf//#auth_basic/auth_basic}" != "${new_conf//#auth_basic/auth_basic}" ]]; then
+  if [[ -n "$previous_conf" && "$previous_conf" != "$new_conf" ]]; then
     printf '%s\n' "$previous_conf" > configuration/stf-proxy/nginx.conf.previous
-    echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one. The basic authentication of the grid follows configuration/stf-proxy/htpasswd/mcloud.htpasswd by itself."
+    echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one."
   fi
 
   # the user input for the next setup
@@ -221,11 +223,9 @@ shutdown() {
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous
   rm -f configuration/adb-relay/stf-token
-  rm -f grid.env
-  rm -f configuration/stf-proxy/htpasswd/mcloud.htpasswd
+  rm -f grid.env configuration/stf-proxy/grid-auth.conf
   # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
-  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
-    configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
+  rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak
   # the certificate of https is the one of the user (README.md#https), it is kept with its copies; the archive of the
   # database (backup/rethinkdb.tar.gz) too, the user removes it
 }
@@ -246,6 +246,8 @@ start() {
   fi
 
   # STF_TOKEN of variables.env may have changed since the setup; before protect_files, which gives it to the owner
+  local grid_auth
+  grid_auth="$(cat configuration/stf-proxy/grid-auth.conf 2> /dev/null)"
   if ! write_grid_env; then
     return 1
   fi
@@ -257,11 +259,12 @@ start() {
   fi
   # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
-  # the htpasswd file of the grid may have been created or removed since
+  # GRID_AUTH_SECRET of variables.env may have changed since the setup: a running stf-proxy reads it again
   local reload_proxy=""
-  if set_grid_auth; then
+  if [[ "$grid_auth" != "$(cat configuration/stf-proxy/grid-auth.conf 2> /dev/null)" ]]; then
     reload_proxy=1
   fi
+  check_htpasswd
   check_agents_address
   check_adb_relay_auto
   write_stf_token
@@ -281,7 +284,7 @@ start() {
     local url
     url="$(sed -n 's/^STF_URL=//p' .env)"
     echo "
-      MCloud: ${url}/stf, the Selenium/Appium hub: ${url}/mcloud/wd/hub, the devices: ${url}/mcloud/grid/console"
+      MCloud: ${url}/stf, the Selenium/Appium hub: ${url/:\/\//://<user>:<token>@}/mcloud/wd/hub (an access token of STF, Settings, Keys), the devices: ${url}/mcloud/grid/console"
     if [[ -z "$(sed -n 's/^STF_TOKEN=//p' variables.env 2> /dev/null)" ]]; then
       echo_warning "STF_TOKEN of variables.env is empty: the grid reserves no device. Sign in to ${url}/stf, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart."
     fi
@@ -327,9 +330,6 @@ backup() {
   cp .env .env.bak
   cp backup/settings.env backup/settings.env.bak
   cp configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak
-  if [[ -f configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
-    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak
-  fi
 
   if [[ -f configuration/stf-proxy/ssl/ssl.crt ]]; then
     cp configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.crt.bak
@@ -383,9 +383,6 @@ restore() {
   cp .env.bak .env
   cp backup/settings.env.bak backup/settings.env
   cp configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf
-  if [[ -f configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak ]]; then
-    cp configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak configuration/stf-proxy/htpasswd/mcloud.htpasswd
-  fi
 
   if [[ -f configuration/stf-proxy/ssl/ssl.crt.bak ]]; then
     cp configuration/stf-proxy/ssl/ssl.crt.bak configuration/stf-proxy/ssl/ssl.crt
@@ -822,7 +819,7 @@ protect_files() {
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf.previous \
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
-    configuration/stf-proxy/ssl/ssl.crt.bak grid.env \
+    configuration/stf-proxy/ssl/ssl.crt.bak grid.env configuration/stf-proxy/grid-auth.conf \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz; do
     if [[ ! -f "$file" ]]; then
       continue
@@ -831,7 +828,7 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | grid.env | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
+    variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac
@@ -914,25 +911,12 @@ certificate_mismatch() {
     [[ "$(openssl x509 -noout -pubkey -in "${dir}/ssl.crt" 2> /dev/null)" != "$(openssl pkey -pubout -in "${dir}/ssl.key" 2> /dev/null)" ]]
 }
 
-# set_grid_auth: the basic authentication of the /mcloud locations of stf-proxy (the grid) on when
-# configuration/stf-proxy/htpasswd/mcloud.htpasswd exists, off otherwise; 0 when it changed the configuration
-set_grid_auth() {
-  local conf=configuration/stf-proxy/nginx.conf
-  local before
-  if [[ ! -f "$conf" ]]; then
-    return 1
+# check_htpasswd: warns about the htpasswd file of the basic authentication of the grid of an earlier MCloud: the access
+# tokens of STF replaced it (README.md#access-to-the-grid)
+check_htpasswd() {
+  if [[ -f configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
+    echo_warning "configuration/stf-proxy/htpasswd/mcloud.htpasswd is not used any more: the users of the grid give their access tokens of STF, https://<user>:<token>@<host>/mcloud/wd/hub (README.md#access-to-the-grid). Remove the file."
   fi
-  before="$(< "$conf")"
-  local realm='auth_basic "Private MCloud Selenium Hub";'
-  local file='auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;'
-  if [[ -s configuration/stf-proxy/htpasswd/mcloud.htpasswd ]]; then
-    replace "$conf" "#${realm}" "$realm"
-    replace "$conf" "#${file}" "$file"
-  else
-    replace "$conf" "      ${realm}" "      #${realm}"
-    replace "$conf" "      ${file}" "      #${file}"
-  fi
-  [[ "$before" != "$(< "$conf")" ]]
 }
 
 # check_certificate: the certificate of stf-proxy is there when its nginx configuration has the ssl settings of https
@@ -1193,16 +1177,43 @@ write_stf_token() {
 
 # write_grid_env: grid.env, the env file of mcloud-grid (docker-compose.yml): the lines of STF_TOKEN and
 # PLAYWRIGHT_ENABLED of variables.env, the only variables of it the grid reads, so the grid gets none of the other
-# secrets; readable for its owner only. Fails when it cannot be written: the grid would start with an old token
+# secrets, and GRID_AUTH_SECRET (README.md#access-to-the-grid), which configuration/stf-proxy/grid-auth.conf gives
+# stf-proxy; both readable for their owner only. A variables.env of an earlier MCloud gets a new GRID_AUTH_SECRET. Fails
+# when they cannot be written (the grid would start with an old token) and for a nginx.conf of an earlier MCloud, which
+# does not send the users to the grid: the grid does not run open until ./zebrunner.sh setup writes the new one
 write_grid_env() {
+  local secret
+  secret="$(sed -n "s/^GRID_AUTH_SECRET=//p" variables.env 2> /dev/null)"
+  secret="${secret//\'/}"
+  if [[ -z "$secret" && -f variables.env ]]; then
+    secret="$(random_string 48)"
+    set_line variables.env "GRID_AUTH_SECRET=${secret}"
+  fi
+  if [[ -f configuration/stf-proxy/nginx.conf ]] && ! grep -q '/_hub_auth/' configuration/stf-proxy/nginx.conf; then
+    echo_warning "configuration/stf-proxy/nginx.conf is the one of an earlier MCloud, without the access to the grid with the access tokens of STF: the services are not started, the grid would be open to anyone. Run ./zebrunner.sh setup, it writes the new configuration (README.md#access-to-the-grid), then ./zebrunner.sh start."
+    return 1
+  fi
   if ! (umask 077 && {
     echo "# written by ./zebrunner.sh setup and start from variables.env: change variables.env, then ./zebrunner.sh restart"
     grep -E '^(STF_TOKEN|PLAYWRIGHT_ENABLED)=' variables.env || true
+    echo "GRID_AUTH_SECRET=${secret}"
   } 2> /dev/null > grid.env); then
     echo_warning "grid.env is not writable for $(id -un): remove it (rm -f grid.env) and run ./zebrunner.sh start (README.md#troubleshooting)."
     return 1
   fi
   chmod 600 grid.env
+  local conf="configuration/stf-proxy/grid-auth.conf"
+  if ! (umask 077 && {
+    echo "# written by ./zebrunner.sh setup and start from GRID_AUTH_SECRET of variables.env: the secret the grid takes the users"
+    echo "# of stf-proxy with (README.md#access-to-the-grid)"
+    # the variable of nginx
+    # shellcheck disable=SC2016
+    printf 'map "" $grid_auth_secret {\n  default "%s";\n}\n' "$secret"
+  } 2> /dev/null > "$conf"); then
+    echo_warning "${conf} is not writable for $(id -un): remove it (rm -f ${conf}) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    return 1
+  fi
+  chmod 600 "$conf"
 }
 
 # valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535

@@ -177,9 +177,16 @@ check "the triproxies and the storage read the nodes from stf-api" "http://stf-a
   "$(value variables.env STF_NODES_API_URL)"
 check_contains "the start is suggested" "need to be started after setup" "$output"
 check "the Playwright sessions are off by default" "false" "$(value variables.env PLAYWRIGHT_ENABLED)"
-check "the grid gets STF_TOKEN and PLAYWRIGHT_ENABLED of variables.env only" "STF_TOKEN=
-PLAYWRIGHT_ENABLED=false" "$(grep -v '^#' "${MCLOUD}/grid.env")"
+grid_secret="$(value variables.env GRID_AUTH_SECRET)"
+check "the secret of the grid is generated" "48" "${#grid_secret}"
+check "the grid gets STF_TOKEN, PLAYWRIGHT_ENABLED and GRID_AUTH_SECRET of variables.env only" "STF_TOKEN=
+PLAYWRIGHT_ENABLED=false
+GRID_AUTH_SECRET=${grid_secret}" "$(grep -v '^#' "${MCLOUD}/grid.env")"
 check "grid.env is readable for its owner only" "-rw-------" "$(mode grid.env)"
+check "stf-proxy gets the secret of the grid" "map \"\" \$grid_auth_secret {
+  default \"${grid_secret}\";
+}" "$(grep -v '^#' "${MCLOUD}/configuration/stf-proxy/grid-auth.conf")"
+check "the secret of stf-proxy is readable for its owner only" "-rw-------" "$(mode configuration/stf-proxy/grid-auth.conf)"
 
 section "setup again"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=api-token"
@@ -212,10 +219,12 @@ check "the new port" "8082" "$(value .env STF_PORT)"
 check "SECRET is kept" "$secret" "$(value variables.env SECRET)"
 check "STF_STORAGE_TOKEN is kept" "$storage_token" "$(value variables.env STF_STORAGE_TOKEN)"
 check "STF_TOKEN is kept" "api-token" "$(value variables.env STF_TOKEN)"
+check "GRID_AUTH_SECRET is kept" "$grid_secret" "$(value variables.env GRID_AUTH_SECRET)"
 check "the Playwright sessions stay on" "true" "$(value variables.env PLAYWRIGHT_ENABLED)"
 check "the option of the Playwright sessions is in variables.env once" "1" "$(grep -c '^PLAYWRIGHT_ENABLED=' "${MCLOUD}/variables.env")"
-check "the grid gets the kept STF_TOKEN and PLAYWRIGHT_ENABLED" "STF_TOKEN=api-token
-PLAYWRIGHT_ENABLED=true" "$(grep -v '^#' "${MCLOUD}/grid.env")"
+check "the grid gets the kept STF_TOKEN, PLAYWRIGHT_ENABLED and GRID_AUTH_SECRET" "STF_TOKEN=api-token
+PLAYWRIGHT_ENABLED=true
+GRID_AUTH_SECRET=${grid_secret}" "$(grep -v '^#' "${MCLOUD}/grid.env")"
 check "the new admin email" "ops@example.com" "$(value variables.env STF_ADMIN_EMAIL)"
 check "the admin name changed in variables.env is kept" "ops" "$(value variables.env STF_ADMIN_NAME)"
 check_contains "the admin name of variables.env is the default of the question" \
@@ -251,36 +260,46 @@ replace "${MCLOUD}/variables.env" "STF_ADMIN_NAME=ops" "STF_ADMIN_NAME=admin"
 replace "${MCLOUD}/variables.env" "STF_ROOT_GROUP_NAME='Mobile Lab'" "STF_ROOT_GROUP_NAME=MCloud"
 sed -i.orig '/^COMPOSE_PROJECT_NAME=/d' "${MCLOUD}/.env"
 
-section "basic authentication of the grid"
+section "access to the grid"
 conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
-htpasswd="${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd"
-echo 'user:x' > "$htpasswd"
-output="$(zbr "$(answers "" "" "" "" "")" setup)"
-check "the htpasswd file turns the authentication of the /mcloud locations on" "3 3" \
-  "$(grep -c '^      auth_basic "Private MCloud Selenium Hub";$' "$conf") $(grep -c '^      auth_basic_user_file /etc/nginx/htpasswd/mcloud.htpasswd;$' "$conf")"
-check_contains "the Playwright sessions ask the password too" 'auth_basic "Private MCloud Selenium Hub";' \
-  "$(awk '/location ~ \^\/mcloud\/playwright/ { found = 1 } found { print } found && /^    }$/ { exit }' "$conf")"
-check_not_contains "the authentication is not a change by hand" "nginx.conf.previous" "$output"
-check "no previous configuration for the authentication" "no" "$([[ -f "${conf}.previous" ]] && echo yes || echo no)"
-zbr "$(answers "" "" "" "" "")" setup > /dev/null
-check "the setup again keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+check_contains "stf-proxy asks stf-api about the hub" "auth_request /_hub_auth/hub;" "$(cat "$conf")"
+check_not_contains "no basic authentication of the grid" "auth_basic" "$(cat "$conf")"
 reset_calls
-zbr "" start > /dev/null
-check "start keeps the authentication on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
+output="$(zbr "" start)"
 check "start does not reload an unchanged stf-proxy" "" "$(calls docker | grep '^exec|stf-proxy')"
-rm -f "$htpasswd"
+check_not_contains "start does not refuse the configuration of stf-proxy" "nginx.conf is the one of an earlier MCloud" "$output"
+# a changed GRID_AUTH_SECRET reaches the grid and stf-proxy at the next start
+set_line "${MCLOUD}/variables.env" "GRID_AUTH_SECRET=${grid_secret//0/1}x"
 reset_calls
 zbr "" start > /dev/null
-check "start without the htpasswd file turns it off" "0 3" \
-  "$(grep -c '^      auth_basic "Private' "$conf") $(grep -c '^      #auth_basic "Private' "$conf")"
-check "start reloads the changed stf-proxy" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
-echo 'user:x' > "$htpasswd"
+check "start gives the grid the changed secret" "GRID_AUTH_SECRET=${grid_secret//0/1}x" "$(grep '^GRID_AUTH_SECRET=' "${MCLOUD}/grid.env")"
+check_contains "start gives stf-proxy the changed secret" "default \"${grid_secret//0/1}x\";" \
+  "$(cat "${MCLOUD}/configuration/stf-proxy/grid-auth.conf")"
+check "start reloads stf-proxy for the changed secret" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+set_line "${MCLOUD}/variables.env" "GRID_AUTH_SECRET=${grid_secret}"
+zbr "" start > /dev/null
+# a variables.env of an earlier MCloud has no GRID_AUTH_SECRET: start makes it
+sed -i.orig '/^GRID_AUTH_SECRET=/d' "${MCLOUD}/variables.env"
+zbr "" start > /dev/null
+new_secret="$(value variables.env GRID_AUTH_SECRET)"
+check "start makes the missing secret of the grid" "48" "${#new_secret}"
+check "start gives the grid the new secret" "GRID_AUTH_SECRET=${new_secret}" "$(grep '^GRID_AUTH_SECRET=' "${MCLOUD}/grid.env")"
+set_line "${MCLOUD}/variables.env" "GRID_AUTH_SECRET=${grid_secret}"
+# a nginx.conf of an earlier MCloud does not send the users to the grid: nothing starts until the setup
+cp "$conf" "${WORK}/nginx.conf.new"
+grep -v '_hub_auth' "${WORK}/nginx.conf.new" > "$conf"
 reset_calls
-zbr "" start > /dev/null
-check "start with a new htpasswd file turns it on" "3" "$(grep -c '^      auth_basic "Private' "$conf")"
-check "start reloads stf-proxy for the new htpasswd file" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
-rm -f "$htpasswd"
-zbr "" start > /dev/null
+output="$(zbr "" start)"
+check "start fails with the configuration of stf-proxy of an earlier MCloud" "1" "$?"
+check_contains "start tells to run the setup" "nginx.conf is the one of an earlier MCloud" "$output"
+check "start starts no service with it" "" "$(calls docker | grep '^compose')"
+cp "${WORK}/nginx.conf.new" "$conf"
+mkdir -p "${MCLOUD}/configuration/stf-proxy/htpasswd"
+echo 'user:x' > "${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd"
+output="$(zbr "" start)"
+check_contains "start warns about the htpasswd file of an earlier MCloud" "mcloud.htpasswd is not used any more" "$output"
+check "the grid has the authentication with the new configuration" "GRID_AUTH_SECRET=${grid_secret}" "$(grep '^GRID_AUTH_SECRET=' "${MCLOUD}/grid.env")"
+rm -rf "${MCLOUD}/configuration/stf-proxy/htpasswd"
 replace "$conf" "frame-ancestors 'self'" "frame-ancestors 'self' https://reporting.example.com"
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
 check_contains "a configuration changed by hand is reported" "the previous one is configuration/stf-proxy/nginx.conf.previous" "$output"
@@ -672,9 +691,9 @@ if docker compose version > /dev/null 2>&1; then
   check "adb-relay runs with its profile only" "adb-relay" \
     "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) \
       <(docker compose --profile adb-relay config --services | sort))"
-  # the variables of the grid, sorted; none of the secrets of STF
+  # the variables of the grid, sorted; none of the secrets of STF, the secret of stf-proxy for the grid only
   check "the grid gets none of the secrets of variables.env" \
-    "CHECK_APPIUM_STATUS GRID_NEW_SESSION_WAIT_TIMEOUT PLAYWRIGHT_ENABLED STF_TOKEN STF_URL" \
+    "CHECK_APPIUM_STATUS GRID_AUTH_SECRET GRID_NEW_SESSION_WAIT_TIMEOUT PLAYWRIGHT_ENABLED STF_TOKEN STF_URL" \
     "$(cd "$MCLOUD" && docker compose config --format json | python3 -c 'import json, sys
 print(" ".join(sorted(json.load(sys.stdin)["services"]["mcloud-grid"]["environment"])))')"
 else
@@ -690,7 +709,7 @@ reset_calls
 output="$(zbr "" start)"
 check "start starts the services in the infra network" "network|inspect|infra
 compose|up|-d" "$(docker_calls)"
-check_contains "start shows the URLs" "MCloud: https://203.0.113.10:443/stf, the Selenium/Appium hub: https://203.0.113.10:443/mcloud/wd/hub" "$output"
+check_contains "start shows the URLs" "MCloud: https://203.0.113.10:443/stf, the Selenium/Appium hub: https://<user>:<token>@203.0.113.10:443/mcloud/wd/hub" "$output"
 check_contains "start asks STF_TOKEN of the grid" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=token"
 check_not_contains "start with STF_TOKEN does not ask it" "STF_TOKEN of variables.env is empty" "$(zbr "" start)"
@@ -1099,9 +1118,22 @@ check_contains "the node gets the headers of the WebSocket only" "proxy_pass_req
 check_contains "the node gets no session cookie" 'proxy_set_header Cookie "";' "$screen"
 check_contains "the node gets no access token" 'proxy_set_header Authorization "";' "$screen"
 check_contains "the node gets no internal token" 'proxy_set_header X-Stf-Internal-Token "";' "$screen"
-check_contains "the internal routes of the registry are refused" "return 403;" \
-  "$(block "location ~* ^/api/v1/zebrunner/nodes {")"
+check_contains "the internal routes of the registry and the decision about the grid are refused" "return 403;" \
+  "$(block "location ~* ^/api/v1/zebrunner/(nodes|hub-auth) {")"
 check "the node gets no X-Stf-* header" "" "$(grep -i 'proxy_set_header *X-Stf' <<< "$screen" | grep -v ' "";$')"
+hub="$(block 'location  ~ ^/mcloud/wd/(.*)$ {')"
+check_contains "the hub is for the users of an access token" "auth_request /_hub_auth/hub;" "$hub"
+check_contains "the grid gets the secret of stf-proxy" "proxy_set_header        X-MCloud-Auth \$grid_auth_secret;" "$hub"
+check_contains "the grid gets no Authorization of the client" 'proxy_set_header        Authorization "";' "$hub"
+check_contains "the grid gets no Cookie of the client" 'proxy_set_header        Cookie "";' "$hub"
+for location in 'location ~ ^/mcloud/playwright/' 'location ~ ^/mcloud/grid/admin/TerminateSessionServlet' \
+  'location ~ ^/mcloud/grid/console' 'location ~ ^/mcloud/grid/admin/(?<grid_servlet>' 'location ~ ^/mcloud/grid/admin/MetricsServlet'; do
+  check_contains "${location} is for the users of STF" "auth_request /_hub_auth/" "$(block "$location")"
+  check_contains "${location}: the grid gets no Authorization of the client" 'Authorization "";' "$(block "$location")"
+done
+check_contains "the metrics are for an admin" "auth_request /_hub_auth/admin;" "$(block 'location ~ ^/mcloud/grid/admin/MetricsServlet')"
+check_contains "the other paths of the grid are not for the users" "return 404;" "$(block 'location /mcloud {')"
+check_contains "stf-api decides with the token and the cookie only" "proxy_pass_request_headers off;" "$(block 'location ~ ^/_hub_auth/')"
 check_contains "the decision of stf-api" "proxy_pass http://\$upstream_screen_auth/api/v1/zebrunner/screen-auth;" "$screen_auth"
 check_contains "stf-api gets the original URI" "proxy_set_header X-Original-URI \$request_uri;" "$screen_auth"
 check_contains "stf-api gets the session cookie" "proxy_set_header Cookie \$http_cookie;" "$screen_auth"
@@ -1132,7 +1164,6 @@ section "shutdown"
 for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx.conf; do
   check "the backup ${file}.bak is there before the shutdown" "yes" "$([[ -f "${MCLOUD}/${file}.bak" ]] && echo yes)"
 done
-echo 'user:x' > "${MCLOUD}/configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak"
 touch "${MCLOUD}/backup/rethinkdb.tar.gz"
 reset_calls
 zbr "n\n" shutdown > /dev/null
@@ -1141,12 +1172,12 @@ zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
-for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token; do
+for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
+  configuration/stf-proxy/grid-auth.conf; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 
-for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
-  configuration/stf-proxy/htpasswd/mcloud.htpasswd.bak; do
+for file in variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak; do
   check "shutdown removes the backup ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 check "shutdown keeps the certificate of the user" "yes" "$([[ -f "${SSL}/ssl.crt" && -f "${SSL}/ssl.key" ]] && echo yes)"
