@@ -36,6 +36,21 @@ mdm_addresses() {
 }
 
 # mdm_check: succeeds when the MDM runs (MDM_ENABLED=true of .env with an https STF_URL); the problems are reported
+# mdm_env_keys: the settings of the MDM and the tags of its images of .env.original that the .env of an earlier MCloud
+# has not (docker compose reads the tags of the profile mdm even when it is off), with their defaults
+mdm_env_keys() {
+  local line
+  [[ -f .env && -f .env.original ]] || return 0
+  if [[ -s .env && -n "$(tail -c 1 .env)" ]]; then
+    echo >> .env
+  fi
+  while IFS= read -r line; do
+    if ! grep -q "^${line%%=*}=" .env; then
+      printf '%s\n' "$line" >> .env
+    fi
+  done < <(grep -E '^(MDM_[A-Z_]+|TAG_MDM[A-Z_]*|TAG_NANOHUB|TAG_HMDM)=' .env.original)
+}
+
 mdm_check() {
   local enabled
   local url
@@ -274,6 +289,7 @@ mdm_mqtt_conf() {
 MDM_ON=""
 write_mdm() {
   MDM_ON=""
+  mdm_env_keys
   if mdm_check; then
     write_mdm_env || return 1
     write_mdm_proxy on || return 1
