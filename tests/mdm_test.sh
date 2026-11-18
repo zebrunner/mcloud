@@ -142,7 +142,7 @@ grep -vE '^(MDM_|TAG_MDM|TAG_NANOHUB|TAG_HMDM)' "${WORK}/env.current" > "${MCLOU
 # no final newline
 printf 'MDM_ENABLED=true\nMDM_SITE_ADDRESSES=203.0.113.10' >> "${MCLOUD}/.env"
 zbr "" start > /dev/null
-check "start adds the tags of the images of the MDM to the .env of an earlier MCloud" "0.1:0.2.0:9101" \
+check "start adds the tags of the images of the MDM to the .env of an earlier MCloud" "0.1-develop-latest:0.2.0:9101" \
   "$(value .env TAG_MDM):$(value .env TAG_NANOHUB):$(value .env MDM_ADMIN_PORT)"
 check "start keeps the settings of .env" "true:203.0.113.10" "$(value .env MDM_ENABLED):$(value .env MDM_SITE_ADDRESSES)"
 check "every setting once" "1" "$(grep -c '^MDM_ENABLED=' "${MCLOUD}/.env")"

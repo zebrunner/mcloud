@@ -91,7 +91,7 @@ The commands of `./zebrunner.sh`:
 | `TAG_SELENIUM_HUB` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/mcloud-grid`: on `develop` the newest image of the `develop` of mcloud-grid, a release has its version |
 | `TAG_RETHINKDB` | `2.4.4-bookworm-slim` | the tag of `rethinkdb` |
 | `TAG_STF` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/stf`: on `develop` the newest image of the `develop` of zebrunner/stf, a release has its version |
-| `TAG_MDM` | `0.1` | the tag of `public.ecr.aws/zebrunner/mcloud-mdm` (the MDM) |
+| `TAG_MDM` | `0.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/mcloud-mdm` (the MDM) |
 | `TAG_NANOHUB` | `0.2.0` | the tag of `ghcr.io/micromdm/nanohub` (the MDM of iOS) |
 | `TAG_MDM_MYSQL` | `8.4` | the tag of `mysql` (the storage of NanoHUB) |
 | `TAG_HMDM` | `0.1.9` | the tag of `headwindmdm/hmdm` (the MDM of Android, amd64 only) |
