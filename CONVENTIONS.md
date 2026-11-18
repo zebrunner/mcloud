@@ -60,7 +60,7 @@ This file is the same in all of them: a change of a convention is made in every 
 
 The shared files live in [mcloud-conventions](https://github.com/zebrunner/mcloud-conventions) and are changed there only:
 
-- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`; in mcloud and mcloud-agent also `patch/curve_keygen.py`, the CURVE keys of STF;
+- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`; in mcloud and mcloud-agent also `patch/curve_keygen.py`, the CURVE keys of STF, and `patch/ui.sh`, the [terminal output](#terminal-output);
 - the shared blocks of `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile`: the lines between `# >>> mcloud-conventions` and `# <<< mcloud-conventions`, the other lines are the project part.
 
 A merge into mcloud-conventions syncs them: its workflow opens (or updates) the pull request `mcloud-conventions-sync` into `develop` of every repository it changes, which is reviewed and merged like any other one. The sync also writes `.mcloud-conventions`, the checksums of the shared files and blocks, and `make lint` fails when one of them is changed in the repository.
@@ -162,6 +162,8 @@ The env vars of tools keep the names of the tools (e.g. `npm_config_cache`).
 - The messages are sentences: `logger "ERROR" "Device ${DEVICE_UDID} is not connected!"`.
 - A script whose stdout is data (e.g. a JSON generator) logs to stderr: `logger "ERROR" "..." >&2`.
 - `echo` is for data only: files, pipes, the output of a generator.
+- The first line of the entrypoint is `loggerBanner <service> <version> [<fact>...]`, see [Terminal output](#terminal-output).
+- The level is colored on a terminal only (`LOGGER_COLOR=auto`, `always`, `never`; `NO_COLOR`): the lines of `docker logs` stay plain.
 - `DEBUG=true`, `DEBUG_TIMEOUT` and `VERBOSE=true` of `util/debug.sh` are supported by every shell entrypoint.
 
 ### Host scripts
@@ -170,7 +172,28 @@ The scripts that run on the hosts, not in an image (`zebrunner.sh` and `patch/*.
 
 - bash 3.2 compatible: macOS runs them too;
 - `snake_case`, see [Naming](#naming);
-- the messages are for a person at the terminal (`echo`), not the log lines of `util/logger.sh`.
+- the messages are for a person at the terminal, not the log lines of `util/logger.sh`: they are printed with the functions of `patch/ui.sh` (see [Terminal output](#terminal-output)), `echo` and `printf` are for data (e.g. `version`, a table, a join string).
+
+### Terminal output
+
+One style for every MCloud repository: a lime accent on a dark terminal, badges for the titles, colored dots for the statuses, a heavy line under the banner and thin lines after the sections. The host scripts print it with `patch/ui.sh` (shared, see [Shared files](#shared-files)); the source files stay ASCII, the glyphs are written as the bytes of their UTF-8 (`$'\xe2\x94\x81'` in bash, `"\u2501"` in Go and Java).
+
+| Element | Function of `patch/ui.sh` | Look |
+| --- | --- | --- |
+| banner | `ui_banner <product> [<version>]` | the badge `ZEBRUNNER`, the product in bold, the version at the right, a heavy line (U+2501) under them |
+| section | `ui_section <title> [<counter>]` | the title in upper case as a badge, a thin line (U+2500), the counter (e.g. `1/3`) at the right |
+| status | `ui_ok`, `ui_info`, `ui_warn`, `ui_fail` `<message> [<fix>]` | a green, amber or red dot (U+25CF), a muted circle (U+25CB) for info; `fix <command>` under it after a branch (U+2514) |
+| callout | `ui_callout <warn\|error\|note> <text> [<title>]` | a bar (U+2503) at the left of `WARNING`, `ERROR` or `NOTE` and of the wrapped text |
+| prompt | `read -r -p "$(ui_prompt <question> [<hint>])"` | a lime pointer (U+25B8), the question, the muted hint `[Y/n]` |
+| help | `ui_usage`, `ui_help_group`, `ui_help_cmd <command> <arguments> <description>` | the groups of commands as badges, the commands in bold, the arguments muted, the descriptions aligned |
+| summary | `ui_summary <passed> <warnings> <problems>` | a thin line and the counts as green, amber and red badges |
+| spinner | `ui_spin <message> <command...>` | a braille spinner on a terminal while a command without input runs, then its status; its output when it fails |
+| secondary text | `ui_muted <text>`, `ui_rule` | muted text (e.g. where to get help), a thin line |
+
+- The colors: on a terminal only, without `NO_COLOR` and `TERM=dumb`; `UI_COLOR=always` or `never` overrides it. 24-bit with `COLORTERM=truecolor` or `24bit`, else the 256 colors of xterm. Without colors the statuses are the words `ok`, `info`, `warn`, `FAIL` and the badges `[ TITLE ]`, so a log of CI stays readable.
+- The glyphs: Unicode with a UTF-8 locale (`LC_ALL`, `LC_CTYPE`, `LANG`), else ASCII (`=`, `-`, `*`, `` `- ``, `|`, `>`); `UI_ASCII=true` forces ASCII.
+- The width: the terminal up to 80 columns, at least 40.
+- The services keep the format of their logs (see [Logging](#logging), [Java](#java), [Go](#go)); their first log line is `<U+2501><U+2501> <service> <version> <U+00B7> <fact> ...` (e.g. the UDID of the device, the port): `loggerBanner` of `util/logger.sh`, the message of the first `slog` line in Go, the message of the first JSON line in Java.
 
 ### Exit codes
 
@@ -202,7 +225,7 @@ The configuration is validated before anything starts: every invalid variable is
 - The tools of the image are replaced by stubs (`stub`, `record_stub`, `calls`) in `${WORK}/bin` at the front of `PATH`, so `make test` needs no docker and no device.
 - The temporary files go to `$WORK`, removed on exit; a script frees its other resources (containers, ...) in its own `cleanup()`, which replaces the empty one of `tests/lib.sh`: never a new `trap ... EXIT`.
 - The docker tests build the image once, `IMAGE` overrides its tag and `REBUILD=true` forces a new build.
-- `tests/lib.sh`, `tests/lint.sh`, `util/debug.sh` and `util/logger.sh` run on the macOS system bash 3.2 (no `mapfile`, no associative arrays, no `${var^^}`); a test of a script of the image may need bash 4+ like the image (`brew install bash`).
+- `tests/lib.sh`, `tests/lint.sh`, `util/debug.sh`, `util/logger.sh` and `patch/ui.sh` run on the macOS system bash 3.2 (no `mapfile`, no associative arrays, no `${var^^}`); a test of a script of the image may need bash 4+ like the image (`brew install bash`).
 
 ## Dockerfile
 
