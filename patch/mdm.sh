@@ -101,6 +101,11 @@ write_mdm_env() {
   : "${hmdm_password:=$(random_string 32)}"
   : "${hmdm_secret:=$(random_string 32)}"
   : "${hmdm_sql_password:=$(random_string 32)}"
+  # the access token of STF (STF_TOKEN of variables.env, the one of the grid): the names, nodes and users of the devices
+  # in the admin UI; read again at every start
+  local stf_token
+  stf_token="$(sed -n "s/^STF_TOKEN=//p" variables.env 2> /dev/null | tail -n 1)"
+  stf_token="${stf_token//[\'\"]/}"
   if ! (umask 077 && {
     echo "# written by ./zebrunner.sh setup and start (README.md#mdm): the secrets of the MDM services, kept from setup to"
     echo "# setup; keep a copy in the store of the secrets: without HMDM_SHARED_SECRET and the server only a factory reset"
@@ -118,6 +123,11 @@ write_mdm_env() {
     echo "SQL_PASS=${hmdm_sql_password}"
     echo "POSTGRES_PASSWORD=${hmdm_sql_password}"
     echo "PGPASSWORD=${hmdm_sql_password}"
+    if [[ -n "$stf_token" ]]; then
+      echo "# mcloud-mdm: the API of STF with STF_TOKEN of variables.env (written again at every start)"
+      echo "MDM_STF_URL=http://stf-api:3000"
+      echo "MDM_STF_TOKEN=${stf_token}"
+    fi
   } 2> /dev/null > "$MDM_ENV"); then
     echo_warning "${MDM_ENV} is not writable for $(id -un): remove it only if the MDM never ran (its databases keep the passwords), make it writable and run ./zebrunner.sh start (README.md#troubleshooting)."
     return 1

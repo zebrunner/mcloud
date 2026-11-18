@@ -115,6 +115,16 @@ check "the MQTT proxy allows the valid addresses only" "    allow 203.0.113.10;
     deny all;" "$(grep -E '^ +(allow|deny) ' "${MCLOUD}/configuration/mdm/mqtt.conf")"
 check_contains "a running stf-proxy reads the new locations" "exec|stf-proxy|nginx|-s|reload" "$(calls docker)"
 
+section "the access token of STF"
+check "no STF_TOKEN: no API of STF" "" "$(value mdm.env MDM_STF_URL)"
+set_line "${MCLOUD}/variables.env" "STF_TOKEN=stf-token-123"
+zbr "" start > /dev/null
+check "STF_TOKEN of variables.env goes to mcloud-mdm" "http://stf-api:3000|stf-token-123" "$(value mdm.env MDM_STF_URL)|$(value mdm.env MDM_STF_TOKEN)"
+set_line "${MCLOUD}/variables.env" "STF_TOKEN=stf-token-456"
+zbr "" start > /dev/null
+check "a new STF_TOKEN replaces it at the next start" "stf-token-456" "$(value mdm.env MDM_STF_TOKEN)"
+set_line "${MCLOUD}/variables.env" "STF_TOKEN="
+
 section "the next start keeps the secrets"
 reset_calls
 output="$(zbr "" start)"
