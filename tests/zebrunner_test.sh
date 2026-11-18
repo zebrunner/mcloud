@@ -833,19 +833,19 @@ section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
 reset_calls
 zbr "" stop > /dev/null
-check "stop" "compose|--profile|adb-relay|stop" "$(docker_calls)"
+check "stop" "compose|--profile|adb-relay|--profile|mdm|stop" "$(docker_calls)"
 reset_calls
 zbr "" down > /dev/null
-check "down" "compose|--profile|adb-relay|down" "$(docker_calls)"
+check "down" "compose|--profile|adb-relay|--profile|mdm|down" "$(docker_calls)"
 reset_calls
 zbr "" restart > /dev/null
-check "restart" "compose|--profile|adb-relay|down
+check "restart" "compose|--profile|adb-relay|--profile|mdm|down
 network|inspect|infra
 compose|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=true/" "${MCLOUD}/.env"
 reset_calls
 zbr "" restart > /dev/null
-check "restart with adb-relay" "compose|--profile|adb-relay|down
+check "restart with adb-relay" "compose|--profile|adb-relay|--profile|mdm|down
 network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
@@ -889,10 +889,10 @@ echo "changed" > "${MCLOUD}/variables.env"
 reset_calls
 zbr "" restore > /dev/null
 check "restore brings variables.env back" "same" "$(cmp -s "${MCLOUD}/variables.env" "${MCLOUD}/variables.env.bak" && echo same)"
-check_contains "restore stops the services first" "compose|--profile|adb-relay|stop" "$(docker_calls | head -1)"
+check_contains "restore stops the services first" "compose|--profile|adb-relay|--profile|mdm|stop" "$(docker_calls | head -1)"
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
 check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
-check "restore removes the containers at the end" "compose|--profile|adb-relay|down" "$(calls docker | tail -1)"
+check "restore removes the containers at the end" "compose|--profile|adb-relay|--profile|mdm|down" "$(calls docker | tail -1)"
 check "restore brings the checksum of nginx.conf back" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256" "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256.bak" && echo same)"
 # a backup without the checksum (of an earlier MCloud): restore removes the one of the later setup
@@ -1220,7 +1220,7 @@ check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" 
 zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
-check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|down|-v" "$(docker_calls)"
+check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|--profile|mdm|down|-v" "$(docker_calls)"
 for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
   configuration/stf-proxy/grid-auth.conf configuration/stf-proxy/nginx.conf.sha256; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
