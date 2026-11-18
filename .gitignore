@@ -40,3 +40,13 @@ configuration/stf-proxy/nginx.conf.*
 !configuration/stf-proxy/nginx.conf.original
 configuration/stf-proxy/ssl/*.key*
 configuration/stf-proxy/ssl/*.pem
+# the key material of the MDM and the farm, kept out of the checkout anyway (README of mcloud-mdm: Keys and certificates)
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+*.pem
+*.der
+*.csr
+*.mobileconfig
