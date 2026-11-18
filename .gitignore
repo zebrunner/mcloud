@@ -29,3 +29,14 @@ configuration/mdm/mqtt.conf
 configuration/stf-proxy/htpasswd/
 configuration/stf-proxy/ssl/ssl.crt
 configuration/stf-proxy/ssl/ssl.key
+# the copies of the files of a deployment kept by hand (variables.env.pre-upgrade, .env.20261117, ...): their secrets
+.env.*
+!.env.original
+variables.env.*
+!variables.env.original
+grid.env.*
+mdm.env.*
+configuration/stf-proxy/nginx.conf.*
+!configuration/stf-proxy/nginx.conf.original
+configuration/stf-proxy/ssl/*.key*
+configuration/stf-proxy/ssl/*.pem
