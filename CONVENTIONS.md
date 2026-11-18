@@ -10,6 +10,7 @@ The conventions of the style, the formatting and the tooling of the Zebrunner MC
 - [mcloud-agent](https://github.com/zebrunner/mcloud-agent)
 - [mcloud](https://github.com/zebrunner/mcloud)
 - [mcloud-dummy](https://github.com/zebrunner/mcloud-dummy)
+- [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm)
 
 Outside of them: [stf](https://github.com/zebrunner/stf), the fork of DeviceFarmer STF, keeps the tooling of upstream (the npm scripts, its own linters, `ZEBRUNNER.md`), its `Makefile` has the targets of [Makefile](#makefile) without the shared block: `help`, `check`, `lint` and `test` over the npm scripts, `build` and `push` of the image. artifacts-uploader (the uploader image) has no conventions.
 
@@ -38,7 +39,7 @@ This file is the same in all of them: a change of a convention is made in every 
 | Path | What it is |
 | --- | --- |
 | `Dockerfile` | the image (mcloud-agent and mcloud have none) |
-| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent, `cmd/` and `internal/` in mcloud-dummy) |
+| `entrypoint.sh`, `util/`, `bin/` | the scripts and binaries of the image (`files/` in appium, `src/` in mcloud-grid, `roles/` in mcloud-agent, `cmd/` and `internal/` in mcloud-dummy and mcloud-mdm) |
 | `tests/lib.sh` | the shared helpers of the test scripts; `tests/project_lib.sh` the helpers of the project |
 | `tests/lint.sh` | the static checks of `make lint`; `tests/lint_project.sh` the settings and the checks of the project |
 | `tests/<subject>_test.sh` | a test script; the docker ones are listed in `DOCKER_TESTS` of the `Makefile` |
@@ -331,6 +332,7 @@ The rules above are the same for every repository; these ones come from the kind
 | mcloud-agent | Ansible playbooks and the scripts of the farm hosts (Linux and macOS), no image | see [Ansible and host scripts](#ansible-and-host-scripts) |
 | mcloud | a docker compose deployment and its [host scripts](#host-scripts), no image | the project checks are described in its README |
 | mcloud-dummy | a docker image of a Go program (the dummy devices for the tests of the farm) | see [Go](#go) |
+| mcloud-mdm | a docker image of a Go program (the MDM of the farms: iOS with NanoHUB, Android with Headwind MDM) | see [Go](#go) |
 
 ### Java
 
