@@ -257,7 +257,7 @@ https://<user>:<token>@<host>:<port>/mcloud/wd/hub
 
 | Path | Who | Without |
 | --- | --- | --- |
-| `/mcloud/wd/hub/status` | anyone: the status of the hub, for a monitoring | |
+| `/mcloud/wd/hub/status` | a user signed in to STF or with an access token (a monitoring: `Basic <user>:<token>`): the status of the hub, with the versions of the system and Java of the grid | `401` |
 | `/mcloud/wd/hub`, `/mcloud/playwright/<session id>`, `POST /mcloud/grid/admin/TerminateSessionServlet` | a user with an access token | `401`, an error of WebDriver |
 | `/mcloud/grid/console` | a user signed in to STF (or an access token) | the sign-in of STF |
 | `/mcloud/grid/admin/DevicesServlet`, `/mcloud/grid/admin/AllSessionsServlet` | a user signed in to STF or with an access token | `401` |
@@ -398,7 +398,7 @@ Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stop
 | `/mdm`, `/checkin`, `/scep`, `/mdm/*`, `/android/*`, `/hmdm/*` | the MDM, from `MDM_SITE_ADDRESSES` only, see [MDM](#mdm) |
 | `/d/<address of the node>/<serial>/<port>/` | the screen of a device, see [Screens of the devices](#screens-of-the-devices) |
 | `/mcloud/wd/hub` | the Selenium/Appium hub URL, with an access token of STF: `https://<user>:<token>@<host>:<port>/mcloud/wd/hub`, see [Access to the grid](#access-to-the-grid) |
-| `/mcloud/wd/hub/status` | the status of the hub, without a user |
+| `/mcloud/wd/hub/status` | the status of the hub, for the users of STF (the session cookie or an access token) |
 | `/mcloud/playwright/<session id>` | the WebSocket of a Playwright session of the grid with the access token of its user, see [Playwright](#playwright) |
 | `/mcloud/grid/console` | the grid console with the devices, for the users signed in to STF |
 | `/mcloud/grid/admin/DevicesServlet` | the devices of the grid as JSON: their status and sessions (the details of the own sessions) |

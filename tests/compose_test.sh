@@ -98,7 +98,7 @@ run_check "start" zbr "" start
 run_check "the database migration succeeds" \
   bash -c "test \"\$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' stf-migrate)\" == 'exited 0'"
 run_check "STF answers through stf-proxy" wait_for 180 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
-run_check "the grid answers through stf-proxy" wait_for 120 curl -sf --max-time 5 "${URL}/mcloud/wd/hub/status"
+run_check "the grid answers" wait_for 120 curl -sf --max-time 5 "http://127.0.0.1:4446/grid/api/proxy?id=none"
 running="$(cd "$MCLOUD" && docker compose ps --services --status running | sort | tr '\n' ' ')"
 expected="$(cd "$MCLOUD" && docker compose config --services | grep -vx stf-migrate | sort | tr '\n' ' ')"
 check "every service but stf-migrate runs" "$expected" "$running"
@@ -187,12 +187,18 @@ else
 fi
 
 section "grid"
-check_contains "the hub is ready" '"ready"' "$(curl -s --max-time 10 "${URL}/mcloud/wd/hub/status")"
+# the status of the hub is for the users of STF (/api/v1/zebrunner/hub-auth): an older TAG_STF without it answers 500
+if [[ "$(http_code /mcloud/grid/admin/DevicesServlet -b "$jar")" == "500" ]]; then
+  skip_check "the status of the hub" "the STF of TAG_STF has no /api/v1/zebrunner/hub-auth"
+else
+  check "the status of the hub needs a user of STF" "401" "$(http_code /mcloud/wd/hub/status)"
+  check_contains "the hub is ready" '"ready"' "$(curl -s -b "$jar" --max-time 10 "${URL}/mcloud/wd/hub/status")"
+fi
 check "the static files of the grid console" "200" "$(http_code /grid/resources/org/openqa/grid/images/consoleservlet.css)"
 check "the content type of the static files" "text/css" \
   "$(curl -s -o /dev/null -w '%{content_type}' --max-time 10 "${URL}/grid/resources/org/openqa/grid/images/consoleservlet.css")"
 headers="$(curl -s -o /dev/null -D - --max-time 10 "${URL}/mcloud/wd/hub/status" | tr -d '\r')"
-for header in "Access-Control-Allow-Origin: *" "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN"; do
+for header in "X-Content-Type-Options: nosniff" "X-Frame-Options: SAMEORIGIN"; do
   check_contains "the hub: ${header}" "$header" "$headers"
 done
 grid_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mcloud-grid)"
@@ -260,7 +266,8 @@ check "the check of a node is open on the port of the nodes" "200" \
   "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 'http://127.0.0.1:4446/grid/api/proxy?id=http://192.0.2.1:4723')"
 check "/lifecycle-manager is not for the users" "404" "$(http_code '/mcloud/lifecycle-manager?action=shutdown')"
 sleep 2
-check "/lifecycle-manager does not shut the grid down" "200" "$(http_code /mcloud/wd/hub/status)"
+check "/lifecycle-manager does not shut the grid down" "200" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 'http://127.0.0.1:4446/grid/api/proxy?id=none')"
 
 section "operations"
 check_contains "the logs of the services are rotated" '"max-file":"5","max-size":"50m"' \

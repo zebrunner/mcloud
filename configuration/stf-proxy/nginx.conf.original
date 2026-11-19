@@ -26,6 +26,13 @@ http {
     "" $scheme;
   }
 
+  # HSTS over https only: the browsers keep to https for a year; not includeSubDomains, the other sites of the domain
+  # are not MCloud. Every add_header of the security headers below sends it, nginx skips an empty value
+  map $forwarded_proto $hsts {
+    https "max-age=31536000";
+    default "";
+  }
+
   # the enrollment of the nodes (README.md#nodes): an invite is guessed by nobody, the limit keeps the API from the tries
   # anyway, 6 a minute per address with a burst of 3
   limit_req_zone $binary_remote_addr zone=node_enroll:1m rate=6r/m;
@@ -63,6 +70,7 @@ http {
     # the security headers of every response; a location with its own add_header repeats them, as it does not
     # inherit these ones. MCloud is not embedded into other sites: only its own pages may frame it.
     proxy_hide_header X-Powered-By;
+    add_header Strict-Transport-Security $hsts always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -75,13 +83,15 @@ http {
     # (configuration/stf-proxy/grid-auth.conf), never the Authorization or the Cookie of the client: it would pass them
     # on to the nodes
 
-    # the status of the hub, the healthcheck of a monitoring: no user, nothing of the devices
+    # the status of the hub (with the versions of the system and Java of the grid) for the users of STF: the session
+    # cookie or an access token (a monitoring: Basic <user>:<token>); the grid gets no header of the client
     location = /mcloud/wd/hub/status {
+      auth_request /_hub_auth/console;
       set $upstream_hub mcloud-grid:4444;
       proxy_pass http://$upstream_hub/wd/hub/status;
       proxy_http_version 1.1;
       proxy_pass_request_headers off;
-      add_header Access-Control-Allow-Origin "*";
+      add_header Strict-Transport-Security $hsts always;
       add_header Referrer-Policy "no-referrer" always;
       add_header X-Content-Type-Options "nosniff" always;
       add_header X-Frame-Options "SAMEORIGIN" always;
@@ -127,6 +137,7 @@ http {
       # any origin, without credentials: a browser refuses Allow-Credentials with the origin *
       add_header Access-Control-Allow-Origin "*";
       add_header Access-Control-Allow-Headers "Content-Type,Authorization";
+      add_header Strict-Transport-Security $hsts always;
       add_header Referrer-Policy "no-referrer" always;
       add_header X-Content-Type-Options "nosniff" always;
       add_header X-Frame-Options "SAMEORIGIN" always;
@@ -275,6 +286,7 @@ http {
     location @hub_unauthorized {
       default_type application/json;
       add_header WWW-Authenticate 'Bearer realm="MCloud"' always;
+      add_header Strict-Transport-Security $hsts always;
       add_header Referrer-Policy "no-referrer" always;
       add_header X-Content-Type-Options "nosniff" always;
       return 401 '{"value":{"error":"unknown error","message":"MCloud takes the requests of its users: the STF access token in the URL of the hub, https://<user>:<token>@<host>/mcloud/wd/hub (Settings, Keys of STF)","stacktrace":""}}';
@@ -397,6 +409,18 @@ http {
     }
 
     location /socket.io/ {
+      # the WebSocket of a signed-in user (its session cookie) for the pages of MCloud only: an Origin of another site
+      # is refused (cross-site WebSocket hijacking); a client without Origin is not a browser
+      set $socket_origin_ok 1;
+      if ($http_origin != "") {
+        set $socket_origin_ok 0;
+      }
+      if ($http_origin = "$forwarded_proto://$http_host") {
+        set $socket_origin_ok 1;
+      }
+      if ($socket_origin_ok = 0) {
+        return 403;
+      }
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
       set $upstream_websocket stf-websocket:3000;

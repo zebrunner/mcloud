@@ -28,6 +28,9 @@ x-stf: &stf
   image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
   env_file:
     - variables.env
+  # production: the errors answer no stack trace
+  environment:
+    - NODE_ENV=production
   depends_on:
     stf-migrate:
       condition: service_completed_successfully
