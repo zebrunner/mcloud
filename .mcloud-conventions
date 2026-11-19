@@ -1,6 +1,6 @@
 # The shared files of zebrunner/mcloud-conventions and their checksums, written by its sync
 # and checked by `make lint`: change the shared files in mcloud-conventions, not here.
-# synced from zebrunner/mcloud-conventions@45b576884edcb5cf261769abb92d3351b55db210
+# synced from zebrunner/mcloud-conventions@1e5f6feacc21b4b508794fe504562dca65012fda
 5ee061c5a912fc596262bff3887bef40078c1f3eba3fc7b960ad2f0410b059c3  CONVENTIONS.md
 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  LICENSE
 4f8c453ec14975ba97959c7cf9f0250f2d6c92134e69e8dd6dc5a2d9eacca84a  .shellcheckrc
@@ -11,5 +11,5 @@ bf3212e2e59f427895afd4d8c1c8b1ac04aba08e8afa7779539725f810083980  patch/curve_ke
 b9b5cb618ed8196f8851d3843d81f98b03973fe9e9e0eb8de7853bc2699f26f5  patch/ui.sh
 8fdb1e4dfb8b2531726bb4ee38657f933ef88595792cfbd289c4936d3f5cfcb0  .editorconfig#block
 6fa6e1908e605a4e3c52748600077ea69dc52441f2aa7633da35f7762a43eeb8  .gitignore#block
-02085a7b5925229c7c45503b23c584b6a7f228810bf70dd527b41bb4e53eb81d  tests/requirements-lint.txt#block
+004869861ae98fb202d4cbf5ff4c14d905a1bcc0437dcfe9085b34b0fc3141de  tests/requirements-lint.txt#block
 ec96cd83832aa5bda6491b609f525836b01de295b279df11db04b997ce905081  Makefile#block
