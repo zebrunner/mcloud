@@ -20,6 +20,8 @@ ui_rgb() {
 # ui_init: the colors, the glyphs and the width for the stdout and the locale; sourcing runs it, a script runs it again
 # after it redirects its stdout
 ui_init() {
+  # 1 when the last output of ui.sh ended with an empty line (a section, a paragraph): a callout adds no other one
+  UI_BLANK=0
   UI_TTY=0
   if [[ -t 1 && "${TERM:-}" != "dumb" ]]; then
     UI_TTY=1
@@ -114,9 +116,39 @@ ui_upper() {
   printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
 }
 
-# ui_wrap <text> <width>: the text wrapped at the spaces to the width, one line per line
+# ui_wrap <text> <width>: the text wrapped at the spaces to the width, one line per line; the lines of the text stay
+# lines, a longer word (a path, a URL, a command) stays whole on its own line, so it can be copied
 ui_wrap() {
-  printf '%s\n' "$1" | fold -s -w "$2" | sed 's/ *$//'
+  local text line word
+  local words=()
+  while IFS= read -r text || [[ -n "$text" ]]; do
+    line=""
+    words=()
+    # the words without the expansion of the globs (e.g. a * of a message)
+    read -r -a words <<< "$text"
+    for word in ${words[@]+"${words[@]}"}; do
+      if [[ -z "$line" ]]; then
+        line="$word"
+      elif [[ $((${#line} + 1 + ${#word})) -le "$2" ]]; then
+        line+=" ${word}"
+      else
+        printf '%s\n' "$line"
+        line="$word"
+      fi
+    done
+    printf '%s\n' "$line"
+  done <<< "$1"
+}
+
+# ui_hang <first prefix> <width of the prefix> <text> <width>: the text wrapped to the width after the prefix, the next
+# lines indented by the width of the prefix
+ui_hang() {
+  local head="$1"
+  local line
+  while IFS= read -r line; do
+    printf '%s%s\n' "$head" "$line"
+    head="$(ui_repeat ' ' "$2")"
+  done <<< "$(ui_wrap "$3" "$4")"
 }
 
 # ui_badge <text> [<colors>]: the text on the accent (or the colors), '[ text ]' without colors
@@ -140,14 +172,18 @@ ui_badge_width() {
 # ui_banner <product> [<version>]: the badge ZEBRUNNER, the product and the version at the right, a heavy line under
 ui_banner() {
   local version="${2:-}"
-  local gap=$((UI_WIDTH - $(ui_badge_width ZEBRUNNER) - 1 - ${#1} - ${#version}))
-  [[ "$gap" -ge 1 ]] || gap=1
-  printf '\n  %s %s%s%s%s%s%s%s\n' "$(ui_badge ZEBRUNNER)" "$UI_BOLD" "$1" "$UI_RESET" "$(ui_repeat ' ' "$gap")" \
-    "$UI_MUTED" "$version" "$UI_RESET"
-  printf '  %s%s%s\n' "$UI_ACCENT" "$(ui_repeat "$UI_HEAVY" "$UI_WIDTH")" "$UI_RESET"
+  printf '\n  %s %s%s%s' "$(ui_badge ZEBRUNNER)" "$UI_BOLD" "$1" "$UI_RESET"
+  if [[ -n "$version" ]]; then
+    local gap=$((UI_WIDTH - $(ui_badge_width ZEBRUNNER) - 1 - ${#1} - ${#version}))
+    [[ "$gap" -ge 1 ]] || gap=1
+    printf '%s%s%s%s' "$(ui_repeat ' ' "$gap")" "$UI_MUTED" "$version" "$UI_RESET"
+  fi
+  printf '\n  %s%s%s\n' "$UI_ACCENT" "$(ui_repeat "$UI_HEAVY" "$UI_WIDTH")" "$UI_RESET"
+  UI_BLANK=0
 }
 
-# ui_section <title> [<counter>]: the title as a badge, a thin line and the counter (e.g. 1/3) at the right
+# ui_section <title> [<counter>] [<detail>]: the title as a badge, a thin line and the counter (e.g. 1/3) at the
+# right, an empty line; the detail (e.g. a folder) muted under it, then an empty line
 ui_section() {
   local title counter="${2:-}"
   title="$(ui_upper "$1")"
@@ -161,17 +197,27 @@ ui_section() {
     printf ' %s%s%s' "$UI_MUTED" "$counter" "$UI_RESET"
   fi
   printf '\n\n'
+  if [[ -n "${3:-}" ]]; then
+    local detail
+    while IFS= read -r detail; do
+      printf '  %s%s%s\n' "$UI_MUTED" "$detail" "$UI_RESET"
+    done <<< "$(ui_wrap "$3" "$UI_WIDTH")"
+    printf '\n'
+  fi
+  UI_BLANK=1
 }
 
 # ui_rule: a thin line over the width
 ui_rule() {
   printf '  %s%s%s\n' "$UI_DARK" "$(ui_repeat "$UI_THIN" "$UI_WIDTH")" "$UI_RESET"
+  UI_BLANK=0
 }
 
 # ui_status <ok|info|warn|fail> <message> [<fix>]: a colored dot (the word without colors), the message and the fix
-# under it
+# under it, both wrapped to the width under themselves
 ui_status() {
   local mark
+  local mark_width=1
   if [[ "$UI_COLOR_ON" -eq 1 ]]; then
     case "$1" in
     ok) mark="${UI_OK}${UI_DOT}" ;;
@@ -181,6 +227,7 @@ ui_status() {
     esac
     mark+="$UI_RESET"
   else
+    mark_width=4
     case "$1" in
     ok) mark="ok  " ;;
     warn) mark="warn" ;;
@@ -188,10 +235,13 @@ ui_status() {
     *) mark="info" ;;
     esac
   fi
-  printf '   %s %s\n' "$mark" "$2"
+  local indent=$((3 + mark_width + 1))
+  ui_hang "   ${mark} " "$indent" "$2" $((UI_WIDTH + 2 - indent))
   if [[ -n "${3:-}" ]]; then
-    printf '     %s%s%s %sfix%s %s\n' "$UI_MUTED" "$UI_BRANCH" "$UI_RESET" "$UI_BOLD" "$UI_RESET" "$3"
+    # '     <branch> fix ': 12 columns, the branch is 2 of them in Unicode and in ASCII
+    ui_hang "     ${UI_MUTED}${UI_BRANCH}${UI_RESET} ${UI_BOLD}fix${UI_RESET} " 12 "$3" $((UI_WIDTH + 2 - 12))
   fi
+  UI_BLANK=0
 }
 
 # ui_ok <message>: a passed check or a done step
@@ -214,8 +264,8 @@ ui_fail() {
   ui_status fail "$@"
 }
 
-# ui_callout <warn|error|note> <text> [<title>]: an empty line, then a bar at the left of the title (WARNING, ERROR,
-# NOTE by default) and of the text wrapped to the width
+# ui_callout <warn|error|note> <text> [<title>]: an empty line (not after a section or a paragraph), then a bar at the
+# left of the title (WARNING, ERROR, NOTE by default) and of the text wrapped to the width
 ui_callout() {
   local color title line
   case "$1" in
@@ -224,15 +274,41 @@ ui_callout() {
   *) color="$UI_WARN" title="WARNING" ;;
   esac
   title="${3:-$title}"
-  printf '\n  %s%s%s %s%s%s%s\n' "$color" "$UI_BAR" "$UI_RESET" "$color" "$UI_BOLD" "$title" "$UI_RESET"
+  if [[ "$UI_BLANK" -ne 1 ]]; then
+    printf '\n'
+  fi
+  printf '  %s%s%s %s%s%s%s\n' "$color" "$UI_BAR" "$UI_RESET" "$color" "$UI_BOLD" "$title" "$UI_RESET"
   while IFS= read -r line; do
     printf '  %s%s%s %s\n' "$color" "$UI_BAR" "$UI_RESET" "$line"
   done <<< "$(ui_wrap "$2" $((UI_WIDTH - 2)))"
+  UI_BLANK=0
+}
+
+# ui_paragraph <text>: a paragraph wrapped to the width, an empty line after it
+ui_paragraph() {
+  ui_hang "  " 2 "$1" "$UI_WIDTH"
+  printf '\n'
+  UI_BLANK=1
+}
+
+# ui_step <number> <text>: a numbered step of a list, the text wrapped under itself, an empty line after it
+ui_step() {
+  local number="${1}."
+  ui_hang "   ${UI_ACCENT}${number}${UI_RESET} " $((4 + ${#number})) "$2" $((UI_WIDTH - 2 - ${#number}))
+  printf '\n'
+  UI_BLANK=1
+}
+
+# ui_table_head <text>: the header of a table muted, the same text without colors (the rows are printf of the caller)
+ui_table_head() {
+  printf '%s%s%s\n' "$UI_MUTED" "$1" "$UI_RESET"
+  UI_BLANK=0
 }
 
 # ui_muted <text>: a line of secondary text, e.g. where to get help
 ui_muted() {
   printf '  %s%s%s\n' "$UI_MUTED" "$1" "$UI_RESET"
+  UI_BLANK=0
 }
 
 # ui_prompt <question> [<hint>]: the prompt of read -p, without a newline:
@@ -248,11 +324,13 @@ ui_prompt() {
 # ui_usage <command line>: the first line of a help, e.g. ui_usage "./zebrunner.sh <command> [options]"
 ui_usage() {
   printf '\n  %s%s%s %s%s%s\n' "$UI_ACCENT" "$UI_POINTER" "$UI_RESET" "$UI_BOLD" "$1" "$UI_RESET"
+  UI_BLANK=0
 }
 
 # ui_help_group <name>: the title of a group of commands of a help
 ui_help_group() {
   printf '\n  %s\n' "$(ui_badge "$(ui_upper "$1")" "$UI_INVERSE")"
+  UI_BLANK=0
 }
 
 # ui_help_cmd <command> <arguments> <description>: a command of a help; the description is wrapped under itself, it
@@ -279,6 +357,7 @@ ui_help_cmd() {
     printf '%s%s\n' "$head" "$line"
     head="$(ui_repeat ' ' "$indent")"
   done <<< "$(ui_wrap "$3" "$desc_width")"
+  UI_BLANK=0
 }
 
 # ui_summary <passed> <warnings> <problems>: an empty line, a thin line and the counts as badges
@@ -291,6 +370,7 @@ ui_summary() {
   else
     printf '  %s ok, %s warn, %s fail\n' "$1" "$2" "$3"
   fi
+  UI_BLANK=0
 }
 
 # ui_spin <message> <command...>: runs a command that needs no input with a spinner on a terminal, then ui_ok or

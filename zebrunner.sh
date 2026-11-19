@@ -592,7 +592,7 @@ nodes_list() {
     ui_info "No node is enrolled: ./zebrunner.sh node-invite <label> <address> (README.md#nodes)."
     return 0
   fi
-  printf '%-20s %-24s %-8s %-20s %-20s %s\n' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY
+  ui_table_head "$(printf '%-20s %-24s %-8s %-20s %-20s %s' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY)"
   while read -r line; do
     printf '%-20s %-24s %-8s %-20s %-20s %s\n' "$(json_value label <<< "$line")" "$(json_value address <<< "$line")" \
       "$(json_value status <<< "$line")" "$(json_time lastSeenAt <<< "$line")" "$(json_time createdAt <<< "$line")" \
@@ -658,7 +658,7 @@ nodes_check() {
     ui_fail "stf-proxy is not running (./zebrunner.sh start): the screens are not checked."
   fi
   echo
-  printf '%-28s %-9s %-8s %-7s %-13s %s\n' SERIAL PLATFORM PRESENT SCREEN "REMOTE DEBUG" "SCREEN FROM stf-proxy"
+  ui_table_head "$(printf '%-28s %-9s %-8s %-7s %-13s %s' SERIAL PLATFORM PRESENT SCREEN "REMOTE DEBUG" "SCREEN FROM stf-proxy")"
   while read -r line; do
     serial="$(json_value serial <<< "$line")"
     platform="$(json_value platform <<< "$line")"
