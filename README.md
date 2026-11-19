@@ -65,8 +65,24 @@ The commands of `./zebrunner.sh`:
 | `version` | the version of MCloud, the tag of the STF image |
 | `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
 | `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
+| `help [<command>]` | the help of all the commands, or the usage, the description and the arguments of one command without running it; `./zebrunner.sh <command> --help` (or `-h`) is the same, e.g. `./zebrunner.sh shutdown --help` shuts nothing down |
+| `completion bash\|zsh` | the completion of the commands for the shell, see [Completion](#completion) |
 
 The commands print their messages in the style of `patch/ui.sh` (CONVENTIONS.md#terminal-output): colors on a terminal only (`NO_COLOR` or `UI_COLOR=never` turns them off, `UI_COLOR=always` on), Unicode glyphs with a UTF-8 locale (`UI_ASCII=true` for ASCII). Without colors the statuses are the words `ok`, `info`, `warn`, `FAIL` and a warning is a block with a bar at the left of `WARNING` and its text, so a log stays readable. The data stays plain: the output of `version`, the join string of `node-invite`, the tables of `nodes`.
+
+`./zebrunner.sh`, `help` and `--help` print the help (without a command it exits with `1`, as before). An unknown command exits with `2`: it is named with the closest commands (e.g. `./zebrunner.sh strat`: `Did you mean 'start'?`) and the usage, on stderr; the other exit codes are the ones of the commands.
+
+### Completion
+
+`./zebrunner.sh completion bash` (or `zsh`) prints the completion of the commands for bash and zsh ([patch/completion.sh](patch/completion.sh)); add its eval with the path of the folder to `~/.bashrc` (`~/.zshrc` for zsh), the command prints the line on a terminal:
+
+```bash
+eval "$(/opt/mcloud/zebrunner.sh completion bash)"
+```
+
+A TAB after `./zebrunner.sh` (or `zebrunner.sh`) completes the commands and the options (`--help`, `-h`), the subcommands of `nodes` (`list`, `check`, `revoke`, `delete`), the commands of `help` and the shells of `completion`. The labels of the nodes are not completed: only the STF API knows them, and the completion runs no request; the label and the address of `node-invite` are free text.
+
+The completion asks the `zebrunner.sh` of the command line for the candidates (`./zebrunner.sh __complete <index> <words...>`, CONVENTIONS.md#completion), which answers at once and changes nothing: no docker, no network, no file written, no question. It runs only a `zebrunner.sh` of the current user or of root that the group and the others cannot write, so a TAB in a folder of someone else does not run its script.
 
 ## Configuration
 

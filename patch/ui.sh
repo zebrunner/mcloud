@@ -117,11 +117,16 @@ ui_upper() {
 }
 
 # ui_wrap <text> <width>: the text wrapped at the spaces to the width, one line per line; the lines of the text stay
-# lines, a longer word (a path, a URL, a command) stays whole on its own line, so it can be copied
+# lines, a line within the width stays as it is (the spaces of its columns), a longer word (a path, a URL, a command)
+# stays whole on its own line, so it can be copied
 ui_wrap() {
   local text line word
   local words=()
   while IFS= read -r text || [[ -n "$text" ]]; do
+    if [[ ${#text} -le "$2" ]]; then
+      printf '%s\n' "$text"
+      continue
+    fi
     line=""
     words=()
     # the words without the expansion of the globs (e.g. a * of a message)
