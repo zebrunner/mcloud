@@ -122,7 +122,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '    }' '  }' '}' > "${FAKE}/nginx.conf"
 docker network create stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
-  --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
+  --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid --network-alias stf-websocket -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 -p 127.0.0.1:18446:4446 \
   "${proxy_volumes[@]}" "$NGINX"
 run_check "stf-proxy answers" wait_for 30 curl -sf --max-time 2 "${URL}/api/v1/user"
@@ -143,6 +143,19 @@ check "an access token: the node does not get it" \
   "$(body "$screen" -H "Authorization: Bearer good-token" "${websocket[@]}")"
 check "a port below 1024 is not a screen: the app gets it" "upstream GET /d/node1/serial1/80/" \
   "$(body /d/node1/serial1/80/ -H "Cookie: ssid=good")"
+
+section "the WebSocket of STF"
+check "the pages of MCloud open the WebSocket" "upstream GET /socket.io/?EIO=4" \
+  "$(body '/socket.io/?EIO=4' -H "Origin: http://127.0.0.1:18083" -H "Host: 127.0.0.1:18083")"
+check "a client without Origin opens it" "upstream GET /socket.io/?EIO=4" "$(body '/socket.io/?EIO=4')"
+check "a page of another site does not (cross-site WebSocket hijacking)" "403" \
+  "$(http_code '/socket.io/?EIO=4' -H "Origin: https://evil.example.com" -H "Cookie: ssid=good")"
+check "another scheme is another site" "403" "$(http_code '/socket.io/?EIO=4' -H "Origin: https://127.0.0.1:18083")"
+
+section "HSTS"
+check "no HSTS over http" "" "$(curl -s -o /dev/null -D - --max-time 10 "${URL}/" | grep -i '^strict-transport-security')"
+check "HSTS over https" "Strict-Transport-Security: max-age=31536000" \
+  "$(curl -s -o /dev/null -D - --max-time 10 -H "X-Forwarded-Proto: https" "${URL}/" | grep -i '^strict-transport-security' | tr -d '\r')"
 
 section "the access to the grid"
 john=(-u "john@example.com:john-token")
@@ -166,8 +179,10 @@ check "the X-MCloud-* headers of the client reach neither stf-api nor the grid" 
   "$(body /mcloud/wd/hub/session/s1/url "${john[@]}" -A curl -H "X-MCloud-Admin: true" -H "X-MCloud-Auth: forged")"
 check "the query of a command reaches the grid" "grid GET /wd/hub/session/s1/url?x=1 upgrade=[] connection=[] agent=[curl] ${as_john}" \
   "$(body '/mcloud/wd/hub/session/s1/url?x=1' "${john[@]}" -A curl)"
-check "the status of the hub needs no user" "grid GET /wd/hub/status upgrade=[] connection=[] agent=[] auth=[] user=[] admin=[] token=[] authorization=[] cookie=[]" \
+check "the status of the hub needs a user of STF" "401" "$(http_code /mcloud/wd/hub/status)"
+check "the status of the hub for a signed-in user, without a header of the client" "grid GET /wd/hub/status upgrade=[] connection=[] agent=[] auth=[] user=[] admin=[] token=[] authorization=[] cookie=[]" \
   "$(body /mcloud/wd/hub/status -A curl -H "Cookie: ssid=good")"
+check "the status of the hub for an access token" "200" "$(http_code /mcloud/wd/hub/status "${john[@]}")"
 check "the preflight of a browser needs no user" "204" "$(http_code /mcloud/wd/hub/session -X OPTIONS -H "Origin: https://x.example.com")"
 check "the WebSocket of a Playwright session goes to the servlet of the grid with its upgrade, User-Agent and user" \
   "grid GET /grid/admin/PlaywrightServlet/f09c14e2-7c54 upgrade=[websocket] connection=[upgrade] agent=[Playwright/1.65.0] ${as_john}" \
