@@ -33,22 +33,36 @@ compose_config() {
   fi
 }
 
-# unwrap: stdin with the text of every callout of patch/ui.sh (ASCII, without colors, COLUMNS=80) on one line after its
-# title, the way zebrunner.sh wrote it before the wrapping: the checks of the messages do not depend on the wrapping. A
-# full line (78 columns) is a word longer than the line (e.g. a path), cut without a space
+# unwrap: stdin with the text of every callout, status and fix of patch/ui.sh (ASCII, without colors, COLUMNS=80) on one
+# line, the way zebrunner.sh wrote them before the wrapping: the checks of the messages do not depend on the wrapping
+# (patch/ui.sh wraps at the spaces only, a longer word stays whole); the title of a callout stays on its own line
 unwrap() {
   awk '
-    in_body && /^  \| / {
-      if (text == "") text = $0
-      else text = text (length(last) == 78 ? "" : " ") substr($0, 5)
-      last = $0
+    mode == "callout" && /^  \| / {
+      text = (text == "" ? $0 : text " " substr($0, 5))
+      next
+    }
+    mode == "status" && /^        [^ ]/ || mode == "fix" && /^            [^ ]/ {
+      sub(/^ +/, "")
+      text = text " " $0
       next
     }
     {
       if (text != "") print text
       text = ""
-      in_body = /^  \| [A-Z][A-Z-]*$/
-      print
+      mode = ""
+      if (/^  \| [A-Z][A-Z-]*$/) {
+        print
+        mode = "callout"
+      } else if (/^   (ok  |info|warn|FAIL) /) {
+        text = $0
+        mode = "status"
+      } else if (/^     `- fix /) {
+        text = $0
+        mode = "fix"
+      } else {
+        print
+      }
     }
     END { if (text != "") print text }
   '

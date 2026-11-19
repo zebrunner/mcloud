@@ -181,9 +181,11 @@ One style for every MCloud repository: a lime accent on a dark terminal, badges 
 | Element | Function of `patch/ui.sh` | Look |
 | --- | --- | --- |
 | banner | `ui_banner <product> [<version>]` | the badge `ZEBRUNNER`, the product in bold, the version at the right, a heavy line (U+2501) under them |
-| section | `ui_section <title> [<counter>]` | the title in upper case as a badge, a thin line (U+2500), the counter (e.g. `1/3`) at the right |
-| status | `ui_ok`, `ui_info`, `ui_warn`, `ui_fail` `<message> [<fix>]` | a green, amber or red dot (U+25CF), a muted circle (U+25CB) for info; `fix <command>` under it after a branch (U+2514) |
-| callout | `ui_callout <warn\|error\|note> <text> [<title>]` | a bar (U+2503) at the left of `WARNING`, `ERROR` or `NOTE` and of the wrapped text |
+| section | `ui_section <title> [<counter>] [<detail>]` | the title in upper case as a badge, a thin line (U+2500), the counter (e.g. `1/3`) at the right; the detail (e.g. a folder) muted under it |
+| status | `ui_ok`, `ui_info`, `ui_warn`, `ui_fail` `<message> [<fix>]` | a green, amber or red dot (U+25CF), a muted circle (U+25CB) for info; `fix <command>` under it after a branch (U+2514); both wrapped under themselves |
+| callout | `ui_callout <warn\|error\|note> <text> [<title>]` | a bar (U+2503) at the left of `WARNING`, `ERROR` or `NOTE` and of the wrapped text, after an empty line (one only after a section or a paragraph) |
+| text | `ui_paragraph <text>`, `ui_step <number> <text>` | a paragraph, a numbered step: wrapped to the width, an empty line after them |
+| table | `ui_table_head <text>` | the header of a table muted, the same text without colors; the rows are `printf` of the caller (data) |
 | prompt | `read -r -p "$(ui_prompt <question> [<hint>])"` | a lime pointer (U+25B8), the question, the muted hint `[Y/n]` |
 | help | `ui_usage`, `ui_help_group`, `ui_help_cmd <command> <arguments> <description>` | the groups of commands as badges, the commands in bold, the arguments muted, the descriptions aligned |
 | summary | `ui_summary <passed> <warnings> <problems>` | a thin line and the counts as green, amber and red badges |
@@ -192,7 +194,7 @@ One style for every MCloud repository: a lime accent on a dark terminal, badges 
 
 - The colors: on a terminal only, without `NO_COLOR` and `TERM=dumb`; `UI_COLOR=always` or `never` overrides it. 24-bit with `COLORTERM=truecolor` or `24bit`, else the 256 colors of xterm. Without colors the statuses are the words `ok`, `info`, `warn`, `FAIL` and the badges `[ TITLE ]`, so a log of CI stays readable.
 - The glyphs: Unicode with a UTF-8 locale (`LC_ALL`, `LC_CTYPE`, `LANG`), else ASCII (`=`, `-`, `*`, `` `- ``, `|`, `>`); `UI_ASCII=true` forces ASCII.
-- The width: the terminal up to 80 columns, at least 40.
+- The width: the terminal up to 80 columns, at least 40. The text is wrapped at the spaces; a longer word (a path, a URL, a command) stays whole on its own line, so it can be copied.
 - The services keep the format of their logs (see [Logging](#logging), [Java](#java), [Go](#go)); their first log line is `<U+2501><U+2501> <service> <version> <U+00B7> <fact> ...` (e.g. the UDID of the device, the port): `loggerBanner` of `util/logger.sh`, the message of the first `slog` line in Go, the message of the first JSON line in Java.
 
 ### Exit codes
