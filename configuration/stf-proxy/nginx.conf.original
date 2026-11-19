@@ -290,14 +290,17 @@ http {
     # device, at the registered address of its node and on its screen port; 401 or 403 otherwise
     location ~ "^/d/(?<stfprovider>[^/]+)/(?<udid>[^/]+)/(?<port>102[4-9]|10[3-9][0-9]|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/$" {
       auth_request /_screen_auth;
+      # the screen ticket of stf-api for the node: the screen WebSocket of the node takes no connection without it
+      auth_request_set $screen_ticket $upstream_http_x_mcloud_screen_ticket;
       proxy_pass http://$stfprovider:$port/;
       proxy_http_version 1.1;
-      # only the headers of the WebSocket go to the node: never the session cookie, the access token or the X-Stf-*
-      # headers of the user, the node is not trusted with them
+      # only the headers of the WebSocket and the screen ticket go to the node: never the session cookie, the access
+      # token or the X-Stf-* headers of the user, the node is not trusted with them
       proxy_pass_request_headers off;
       proxy_set_header Cookie "";
       proxy_set_header Authorization "";
       proxy_set_header X-Stf-Internal-Token "";
+      proxy_set_header X-MCloud-Screen-Ticket $screen_ticket;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection upgrade;
       proxy_set_header Sec-WebSocket-Key $http_sec_websocket_key;
@@ -311,7 +314,7 @@ http {
     }
 
     # the decision of stf-api about a screen: the session cookie of STF or an access token of the user and the original
-    # URI only; 2xx lets the request in, 401 and 403 refuse it
+    # URI only; 2xx lets the request in with the screen ticket of the node, 401 and 403 refuse it
     location = /_screen_auth {
       internal;
       set $upstream_screen_auth stf-api:3000;

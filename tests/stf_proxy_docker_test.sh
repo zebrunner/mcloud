@@ -76,7 +76,8 @@ proxy_volumes=(-v "${MCLOUD}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx
 run_check "nginx -t of the configuration of http" docker run --rm "${proxy_volumes[@]}" "$NGINX" nginx -t
 
 section "the stand-ins"
-# stf-api (and stf-app): the screen of serial1 at node1:7400 for the session ssid=good or the token good-token; a header
+# stf-api (and stf-app): the screen of serial1 at node1:7400 for the session ssid=good or the token good-token, with the
+# screen ticket v1.1.ticket; a header
 # of the user other than the cookie and the token fails the decision (418, a 500 of stf-proxy); the other paths answer
 # their request. hub-auth: john@example.com with the token john-token in Basic (or the session ssid=good for the console
 # and the admin routes), admin@example.com with Bearer admin-token; a header X-MCloud-* of the client fails it (418).
@@ -90,6 +91,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '      if ($allowed = "") { return 401; }' \
   '      if ($http_x_stf_secret != "") { return 418; }' \
   '      if ($http_x_original_uri != "/d/node1/serial1/7400/") { return 403; }' \
+  '      add_header X-MCloud-Screen-Ticket v1.1.ticket;' \
   '      return 204;' \
   '    }' \
   '    location = /api/v1/zebrunner/hub-auth {' \
@@ -112,7 +114,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '  }' '  server {' '    listen 7400;' \
   '    location / {' \
   '      default_type text/plain;' \
-  '      return 200 "node cookie=[$http_cookie] authorization=[$http_authorization] stf=[$http_x_stf_secret] internal=[$http_x_stf_internal_token] upgrade=[$http_upgrade] connection=[$http_connection] key=[$http_sec_websocket_key] version=[$http_sec_websocket_version]\n";' \
+  '      return 200 "node cookie=[$http_cookie] authorization=[$http_authorization] stf=[$http_x_stf_secret] internal=[$http_x_stf_internal_token] ticket=[$http_x_mcloud_screen_ticket] upgrade=[$http_upgrade] connection=[$http_connection] key=[$http_sec_websocket_key] version=[$http_sec_websocket_version]\n";' \
   '    }' '  }' '  server {' '    listen 4444;' \
   '    location / {' \
   '      default_type text/plain;' \
@@ -134,10 +136,10 @@ check "a wrong session is refused" "401" "$(http_code "$screen" -H "Cookie: ssid
 check "another port of the device is refused (403 of stf-api for the original URI)" "403" \
   "$(http_code /d/node1/serial1/7401/ -H "Cookie: ssid=good")"
 check "the node gets the WebSocket without the cookie and the other headers of the user" \
-  "node cookie=[] authorization=[] stf=[] internal=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
-  "$(body "$screen" -H "Cookie: other=1; ssid=good" -H "X-Stf-Secret: leak" -H "X-Stf-Internal-Token: leak" "${websocket[@]}")"
+  "node cookie=[] authorization=[] stf=[] internal=[] ticket=[v1.1.ticket] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
+  "$(body "$screen" -H "Cookie: other=1; ssid=good" -H "X-Stf-Secret: leak" -H "X-Stf-Internal-Token: leak" -H "X-MCloud-Screen-Ticket: forged" "${websocket[@]}")"
 check "an access token: the node does not get it" \
-  "node cookie=[] authorization=[] stf=[] internal=[] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
+  "node cookie=[] authorization=[] stf=[] internal=[] ticket=[v1.1.ticket] upgrade=[websocket] connection=[upgrade] key=[dGhlIHNhbXBsZSBub25jZQ==] version=[13]" \
   "$(body "$screen" -H "Authorization: Bearer good-token" "${websocket[@]}")"
 check "a port below 1024 is not a screen: the app gets it" "upstream GET /d/node1/serial1/80/" \
   "$(body /d/node1/serial1/80/ -H "Cookie: ssid=good")"
