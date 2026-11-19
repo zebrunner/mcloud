@@ -3,6 +3,48 @@
 # Zebrunner CE runs it with ZBR_INSTALLER=1 and its ZBR_* settings, the shutdown with SHUTDOWN_CONFIRMED=1.
 # Keep it compatible with the macOS system bash 3.2 (CONVENTIONS.md).
 
+#### Completion
+
+# The commands of echo_help, of the completion and of the hint of an unknown command
+COMMANDS="setup start stop restart down shutdown backup restore version node-invite nodes help completion"
+
+# complete_words <index> <words...>: the candidates of the word <index> of the command line, one per line
+# (CONVENTIONS.md#completion); the labels of the nodes are not offered, only the STF API knows them
+complete_words() {
+  local index="$1"
+  shift
+  [[ "$index" =~ ^[1-9][0-9]{0,2}$ ]] || return 0
+  local words=("$@")
+  local current="${words[$((index - 1))]:-}"
+  if [[ "$index" -eq 1 ]]; then
+    # split into the words of the list
+    # shellcheck disable=SC2086
+    printf '%s\n' $COMMANDS --help -h
+    return 0
+  fi
+  # an option after a command: its help
+  if [[ "$current" == -* ]]; then
+    printf '%s\n' --help -h
+    return 0
+  fi
+  [[ "$index" -eq 2 ]] || return 0
+  case "${words[0]}" in
+  nodes) printf '%s\n' list check revoke delete ;;
+  help)
+    # split into the words of the list
+    # shellcheck disable=SC2086
+    printf '%s\n' $COMMANDS
+    ;;
+  completion) printf '%s\n' bash zsh ;;
+  esac
+}
+
+# the completion answers before anything else runs: no cd, no file, no docker, no network, nothing on stderr
+if [[ "${1:-}" == "__complete" ]]; then
+  complete_words "${@:2}" 2> /dev/null
+  exit 0
+fi
+
 #### Commands
 
 # setup: writes .env, variables.env and the nginx configuration from their *.original files
@@ -1489,6 +1531,8 @@ set_admin() {
   export ZBR_MCLOUD_ADMIN_EMAIL
 }
 
+#### Help
+
 # echo_help: the usage, the commands by group
 echo_help() {
   ui_banner "MCloud" "$(mcloud_tag)"
@@ -1511,9 +1555,224 @@ echo_help() {
   ui_help_cmd nodes "check <label>" "The diagnostics of a node"
   ui_help_cmd nodes "revoke <label>" "The revocation of a node"
   ui_help_cmd nodes "delete <label>" "The removal of a revoked node (README.md#nodes)"
+  ui_help_group "Help"
+  ui_help_cmd help "[<command>]" "The help of a command, nothing of it runs"
+  ui_help_cmd completion "bash|zsh" "The completion of the commands (README.md#completion)"
   ui_help_group "Options"
   ui_help_cmd "--help, -h" "" "Print help"
   echo_telegram
+}
+
+# is_command <word>: succeeds for a command of COMMANDS
+is_command() {
+  local command
+  for command in $COMMANDS; do
+    if [[ "$1" == "$command" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# command_help <command>: the usage, the description and the arguments of a command, nothing of the command runs;
+# fails for an unknown command
+command_help() {
+  case "$1" in
+  setup)
+    ui_usage "./zebrunner.sh setup"
+    echo
+    ui_paragraph "Writes .env, variables.env and configuration/stf-proxy/nginx.conf from their *.original files, then offers to start the services. It asks the protocol, the host, the port and the sign-in; the next setups offer the answers of the previous one and keep its values and secrets. ZBR_HOSTNAME=<host> offers that host instead of the public address of ifconfig.me."
+    ;;
+  start)
+    ui_usage "./zebrunner.sh start"
+    echo
+    ui_paragraph "Starts the services and shows their URLs. The first start (no .env yet) runs the setup instead and exits with 1: run ./zebrunner.sh start again."
+    ;;
+  stop)
+    ui_usage "./zebrunner.sh stop"
+    echo
+    ui_paragraph "Stops the services, the containers are kept."
+    ;;
+  restart)
+    ui_usage "./zebrunner.sh restart"
+    echo
+    ui_paragraph "Stops and removes the containers (down), then starts the services (start); the data is kept."
+    ;;
+  down)
+    ui_usage "./zebrunner.sh down"
+    echo
+    ui_paragraph "Stops and removes the containers, the data is kept."
+    ;;
+  shutdown)
+    ui_usage "./zebrunner.sh shutdown"
+    echo
+    ui_paragraph "Removes the containers, the data and the settings with their backup copies (*.bak) after a confirmation; it cannot be undone. The certificate of configuration/stf-proxy/ssl and the archive backup/rethinkdb.tar.gz stay."
+    ;;
+  backup)
+    ui_usage "./zebrunner.sh backup"
+    echo
+    ui_paragraph "Copies the settings to *.bak and the database to backup/rethinkdb.tar.gz. The database and the STF units are stopped for the copy (the UI and the devices are unavailable meanwhile) and started again."
+    ;;
+  restore)
+    ui_usage "./zebrunner.sh restore"
+    echo
+    ui_paragraph "Stops the services, puts the settings of *.bak back and extracts backup/rethinkdb.tar.gz over the volume of the database, then removes the containers: ./zebrunner.sh start runs the services again."
+    ;;
+  version)
+    ui_usage "./zebrunner.sh version"
+    echo
+    ui_paragraph "Prints the version of MCloud, the tag of the STF image: mcloud: <tag>."
+    ;;
+  node-invite)
+    ui_usage "./zebrunner.sh node-invite <label> <address> [<minutes>]"
+    echo
+    ui_paragraph "Prints the join string of a new node once, for ./zebrunner.sh join of mcloud-agent on the node: a secret, valid for one join. It needs https, the certificate of stf-proxy and STF_TOKEN (README.md#nodes)."
+    ui_help_cmd "<label>" "" "The name of the node: 1-40 lower case letters, digits and -, not - first"
+    ui_help_cmd "<address>" "" "The IPv4 address or the host name the server reaches the node at"
+    ui_help_cmd "<minutes>" "" "The validity of the invite, 1-1440 minutes, 60 by default"
+    ;;
+  nodes)
+    ui_usage "./zebrunner.sh nodes [list|check <label>|revoke <label>|delete <label>]"
+    echo
+    ui_paragraph "The registry of the nodes of STF, read with STF_TOKEN of variables.env (README.md#nodes)."
+    ui_help_cmd list "" "The enrolled nodes, the default"
+    ui_help_cmd check "<label>" "The diagnostics of a node: its record, its devices and their screens"
+    ui_help_cmd revoke "<label>" "The revocation of a node: its token and its key are refused"
+    ui_help_cmd delete "<label>" "The removal of a revoked node from the registry"
+    ;;
+  help)
+    ui_usage "./zebrunner.sh help [<command>]"
+    echo
+    ui_paragraph "Prints the help of MCloud, or the one of a command without running it, as ./zebrunner.sh <command> --help does."
+    ui_help_cmd "<command>" "" "A command of ./zebrunner.sh help"
+    ;;
+  completion)
+    ui_usage "./zebrunner.sh completion bash|zsh"
+    echo
+    ui_paragraph "Prints the completion of the commands for the eval of the shell, on a terminal also the eval line of the rc file of the shell (README.md#completion). It runs only a zebrunner.sh of the user or of root that the others cannot write."
+    ui_help_cmd bash "" "The completion of bash, its eval line goes to ~/.bashrc"
+    ui_help_cmd zsh "" "The completion of zsh, its eval line goes to ~/.zshrc"
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+  echo_telegram
+}
+
+# edit_distance <a> <b>: the Levenshtein distance of two words
+edit_distance() {
+  local a="$1"
+  local b="$2"
+  local i j cost best
+  local previous=()
+  local current=()
+  for ((j = 0; j <= ${#b}; j++)); do
+    previous[j]=$j
+  done
+  for ((i = 1; i <= ${#a}; i++)); do
+    current=("$i")
+    for ((j = 1; j <= ${#b}; j++)); do
+      cost=1
+      if [[ "${a:i-1:1}" == "${b:j-1:1}" ]]; then
+        cost=0
+      fi
+      best=$((previous[j - 1] + cost))
+      if [[ $((previous[j] + 1)) -lt "$best" ]]; then
+        best=$((previous[j] + 1))
+      fi
+      if [[ $((current[j - 1] + 1)) -lt "$best" ]]; then
+        best=$((current[j - 1] + 1))
+      fi
+      current[j]=$best
+    done
+    previous=("${current[@]}")
+  done
+  echo "${previous[${#b}]}"
+}
+
+# closest_commands <word>: the commands of a common prefix of 2 characters at least with the word and the closest ones
+# within 2 edits, one per line
+closest_commands() {
+  local word command distance
+  local best=3
+  local closest=""
+  word="$(tr '[:upper:]' '[:lower:]' <<< "$1")"
+  [[ ${#word} -le 32 ]] || return 0
+  for command in $COMMANDS --help; do
+    distance="$(edit_distance "$word" "$command")"
+    if [[ "$distance" -lt "$best" ]]; then
+      best="$distance"
+    fi
+    closest+="${distance} ${command}"$'\n'
+  done
+  for command in $COMMANDS --help; do
+    if { [[ "$best" -le 2 ]] && [[ $'\n'"$closest" == *$'\n'"${best} ${command}"$'\n'* ]]; } ||
+      { [[ ${#word} -ge 2 ]] && [[ "$command" == "$word"* || "$word" == "$command"* ]]; }; then
+      echo "$command"
+    fi
+  done
+}
+
+# unknown_command <word>: the error of an unknown command with the closest commands and the usage, on stderr
+unknown_command() {
+  local shown closest command
+  local hint=""
+  local count=0
+  # printable ASCII only (no escape sequences of the terminal) and short: a pasted secret is not shown whole
+  shown="$(printf '%s' "$1" | LC_ALL=C tr -cd '[:print:]')"
+  if [[ ${#shown} -gt 32 ]]; then
+    shown="${shown:0:32}..."
+  else
+    closest="$(closest_commands "$shown")"
+  fi
+  for command in $closest; do
+    count=$((count + 1))
+  done
+  for command in $closest; do
+    if [[ -n "$hint" ]]; then
+      if [[ "$count" -eq 1 ]]; then
+        hint+=" or "
+      else
+        hint+=", "
+      fi
+    fi
+    hint+="'${command}'"
+    count=$((count - 1))
+  done
+  {
+    if [[ -n "$hint" ]]; then
+      ui_callout error "Unknown command '${shown}'. Did you mean ${hint}?"
+    else
+      ui_callout error "Unknown command '${shown}'."
+    fi
+    ui_usage "./zebrunner.sh <command> [options]"
+    ui_muted "The commands: ./zebrunner.sh help, one of them: ./zebrunner.sh help <command>"
+  } >&2
+}
+
+# print_completion <bash|zsh>: patch/completion.sh for the eval of the shell, the line of its rc file on stderr when
+# stdout is a terminal; 2 for another shell
+print_completion() {
+  local rc
+  case "${1:-}" in
+  bash) rc=".bashrc" ;;
+  zsh) rc=".zshrc" ;;
+  *)
+    {
+      ui_callout error "The completion is for bash or zsh."
+      ui_usage "./zebrunner.sh completion bash|zsh"
+    } >&2
+    return 2
+    ;;
+  esac
+  cat patch/completion.sh
+  if [[ -t 1 ]]; then
+    ui_info "The completion of the current shell: add this line to ~/${rc}" >&2
+    # the line for the rc file, expanded there
+    # shellcheck disable=SC2016
+    printf '\n  eval "$(%q completion %s)"\n\n' "${BASEDIR}/zebrunner.sh" "$1" >&2
+  fi
 }
 
 #### Main
@@ -1530,6 +1789,16 @@ source patch/mdm.sh
 
 # Zebrunner CE runs the setup with ZBR_INSTALLER=1, the setup of its MCloud reads ZBR_INSTALLER of its settings too
 installer="${ZBR_INSTALLER:-0}"
+
+# <command> --help|-h: the help of the command, nothing of the command runs (e.g. shutdown --help)
+if is_command "${1:-}"; then
+  for arg in "${@:2}"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+      command_help "$1"
+      exit 0
+    fi
+  done
+fi
 
 case "$1" in
 setup)
@@ -1584,11 +1853,27 @@ nodes)
   nodes "${@:2}"
   exit
   ;;
+help)
+  if [[ $# -lt 2 ]]; then
+    echo_help
+  elif ! command_help "$2"; then
+    unknown_command "$2"
+    exit 2
+  fi
+  ;;
+completion)
+  print_completion "${@:2}"
+  exit
+  ;;
 --help | -h)
   echo_help
   ;;
-*)
+"")
   echo_help
   exit 1
+  ;;
+*)
+  unknown_command "$1"
+  exit 2
   ;;
 esac

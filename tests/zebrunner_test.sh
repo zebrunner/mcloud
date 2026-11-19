@@ -127,13 +127,13 @@ check_contains "help starts with the banner of MCloud and its version" \
   "[ ZEBRUNNER ] MCloud" "$(sed -n 2p <<< "$output")"
 check_contains "the banner shows the version of MCloud" "$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(sed -n 2p <<< "$output")"
 check_contains "help shows the usage" "> ./zebrunner.sh <command> [options]" "$output"
-for group in "SET UP" RUN MAINTAIN NODES OPTIONS; do
+for group in "SET UP" RUN MAINTAIN NODES HELP OPTIONS; do
   check_contains "help groups the commands: ${group}" "  $(badge "$group")" "$output"
 done
-for command in setup start stop restart down shutdown backup restore version node-invite nodes "--help,"; do
+for command in setup start stop restart down shutdown backup restore version node-invite nodes help completion "--help,"; do
   check_contains "help lists ${command}" $'\n'"   ${command} " "$output"
 done
-check "the commands are in their groups" "SET UP setup RUN start stop restart down MAINTAIN backup restore shutdown version NODES node-invite nodes nodes nodes nodes OPTIONS --help," \
+check "the commands are in their groups" "SET UP setup RUN start stop restart down MAINTAIN backup restore shutdown version NODES node-invite nodes nodes nodes nodes HELP help completion OPTIONS --help," \
   "$(sed -n -e 's/^  \[ \(.*\) \]$/\1/p' -e 's/^   \([^ ][^ ]*\).*/\1/p' <<< "$output" | tr '\n' ' ' | sed 's/ $//')"
 for subcommand in "[list]" "check <label>" "revoke <label>" "delete <label>"; do
   check_contains "help lists nodes ${subcommand}" "   nodes       ${subcommand} " "$output"
@@ -141,9 +141,57 @@ done
 check_contains "help shows the arguments of node-invite" "   node-invite <label> <address> [<minutes>]" "$output"
 check_contains "help ends with the telegram channel" "For more help join telegram channel: https://t.me/zebrunner" "$(tail -1 <<< "$output")"
 check "help is ASCII without a UTF-8 locale" "" "$(LC_ALL=C grep -n '[^ -~]' <<< "$output")"
-zbr "" unknown > /dev/null
-check "an unknown command fails" "1" "$?"
-check_contains "an unknown command shows the help" "> ./zebrunner.sh <command> [options]" "$(zbr "" unknown)"
+check "help is --help" "$output" "$(zbr "" help)"
+zbr "" > /dev/null
+check "no command fails as before" "1" "$?"
+check "no command shows the help" "$output" "$(zbr "")"
+output="$(zbr "" unknown)"
+check "an unknown command fails with 2" "2" "$?"
+check_contains "an unknown command is named" "| Unknown command 'unknown'." "$output"
+check_contains "an unknown command shows the usage" "> ./zebrunner.sh <command> [options]" "$output"
+check_not_contains "an unknown command does not show the whole help" "[ SET UP ]" "$output"
+check "an unknown command calls no tool" "" "$(calls docker)$(calls curl)"
+for typo in "strat:'start'" "Setup:'setup'" "nodess:'nodes'" "node:'node-invite' or 'nodes'" "res:'restart' or 'restore'" \
+  "versions:'version'" "--hlep:'--help'"; do
+  check_contains "the command closest to ${typo%%:*}" "| Unknown command '${typo%%:*}'. Did you mean ${typo#*:}?" \
+    "$(zbr "" "${typo%%:*}")"
+done
+check_contains "no command is close to xyz" "| Unknown command 'xyz'."$'\n' "$(zbr "" xyz)"
+check_contains "an unknown command is shown without the escapes of the terminal" "| Unknown command 'a[31mb'." \
+  "$(zbr "" "$(printf 'a\033[31mb')")"
+check_contains "a long unknown command is cut: a pasted secret is not shown whole" \
+  "| Unknown command 'mcloud-join://mcloud.example.com...'." "$(zbr "" "mcloud-join://mcloud.example.com:443?token=mci1.secret")"
+check_not_contains "a long unknown command is cut before its end" "mci1.secret" \
+  "$(zbr "" "mcloud-join://mcloud.example.com:443?token=mci1.secret")"
+
+section "help of a command"
+for command in setup start stop restart down shutdown backup restore version node-invite nodes help completion; do
+  output="$(zbr "" help "$command")"
+  check "help ${command} succeeds" "0" "$?"
+  check_contains "help ${command} shows its usage" "> ./zebrunner.sh ${command}" "$(sed -n 2p <<< "$output")"
+  check "${command} --help is help ${command}" "$output" "$(zbr "" "$command" --help)"
+  check "${command} -h is help ${command}" "$output" "$(zbr "" "$command" -h)"
+  check "help ${command} is ASCII without a UTF-8 locale" "" "$(LC_ALL=C grep -n '[^ -~]' <<< "$output")"
+done
+check_contains "help node-invite explains its arguments" "   <minutes>                       The validity of the invite, 1-1440 minutes," \
+  "$(zbr "" help node-invite)"
+check_contains "help nodes explains its subcommands" "   revoke      <label>             The revocation of a node" "$(zbr "" help nodes)"
+check "the help of a subcommand is the one of nodes" "$(zbr "" help nodes)" "$(zbr "" nodes check --help)"
+output="$(zbr "" help strat)"
+check "help of an unknown command fails with 2" "2" "$?"
+check_contains "help of an unknown command shows the closest one" "| Unknown command 'strat'. Did you mean 'start'?" "$output"
+reset_calls
+zbr "" setup --help > /dev/null
+check "setup --help asks nothing and writes nothing" "no:no:" \
+  "$([[ -e "${MCLOUD}/.env" ]] && echo yes || echo no):$([[ -e "${MCLOUD}/variables.env" ]] && echo yes || echo no):$(calls docker)$(calls curl)"
+zbr_env=(ZBR_INSTALLER=1)
+zbr "" setup -h > /dev/null
+zbr_env=()
+check "setup -h of Zebrunner CE writes nothing" "no" "$([[ -e "${MCLOUD}/.env" ]] && echo yes || echo no)"
+for command in start stop restart down backup restore node-invite nodes; do
+  zbr "" "$command" --help > /dev/null
+  check "${command} --help runs nothing" "0:" "$?:$(calls docker)$(calls curl)"
+done
 
 section "setup"
 output="$(zbr "$(answers "" mcloud.example.com "" "" "")" setup)"
@@ -969,6 +1017,11 @@ output="$(zbr "" node-invite lab-1 10.0.0.5)"
 check "an invite needs STF_TOKEN" "1" "$?"
 check_contains "the empty STF_TOKEN is reported" "STF_TOKEN of variables.env is empty" "$output"
 replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=${admin_token}"
+reset_calls
+output="$(zbr "" node-invite lab-1 10.0.0.5 --help)"
+check "node-invite --help succeeds" "0:" "$?:$(calls curl)"
+check_contains "node-invite --help shows its usage, no invite" "> ./zebrunner.sh node-invite <label> <address> [<minutes>]" "$output"
+check_not_contains "node-invite --help prints no join string" "mcloud-join://" "$output"
 no_curl "the usage of node-invite" node-invite lab-1
 check_contains "the usage of node-invite is shown" "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]" "$output"
 for label in Lab-1 -lab lab_1 "" "$(printf 'a%.0s' {1..41})"; do
@@ -1260,6 +1313,14 @@ for file in variables.env .env backup/settings.env configuration/stf-proxy/nginx
 done
 touch "${MCLOUD}/backup/rethinkdb.tar.gz"
 reset_calls
+zbr_env=(SHUTDOWN_CONFIRMED=1)
+output="$(zbr "" shutdown --help)"
+check "shutdown --help succeeds" "0" "$?"
+zbr "" shutdown -h > /dev/null
+zbr_env=()
+check "shutdown --help removes nothing, even confirmed" "yes:yes:" \
+  "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$([[ -f "${MCLOUD}/variables.env" ]] && echo yes):$(docker_calls)"
+check_contains "shutdown --help explains the shutdown" "> ./zebrunner.sh shutdown" "$output"
 zbr "n\n" shutdown > /dev/null
 check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" ]] && echo yes):$(docker_calls)"
 zbr_env=(SHUTDOWN_CONFIRMED=1)

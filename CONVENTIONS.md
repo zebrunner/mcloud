@@ -60,7 +60,7 @@ This file is the same in all of them: a change of a convention is made in every 
 
 The shared files live in [mcloud-conventions](https://github.com/zebrunner/mcloud-conventions) and are changed there only:
 
-- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`; in mcloud and mcloud-agent also `patch/curve_keygen.py`, the CURVE keys of STF, and `patch/ui.sh`, the [terminal output](#terminal-output);
+- the whole files, the same in every repository: `CONVENTIONS.md`, `LICENSE`, `.shellcheckrc`, `.pymarkdown`, `tests/lib.sh`, `tests/lint.sh`; in the images of shell scripts also the debug mode `util/debug.sh` and the logger `util/logger.sh` (`files/util/` in appium) with their tests `tests/debug_test.sh` and `tests/logger_test.sh`; in mcloud and mcloud-agent also `patch/curve_keygen.py`, the CURVE keys of STF, `patch/ui.sh`, the [terminal output](#terminal-output), and `patch/completion.sh`, the [completion](#completion);
 - the shared blocks of `.editorconfig`, `.gitignore`, `tests/requirements-lint.txt` and `Makefile`: the lines between `# >>> mcloud-conventions` and `# <<< mcloud-conventions`, the other lines are the project part.
 
 A merge into mcloud-conventions syncs them: its workflow opens (or updates) the pull request `mcloud-conventions-sync` into `develop` of every repository it changes, which is reviewed and merged like any other one. The sync also writes `.mcloud-conventions`, the checksums of the shared files and blocks, and `make lint` fails when one of them is changed in the repository.
@@ -197,6 +197,15 @@ One style for every MCloud repository: a lime accent on a dark terminal, badges 
 - The width: the terminal up to 80 columns, at least 40. The text is wrapped at the spaces; a longer word (a path, a URL, a command) stays whole on its own line, so it can be copied.
 - The services keep the format of their logs (see [Logging](#logging), [Java](#java), [Go](#go)); their first log line is `<U+2501><U+2501> <service> <version> <U+00B7> <fact> ...` (e.g. the UDID of the device, the port): `loggerBanner` of `util/logger.sh`, the message of the first `slog` line in Go, the message of the first JSON line in Java.
 
+### Completion
+
+`patch/completion.sh` (shared, see [Shared files](#shared-files)) completes `zebrunner.sh`, `./zebrunner.sh` and `zebrunner-farm` in bash and zsh: `eval "$(./zebrunner.sh completion bash)"` in `~/.bashrc` (`zsh` and `~/.zshrc` for zsh), the deploy of mcloud-agent installs it for `zebrunner-farm`. It asks the program of the command line for the candidates, so one file serves every repository:
+
+- `<program> __complete <index> <words...>` prints the candidates of the word `<index>` (1 is the first word after the program), one per line, all of them: the completion keeps the ones of the typed prefix. The words are the ones of the command line after the program, the last one may be empty (a new word).
+- `__complete` answers at once and changes nothing: no docker, no network, no file written, no question; it is handled before the checks and the setup of the program, and prints nothing else on stdout.
+- The completion runs only a program of the current user or of root that the group and the others cannot write: a TAB in a strange folder does not run its `zebrunner.sh`.
+- `<program> completion bash|zsh` prints `patch/completion.sh` for the eval.
+
 ### Exit codes
 
 The entrypoint of a container started with a restart policy exits with:
@@ -227,7 +236,7 @@ The configuration is validated before anything starts: every invalid variable is
 - The tools of the image are replaced by stubs (`stub`, `record_stub`, `calls`) in `${WORK}/bin` at the front of `PATH`, so `make test` needs no docker and no device.
 - The temporary files go to `$WORK`, removed on exit; a script frees its other resources (containers, ...) in its own `cleanup()`, which replaces the empty one of `tests/lib.sh`: never a new `trap ... EXIT`.
 - The docker tests build the image once, `IMAGE` overrides its tag and `REBUILD=true` forces a new build.
-- `tests/lib.sh`, `tests/lint.sh`, `util/debug.sh`, `util/logger.sh` and `patch/ui.sh` run on the macOS system bash 3.2 (no `mapfile`, no associative arrays, no `${var^^}`); a test of a script of the image may need bash 4+ like the image (`brew install bash`).
+- `tests/lib.sh`, `tests/lint.sh`, `util/debug.sh`, `util/logger.sh`, `patch/ui.sh` and `patch/completion.sh` run on the macOS system bash 3.2 (no `mapfile`, no associative arrays, no `${var^^}`); a test of a script of the image may need bash 4+ like the image (`brew install bash`).
 
 ## Dockerfile
 
