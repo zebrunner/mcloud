@@ -84,18 +84,21 @@ mdm_check() {
 # (a new password of a database would lock its services out of it)
 write_mdm_env() {
   local token
+  local admin_token
   local api_key
   local mysql_password
   local hmdm_password
   local hmdm_secret
   local hmdm_sql_password
   token="$(mdm_secret MDM_ENROLL_TOKEN)"
+  admin_token="$(mdm_secret MDM_ADMIN_TOKEN)"
   api_key="$(mdm_secret NANOHUB_API_KEY)"
   mysql_password="$(mdm_secret MYSQL_PASSWORD)"
   hmdm_password="$(mdm_secret HMDM_PASSWORD)"
   hmdm_secret="$(mdm_secret HMDM_SHARED_SECRET)"
   hmdm_sql_password="$(mdm_secret SQL_PASS)"
   : "${token:=$(random_string 48)}"
+  : "${admin_token:=$(random_string 48)}"
   : "${api_key:=$(random_string 48)}"
   : "${mysql_password:=$(random_string 32)}"
   : "${hmdm_password:=$(random_string 32)}"
@@ -113,6 +116,10 @@ write_mdm_env() {
     echo "# mcloud-mdm: the enrollment token of the nodes (stf-proxy sends it), the API key of NanoHUB"
     echo "MDM_ENROLL_TOKEN=${token}"
     echo "NANOHUB_API_KEY=${api_key}"
+    echo "# mcloud-mdm: every request of the admin listener needs it (the password of the admin UI through the ssh tunnel,"
+    echo "# stf-proxy sends it for MDM_ADMIN_PUBLIC=true, NanoHUB in its webhook URL)"
+    echo "MDM_ADMIN_TOKEN=${admin_token}"
+    echo "NANOHUB_WEBHOOK_URL=http://admin:${admin_token}@mcloud-mdm:8081/webhook"
     echo "# NanoHUB and MySQL"
     echo "MYSQL_PASSWORD=${mysql_password}"
     echo "NANOHUB_STORAGE_DSN=nanohub:${mysql_password}@tcp(mcloud-mdm-mysql:3306)/nanohub?parseTime=true"
@@ -146,6 +153,7 @@ write_mdm_proxy() {
   local addresses
   local address
   local token
+  local admin_token
   MDM_PROXY_CHANGED=""
   before="$(cat "${MDM_PROXY_DIR}"/*.conf 2> /dev/null)"
   if [[ "$1" != "on" ]]; then
@@ -153,6 +161,7 @@ write_mdm_proxy() {
   else
     addresses="$(mdm_addresses 2> /dev/null)"
     token="$(mdm_secret MDM_ENROLL_TOKEN)"
+    admin_token="$(mdm_secret MDM_ADMIN_TOKEN)"
     mkdir -p "$MDM_PROXY_DIR"
     {
       echo "# written by ./zebrunner.sh setup and start from MDM_SITE_ADDRESSES of .env (README.md#mdm): the sites of the"
@@ -164,7 +173,7 @@ write_mdm_proxy() {
       done
       echo "}"
     } > "${MDM_PROXY_DIR}/http-mdm.conf"
-    if ! (umask 077 && mdm_locations "$token" 2> /dev/null > "${MDM_PROXY_DIR}/server-mdm.conf"); then
+    if ! (umask 077 && mdm_locations "$token" "$admin_token" 2> /dev/null > "${MDM_PROXY_DIR}/server-mdm.conf"); then
       ui_callout error "${MDM_PROXY_DIR}/server-mdm.conf is not writable for $(id -un): remove it and run ./zebrunner.sh start (README.md#troubleshooting)."
       return 1
     fi
@@ -178,7 +187,7 @@ write_mdm_proxy() {
   fi
 }
 
-# mdm_locations <enrollment token>: the locations of the MDM in the server of stf-proxy (mcloud-mdm proxy.conf)
+# mdm_locations <enrollment token> <admin token>: the locations of the MDM in the server of stf-proxy (mcloud-mdm proxy.conf)
 mdm_locations() {
   # the variables of nginx
   # shellcheck disable=SC2016
@@ -262,6 +271,8 @@ mdm_locations() {
       '  set $upstream_mdm_admin mcloud-mdm:8081;' \
       '  rewrite ^/mcloud/mdm(/.*)$ $1 break;' \
       '  proxy_set_header Host $http_host;' \
+      '  # the admin token of mcloud-mdm, never the one of a client' \
+      "  proxy_set_header Authorization \"Bearer ${2}\";" \
       '  proxy_pass http://$upstream_mdm_admin;' \
       '}'
   fi

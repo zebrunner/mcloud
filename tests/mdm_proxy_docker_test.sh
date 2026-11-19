@@ -88,6 +88,7 @@ fi
 printf 'http\nlocalhost\n18093\ny\n\n\ny\n\nn\n' | /bin/bash "${MCLOUD}/zebrunner.sh" setup > /dev/null 2>&1
 write_mdm_of "0.0.0.0/0,::/0" false
 TOKEN="$(sed -n 's/^MDM_ENROLL_TOKEN=//p' "${MCLOUD}/mdm.env")"
+ADMIN_TOKEN="$(sed -n 's/^MDM_ADMIN_TOKEN=//p' "${MCLOUD}/mdm.env")"
 check "the enrollment token is generated" "48" "${#TOKEN}"
 mkdir -p "${MCLOUD}/configuration/stf-proxy/ssl"
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" -keyout "${MCLOUD}/configuration/stf-proxy/ssl/ssl.key" \
@@ -115,7 +116,7 @@ printf '%s\n' 'events {}' 'http {' \
   '    location / { default_type text/plain; return 200 "stf $request_uri\n"; }' \
   '  }' \
   '  server { listen 8080; location / { default_type text/plain; return 200 "mdm $request_method $request_uri authorization=[$http_authorization]\n"; } }' \
-  '  server { listen 8081; location / { default_type text/plain; return 200 "admin $request_uri host=[$http_host]\n"; } }' \
+  '  server { listen 8081; location / { default_type text/plain; return 200 "admin $request_uri host=[$http_host] authorization=[$http_authorization]\n"; } }' \
   '  server { listen 9004; location / { default_type text/plain; return 200 "nanohub $request_method $request_uri\n"; } }' \
   '}' > "${FAKE}/nginx.conf"
 # Headwind MDM: its HTTP and its MQTT
@@ -173,7 +174,7 @@ write_mdm_of "0.0.0.0/0,::/0" true
 run_check "stf-proxy reads the new locations" docker exec mdm-proxy-test nginx -s reload
 sleep 1
 check "MDM_ADMIN_PUBLIC=true: a user without a sign-in goes to the sign-in of STF" "302" "$(http_code /mcloud/mdm/)"
-check "an admin of STF gets the UI, with the host of the browser" "admin /api/state host=[127.0.0.1:18093]" \
+check "an admin of STF gets the UI, with the host of the browser" "admin /api/state host=[127.0.0.1:18093] authorization=[Bearer ${ADMIN_TOKEN}]" \
   "$(body /mcloud/mdm/api/state -H 'Authorization: Bearer admin-token')"
 check "/mcloud/mdm goes to /mcloud/mdm/" "302" "$(http_code /mcloud/mdm)"
 
