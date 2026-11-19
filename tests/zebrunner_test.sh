@@ -1265,6 +1265,9 @@ check_contains "the node gets the headers of the WebSocket only" "proxy_pass_req
 check_contains "the node gets no session cookie" 'proxy_set_header Cookie "";' "$screen"
 check_contains "the node gets no access token" 'proxy_set_header Authorization "";' "$screen"
 check_contains "the node gets no internal token" 'proxy_set_header X-Stf-Internal-Token "";' "$screen"
+check_contains "the node gets the screen ticket of stf-api" \
+  "auth_request_set \$screen_ticket \$upstream_http_x_mcloud_screen_ticket;" "$screen"
+check_contains "the screen ticket goes to the node" "proxy_set_header X-MCloud-Screen-Ticket \$screen_ticket;" "$screen"
 check_contains "the internal routes of the registry and the decision about the grid are refused" "return 403;" \
   "$(block "location ~* ^/api/v1/zebrunner/(nodes|hub-auth) {")"
 check "the node gets no X-Stf-* header" "" "$(grep -i 'proxy_set_header *X-Stf' <<< "$screen" | grep -v ' "";$')"
