@@ -2,8 +2,8 @@
 # The MDM of the devices (README.md#mdm): mcloud-mdm with NanoHUB (iOS) and Headwind MDM (Android), the services of the
 # profile mdm of docker-compose.yml. Its settings are MDM_* of .env; ./zebrunner.sh setup and start write the secrets
 # (mdm.env), the locations of stf-proxy (configuration/stf-proxy/mdm) and the configuration of the MQTT proxy
-# (configuration/mdm/mqtt.conf). Sourced by zebrunner.sh and by the tests; keep it compatible with the macOS system bash
-# 3.2 (CONVENTIONS.md).
+# (configuration/mdm/mqtt.conf). Sourced by zebrunner.sh and by the tests after patch/utility.sh and patch/ui.sh; keep it
+# compatible with the macOS system bash 3.2 (CONVENTIONS.md).
 
 MDM_ENV="mdm.env"
 MDM_PROXY_DIR="configuration/stf-proxy/mdm"
@@ -129,7 +129,7 @@ write_mdm_env() {
       echo "MDM_STF_TOKEN=${stf_token}"
     fi
   } 2> /dev/null > "$MDM_ENV"); then
-    echo_warning "${MDM_ENV} is not writable for $(id -un): remove it only if the MDM never ran (its databases keep the passwords), make it writable and run ./zebrunner.sh start (README.md#troubleshooting)."
+    ui_callout error "${MDM_ENV} is not writable for $(id -un): remove it only if the MDM never ran (its databases keep the passwords), make it writable and run ./zebrunner.sh start (README.md#troubleshooting)."
     return 1
   fi
   chmod 600 "$MDM_ENV"
@@ -165,7 +165,7 @@ write_mdm_proxy() {
       echo "}"
     } > "${MDM_PROXY_DIR}/http-mdm.conf"
     if ! (umask 077 && mdm_locations "$token" 2> /dev/null > "${MDM_PROXY_DIR}/server-mdm.conf"); then
-      echo_warning "${MDM_PROXY_DIR}/server-mdm.conf is not writable for $(id -un): remove it and run ./zebrunner.sh start (README.md#troubleshooting)."
+      ui_callout error "${MDM_PROXY_DIR}/server-mdm.conf is not writable for $(id -un): remove it and run ./zebrunner.sh start (README.md#troubleshooting)."
       return 1
     fi
     chmod 600 "${MDM_PROXY_DIR}/server-mdm.conf"

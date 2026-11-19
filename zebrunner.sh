@@ -27,6 +27,8 @@ setup() {
     source variables.env
   fi
 
+  ui_banner "MCloud" "$(mcloud_tag)"
+  ui_section "Settings" "1/3"
   if [[ "$ZBR_INSTALLER" -eq 1 ]]; then
     # Zebrunner CE installer: the sign-in of the last setup of this MCloud, Zebrunner IAM by default
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
@@ -34,6 +36,7 @@ setup() {
     ZBR_MCLOUD_SIGN_IN="$(sed -n 's/^declare -x ZBR_MCLOUD_SIGN_IN="\(.*\)"$/\1/p' backup/settings.env 2> /dev/null)"
     export ZBR_MCLOUD_SIGN_IN="${ZBR_MCLOUD_SIGN_IN:-zebrunner}"
     sign_in="$ZBR_MCLOUD_SIGN_IN"
+    ui_info "Zebrunner MCloud of Zebrunner CE: ${url}"
   elif grep -q '^declare -x ZBR_INSTALLER="1"$' backup/settings.env 2> /dev/null; then
     # this MCloud of Zebrunner CE (README.md#zebrunner-ce): the URL, the port and the certificate of the last setup of
     # Zebrunner CE (its nginx is in front of stf-proxy), only the admin and the sign-in are asked
@@ -43,7 +46,7 @@ setup() {
     source backup/settings.env
     url="${ZBR_PROTOCOL}://${ZBR_HOSTNAME}:${ZBR_PORT}"
     ZBR_MCLOUD_PORT=8082
-    echo "Zebrunner MCloud of Zebrunner CE: ${url} (the setup of Zebrunner CE changes it)"
+    ui_info "Zebrunner MCloud of Zebrunner CE: ${url} (the setup of Zebrunner CE changes it)"
     previous_admin "$is_new"
     set_admin
     set_sign_in "$url" zebrunner
@@ -66,6 +69,7 @@ setup() {
     sign_in="$ZBR_MCLOUD_SIGN_IN"
   fi
 
+  ui_section "Files" "2/3"
   # https: the certificate is checked before anything is written (README.md#https); a missing one is only reported, the
   # services start once it is there
   if [[ "$ZBR_PROTOCOL" == "https" ]] && ! set_certificate; then
@@ -148,6 +152,7 @@ setup() {
   if [[ -n "$added" ]]; then
     printf '%s\n' "$added" >> variables.env
   fi
+  ui_ok ".env and variables.env are written"
 
   # a configuration of the previous setup changed by hand is kept aside: its changes are made again in the new one; the
   # differences the setup made itself (the protocol, a new nginx.conf.original) are not changes by hand
@@ -157,6 +162,7 @@ setup() {
   fi
   nginx_conf "$ZBR_PROTOCOL" > configuration/stf-proxy/nginx.conf
   file_sha256 configuration/stf-proxy/nginx.conf > configuration/stf-proxy/nginx.conf.sha256
+  ui_ok "configuration/stf-proxy/nginx.conf is written"
   if [[ -n "$previous_conf" && "$previous_conf" != "$(< configuration/stf-proxy/nginx.conf)" ]]; then
     printf '%s\n' "$previous_conf" > configuration/stf-proxy/nginx.conf.previous
     echo_warning "The setup wrote a new configuration/stf-proxy/nginx.conf, the previous one is configuration/stf-proxy/nginx.conf.previous: make its own changes (e.g. frame-ancestors) again in the new one."
@@ -171,19 +177,15 @@ setup() {
   write_grid_env
   protect_files
 
-  echo "
-      Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env:
-      ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on
-      the node (README.md#nodes); https only."
+  ui_section "Next steps" "3/3"
+  ui_callout note "Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env: ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on the node (README.md#nodes); https only." "NODES"
   check_agents_address
   # a new SECRET with the database of an earlier deployment: its access tokens and sessions fail
   if [[ "$is_new" -eq 1 ]]; then
     check_old_database
   fi
   if [[ "$sign_in" == "mock" ]]; then
-    echo "
-      The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of
-      variables.env), then any name and email: share them with the users of STF only."
+    ui_callout note "The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of variables.env), then any name and email: share them with the users of STF only." "SIGN-IN"
   fi
 }
 
@@ -194,6 +196,7 @@ shutdown() {
     exit 0 # no need to proceed as nothing was configured
   fi
 
+  ui_banner "MCloud" "$(mcloud_tag)"
   if [[ ! -f .env ]]; then
     echo_warning "Unable to erase as nothing is configured!"
     exit 0 # no need to proceed as nothing was configured
@@ -207,7 +210,7 @@ shutdown() {
   if [[ "$SHUTDOWN_CONFIRMED" -ne 1 ]]; then
     # ask about confirmation if it is not confirmed in scope of CE
     echo_warning "Shutdown will erase all settings and data for \"${BASEDIR}\"!"
-    if ! confirm "" "      Do you want to continue?" "n"; then
+    if ! confirm "" "Do you want to continue?" "n"; then
       exit
     fi
   fi
@@ -306,14 +309,12 @@ start() {
   if [[ "$ZBR_INSTALLER" -ne 1 ]]; then
     local url
     url="$(sed -n 's/^STF_URL=//p' .env)"
-    echo "
-      MCloud: ${url}/stf, the Selenium/Appium hub: ${url/:\/\//://<user>:<token>@}/mcloud/wd/hub (an access token of STF, Settings, Keys), the devices: ${url}/mcloud/grid/console"
+    ui_callout note "MCloud: ${url}/stf, the Selenium/Appium hub: ${url/:\/\//://<user>:<token>@}/mcloud/wd/hub (an access token of STF, Settings, Keys), the devices: ${url}/mcloud/grid/console"
     if [[ -z "$(sed -n 's/^STF_TOKEN=//p' variables.env 2> /dev/null)" ]]; then
       echo_warning "STF_TOKEN of variables.env is empty: the grid reserves no device. Sign in to ${url}/stf, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart."
     fi
     if [[ -n "$MDM_ON" ]]; then
-      echo "
-      MDM: the admin UI on 127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) of this server (ssh -L $(mdm_setting MDM_ADMIN_PORT):127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) <server>, http://127.0.0.1:$(mdm_setting MDM_ADMIN_PORT))$([[ "$(mdm_setting MDM_ADMIN_PUBLIC)" == "true" ]] && echo ", ${url}/mcloud/mdm/ for the admins of STF"); MQTT over TLS of the Android agents on the port $(mdm_setting MDM_MQTT_PORT) (README.md#mdm)"
+      ui_callout note "MDM: the admin UI on 127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) of this server (ssh -L $(mdm_setting MDM_ADMIN_PORT):127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) <server>, http://127.0.0.1:$(mdm_setting MDM_ADMIN_PORT))$([[ "$(mdm_setting MDM_ADMIN_PUBLIC)" == "true" ]] && echo ", ${url}/mcloud/mdm/ for the admins of STF"); MQTT over TLS of the Android agents on the port $(mdm_setting MDM_MQTT_PORT) (README.md#mdm)"
     fi
   fi
 }
@@ -394,7 +395,7 @@ backup() {
   fi
   protect_files
   if [[ "$status" -ne 0 ]]; then
-    echo_warning "The database was not archived into backup/rethinkdb.tar.gz."
+    ui_callout error "The database was not archived into backup/rethinkdb.tar.gz."
   fi
   return "$status"
 }
@@ -447,10 +448,14 @@ version() {
     exit 0
   fi
 
-  # .env is read, not sourced; before the setup the version of this folder
+  echo "mcloud: $(mcloud_tag)"
+}
+
+# mcloud_tag: the version of MCloud, TAG_STF of .env (read, not sourced); before the setup the one of this folder
+mcloud_tag() {
   local tag
   tag="$(sed -n 's/^TAG_STF=//p' .env 2> /dev/null | tail -1)"
-  echo "mcloud: ${tag:-$(sed -n 's/^TAG_STF=//p' .env.original)}"
+  echo "${tag:-$(sed -n 's/^TAG_STF=//p' .env.original)}"
 }
 
 #### Nodes
@@ -459,7 +464,8 @@ version() {
 GRID_PORT=4446
 
 # node_invite <label> <address> [<minutes>]: an invite of a node (README.md#nodes): prints the join string for
-# ./zebrunner.sh join of mcloud-agent on the node once, with the pin of the certificate of stf-proxy
+# ./zebrunner.sh join of mcloud-agent on the node once, with the pin of the certificate of stf-proxy; the join string is
+# alone on stdout, the lines around it go to stderr
 node_invite() {
   local label="$1"
   local address
@@ -469,7 +475,7 @@ node_invite() {
     return 1
   fi
   if [[ $# -lt 2 || $# -gt 3 ]]; then
-    echo "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]"
+    ui_warn "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]"
     return 1
   fi
   address="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
@@ -495,7 +501,7 @@ node_invite() {
     return 1
   fi
   if ! pin="$(certificate_pin)"; then
-    echo_warning "The pin of configuration/stf-proxy/ssl/ssl.crt cannot be made: it needs openssl or python3 and a PEM certificate."
+    ui_callout error "The pin of configuration/stf-proxy/ssl/ssl.crt cannot be made: it needs openssl or python3 and a PEM certificate."
     return 1
   fi
   body="{\"label\":\"${label}\",\"address\":\"${address}\"${minutes:+,\"ttlMinutes\":$((10#$minutes))}}"
@@ -506,19 +512,20 @@ node_invite() {
   invite="$(json_value invite <<< "$api_body")"
   expires="$(json_value expiresAt <<< "$api_body")"
   if [[ ! "$invite" =~ ^mci1\.[A-Za-z0-9_-]+$ ]]; then
-    echo_warning "The STF API answered the invite without one (docker logs stf-api)."
+    ui_callout error "The STF API answered the invite without one (docker logs stf-api)."
     return 1
   fi
   host="$(join_host)"
   port="$(sed -n 's/^STF_PORT=//p' .env)"
-  echo "
-      The invite of the node ${label} at ${address}, valid ${minutes:-60} minutes (until ${expires:-?}), for one join:
-
-mcloud-join://${host}:${port}?label=${label}&grid=${host}:${GRID_PORT}&pin=$(url_encode "$pin")&token=${invite}
-
-      It is a secret, shown once: paste it into ./zebrunner.sh join of mcloud-agent on the node ${label} (it reads it
-      from stdin, never put it into the arguments), valid ${minutes:-60} minutes. A new invite of ${label} replaces it.
-      The node checks the certificate of stf-proxy by its pin (SHA-256 of its public key): ${pin}"
+  {
+    ui_ok "The invite of the node ${label} at ${address}, valid ${minutes:-60} minutes (until ${expires:-?}), for one join:"
+    echo
+  } >&2
+  echo "mcloud-join://${host}:${port}?label=${label}&grid=${host}:${GRID_PORT}&pin=$(url_encode "$pin")&token=${invite}"
+  {
+    ui_callout note "It is a secret, shown once: paste it into ./zebrunner.sh join of mcloud-agent on the node ${label} (it reads it from stdin, never put it into the arguments), valid ${minutes:-60} minutes. A new invite of ${label} replaces it." "SECRET"
+    ui_info "The node checks the certificate of stf-proxy by its pin (SHA-256 of its public key): ${pin}"
+  } >&2
 }
 
 # nodes [list|check <label>|revoke <label>|delete <label>]: the registry of the nodes of STF (README.md#nodes)
@@ -532,41 +539,41 @@ nodes() {
     ;;
   check)
     if [[ $# -ne 2 ]] || ! valid_label "$2"; then
-      echo "Usage: ./zebrunner.sh nodes check <label>"
+      ui_warn "Usage: ./zebrunner.sh nodes check <label>"
       return 1
     fi
     nodes_check "$2"
     ;;
   revoke)
     if [[ $# -ne 2 ]] || ! valid_label "$2"; then
-      echo "Usage: ./zebrunner.sh nodes revoke <label>"
+      ui_warn "Usage: ./zebrunner.sh nodes revoke <label>"
       return 1
     fi
     if ! stf_api POST "/api/v1/nodes/${2}/revoke" '{}'; then
       api_error "The revocation of the node ${2}"
       return 1
     fi
-    echo "The node ${2} is revoked: its token and its key are refused, its devices are not bound to it any more."
+    ui_ok "The node ${2} is revoked: its token and its key are refused, its devices are not bound to it any more."
     # the open ZeroMQ sessions of the node end with its triproxy connections, a new one is refused
-    if ! docker restart stf-triproxy-app stf-triproxy-dev > /dev/null; then
-      echo_warning "stf-triproxy-app and stf-triproxy-dev did not restart: the open ZeroMQ sessions of ${2} go on until ./zebrunner.sh restart."
+    if ! ui_spin "The restart of stf-triproxy-app and stf-triproxy-dev" docker restart stf-triproxy-app stf-triproxy-dev; then
+      ui_callout error "stf-triproxy-app and stf-triproxy-dev did not restart: the open ZeroMQ sessions of ${2} go on until ./zebrunner.sh restart."
       return 1
     fi
-    echo "The triproxies restarted: the open ZeroMQ sessions of ${2} ended. A new invite enrolls the node again."
+    ui_ok "The triproxies restarted: the open ZeroMQ sessions of ${2} ended. A new invite enrolls the node again."
     ;;
   delete)
     if [[ $# -ne 2 ]] || ! valid_label "$2"; then
-      echo "Usage: ./zebrunner.sh nodes delete <label>"
+      ui_warn "Usage: ./zebrunner.sh nodes delete <label>"
       return 1
     fi
     if ! stf_api DELETE "/api/v1/nodes/${2}"; then
       api_error "The removal of the node ${2} (a revoked one only: ./zebrunner.sh nodes revoke ${2})"
       return 1
     fi
-    echo "The node ${2} is removed from the registry: its label and its address are free again."
+    ui_ok "The node ${2} is removed from the registry: its label and its address are free again."
     ;;
   *)
-    echo "Usage: ./zebrunner.sh nodes [list|check <label>|revoke <label>|delete <label>]"
+    ui_warn "Usage: ./zebrunner.sh nodes [list|check <label>|revoke <label>|delete <label>]"
     return 1
     ;;
   esac
@@ -582,7 +589,7 @@ nodes_list() {
   # a line per object of a node: they have no nested objects
   nodes="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep '"label"')"
   if [[ -z "$nodes" ]]; then
-    echo "No node is enrolled: ./zebrunner.sh node-invite <label> <address> (README.md#nodes)."
+    ui_info "No node is enrolled: ./zebrunner.sh node-invite <label> <address> (README.md#nodes)."
     return 0
   fi
   printf '%-20s %-24s %-8s %-20s %-20s %s\n' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY
@@ -594,10 +601,13 @@ nodes_list() {
 }
 
 # nodes_check <label>: the diagnostics of a node (README.md#diagnostics): its record in the registry, the devices bound
-# to it in STF and, for every present one, a connection of stf-proxy to <address>:<screen port>, the path of its screen
+# to it in STF and, for every present one, a connection of stf-proxy to <address>:<screen port>, the path of its screen;
+# a status per check, the table of the devices and the summary; fails when a check fails
 nodes_check() {
   local label="$1"
   local node address status seen devices line serial platform present screen connect result
+  local passed=0
+  local warnings=0
   local problems=0
   local checked=0
   local unreachable=0
@@ -608,20 +618,26 @@ nodes_check() {
   fi
   node="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep "\"label\"[[:space:]]*:[[:space:]]*\"${label}\"")"
   if [[ -z "$node" ]]; then
-    echo_warning "There is no node ${label} in the registry of STF (./zebrunner.sh nodes): ./zebrunner.sh node-invite ${label} <address> enrolls it."
+    ui_fail "There is no node ${label} in the registry of STF (./zebrunner.sh nodes)." "./zebrunner.sh node-invite ${label} <address>"
     return 1
   fi
   address="$(json_value address <<< "$node")"
   status="$(json_value status <<< "$node")"
   seen="$(json_time lastSeenAt <<< "$node")"
-  echo "Node ${label}: ${status}, address ${address}, enrolled $(json_time createdAt <<< "$node"), last seen by the grid ${seen}"
+  line="Node ${label}: ${status}, address ${address}, enrolled $(json_time createdAt <<< "$node"), last seen by the grid ${seen}"
   if [[ "$status" != "active" ]]; then
-    echo_warning "The node ${label} is ${status}: STF and the grid refuse its key and token, no device is bound to it. A new invite enrolls it again: ./zebrunner.sh node-invite ${label} ${address}."
+    ui_info "$line"
+    ui_fail "The node ${label} is ${status}: STF and the grid refuse its key and token, no device is bound to it." \
+      "a new invite enrolls it again: ./zebrunner.sh node-invite ${label} ${address}"
+    ui_summary 0 0 1
     return 1
   fi
+  ui_ok "$line"
+  passed=$((passed + 1))
   if [[ "$seen" == "-" ]]; then
-    problems=1
-    echo_warning "The grid has not seen the node yet: no Appium of the node registered with its token. On the node: ./zebrunner.sh doctor of mcloud-agent, zebrunner-farm status; the grid logs why it refuses a node (docker logs mcloud-grid)."
+    problems=$((problems + 1))
+    ui_fail "The grid has not seen the node yet: no Appium of the node registered with its token." \
+      "on the node: ./zebrunner.sh doctor of mcloud-agent, zebrunner-farm status; the grid logs why it refuses a node (docker logs mcloud-grid)"
   fi
   if ! stf_api GET "/api/v1/devices?fields=serial,platform,present,node,screenPort,connectPort"; then
     api_error "The list of the devices"
@@ -629,14 +645,19 @@ nodes_check() {
   fi
   devices="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep '"serial"' | grep "\"node\"[[:space:]]*:[[:space:]]*\"${label}\"")"
   if [[ -z "$devices" ]]; then
-    echo_warning "No device of STF is bound to the node ${label}: the devices of a node register with its token from its address (${address}, STF_PROVIDER_HOST of the node). On the node: ./zebrunner.sh doctor of mcloud-agent; docker logs stf-processor001 names the refused registrations."
+    ui_fail "No device of STF is bound to the node ${label}: the devices of a node register with its token from its address (${address}, STF_PROVIDER_HOST of the node)." \
+      "on the node: ./zebrunner.sh doctor of mcloud-agent; docker logs stf-processor001 names the refused registrations"
+    ui_summary "$passed" "$warnings" $((problems + 1))
     return 1
   fi
+  ui_ok "Devices of STF bound to the node ${label}: $(grep -c . <<< "$devices")"
+  passed=$((passed + 1))
   if [[ "$(docker inspect --format '{{.State.Running}}' stf-proxy 2> /dev/null)" != "true" ]]; then
     proxy=0
-    problems=1
-    echo_warning "stf-proxy is not running (./zebrunner.sh start): the screens are not checked."
+    problems=$((problems + 1))
+    ui_fail "stf-proxy is not running (./zebrunner.sh start): the screens are not checked."
   fi
+  echo
   printf '%-28s %-9s %-8s %-7s %-13s %s\n' SERIAL PLATFORM PRESENT SCREEN "REMOTE DEBUG" "SCREEN FROM stf-proxy"
   while read -r line; do
     serial="$(json_value serial <<< "$line")"
@@ -648,7 +669,7 @@ nodes_check() {
       result="not checked: absent"
     elif [[ ! "$screen" =~ ^[0-9]{1,5}$ ]] || ! valid_host "$address"; then
       result="not checked: no screen port"
-      problems=1
+      problems=$((problems + 1))
     elif [[ "$proxy" -eq 0 ]]; then
       result="not checked"
     else
@@ -657,20 +678,27 @@ nodes_check() {
         result="reachable"
       else
         result="NOT REACHABLE"
-        unreachable=1
-        problems=1
+        unreachable=$((unreachable + 1))
       fi
     fi
     printf '%-28s %-9s %-8s %-7s %-13s %s\n' "$serial" "${platform:--}" "$([[ "$present" == "true" ]] && echo yes || echo no)" \
       "${screen:--}" "${connect:--}" "$result"
   done <<< "$devices"
-  if [[ "$unreachable" -eq 1 ]]; then
-    echo_warning "stf-proxy does not reach the screen of a device at ${address}: the address of the invite must be the one the server reaches the node at (a node in the network of the server or on the server itself: its LAN address, a public address often fails there, NAT hairpin; a new invite of ${label} with another address enrolls it again), and the firewall of the node must let the server in on the ports of its devices (README.md#firewall)."
+  echo
+  if [[ "$unreachable" -gt 0 ]]; then
+    problems=$((problems + 1))
+    ui_fail "stf-proxy does not reach the screen of a device at ${address}"
+    echo_warning "The address of the invite must be the one the server reaches the node at (a node in the network of the server or on the server itself: its LAN address, a public address often fails there, NAT hairpin; a new invite of ${label} with another address enrolls it again), and the firewall of the node must let the server in on the ports of its devices (README.md#firewall)."
+  elif [[ "$checked" -gt 0 ]]; then
+    passed=$((passed + 1))
+    ui_ok "stf-proxy reaches the screens of the present devices: ${checked}"
   fi
   if [[ "$checked" -eq 0 && "$proxy" -eq 1 ]]; then
-    echo "No present device to check: an absent device is down on the node (zebrunner-farm status, ./zebrunner.sh doctor of mcloud-agent)."
+    warnings=$((warnings + 1))
+    ui_warn "No present device to check: an absent device is down on the node (zebrunner-farm status, ./zebrunner.sh doctor of mcloud-agent)."
   fi
-  return "$problems"
+  ui_summary "$passed" "$warnings" "$problems"
+  [[ "$problems" -eq 0 ]]
 }
 
 # screen_reachable <address> <port>: stf-proxy connects to the port within 5 seconds, as it does for a screen
@@ -834,7 +862,7 @@ api_error() {
     ;;
   *) reason="the STF API answered ${status}, see docker logs stf-api" ;;
   esac
-  echo_warning "${1} failed: ${reason}."
+  ui_callout error "${1} failed: ${reason}."
 }
 
 # json_value <name>: the value of a field of a flat JSON object (stdin), a string without its quotes; empty for null
@@ -914,7 +942,7 @@ set_certificate() {
     # a key of root only (e.g. of certbot) is not readable for the user of the setup: the copy would be an old one
     elif ! cp "${BASEDIR}/../nginx/ssl/ssl.crt" "${dir}/ssl.crt" 2> /dev/null ||
       ! cp "${BASEDIR}/../nginx/ssl/ssl.key" "${dir}/ssl.key" 2> /dev/null; then
-      echo_warning "The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied into ${dir}: make it readable for $(id -un) (README.md#troubleshooting)."
+      ui_callout error "The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied into ${dir}: make it readable for $(id -un) (README.md#troubleshooting)."
       return 1
     fi
   fi
@@ -929,11 +957,11 @@ set_certificate() {
   if [[ "$shared" -eq 1 && "$ZBR_INSTALLER" -eq 1 ]]; then
     echo_warning "The certificate of Zebrunner CE (nginx/ssl) is the self-signed one of its repository, its private key is public: anyone can read and change the traffic of MCloud. Replace it with the certificate of ${ZBR_HOSTNAME}."
   elif [[ "$shared" -eq 1 ]]; then
-    echo_warning "${dir}/ssl.crt and ssl.key are the self-signed pair of the repository of Zebrunner CE, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} and its key, then run ./zebrunner.sh setup again (README.md#https)."
+    ui_callout error "${dir}/ssl.crt and ssl.key are the self-signed pair of the repository of Zebrunner CE, its private key is public: replace them with the certificate of ${ZBR_HOSTNAME} and its key, then run ./zebrunner.sh setup again (README.md#https)."
     return 1
   fi
   if certificate_mismatch; then
-    echo_warning "${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM): put the key of that certificate there, then run ./zebrunner.sh setup again; the public keys of 'openssl x509 -noout -pubkey -in ${dir}/ssl.crt' and 'openssl pkey -pubout -in ${dir}/ssl.key' are the same for a pair (README.md#https)."
+    ui_callout error "${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM): put the key of that certificate there, then run ./zebrunner.sh setup again; the public keys of 'openssl x509 -noout -pubkey -in ${dir}/ssl.crt' and 'openssl pkey -pubout -in ${dir}/ssl.key' are the same for a pair (README.md#https)."
     return 1
   fi
 }
@@ -1002,11 +1030,11 @@ check_certificate() {
   fi
   missing="$(certificate_missing)"
   if [[ -n "$missing" ]]; then
-    echo_warning "The services are not started: stf-proxy serves https and needs its certificate, missing: ${missing}. Put the certificate (PEM) of the host of STF_URL into ${dir}/ssl.crt and its key into ${dir}/ssl.key, then run ./zebrunner.sh start (README.md#https)."
+    ui_callout error "The services are not started: stf-proxy serves https and needs its certificate, missing: ${missing}. Put the certificate (PEM) of the host of STF_URL into ${dir}/ssl.crt and its key into ${dir}/ssl.key, then run ./zebrunner.sh start (README.md#https)."
     return 1
   fi
   if certificate_mismatch; then
-    echo_warning "The services are not started: ${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM), nginx of stf-proxy does not start with them. Put the key of that certificate there, then run ./zebrunner.sh start (README.md#https)."
+    ui_callout error "The services are not started: ${dir}/ssl.key is not the key of ${dir}/ssl.crt (or one of them is not PEM), nginx of stf-proxy does not start with them. Put the key of that certificate there, then run ./zebrunner.sh start (README.md#https)."
     return 1
   fi
 }
@@ -1015,9 +1043,7 @@ check_certificate() {
 abort_setup() {
   export_settings
   protect_files
-  echo "
-      The setup is not finished, nothing but your answers is written: fix the problem above and run ./zebrunner.sh setup
-      again, your answers are its defaults."
+  ui_callout error "The setup is not finished, nothing but your answers is written: fix the problem above and run ./zebrunner.sh setup again, your answers are its defaults."
   exit 1
 }
 
@@ -1105,7 +1131,7 @@ check_other_deployment() {
   if [[ -z "$dir" || ! -d "$dir" || "$(cd "$dir" && pwd -P)" == "$(pwd -P)" ]]; then
     return 0
   fi
-  echo_warning "./zebrunner.sh ${1} did nothing: the docker compose project ${project} is the MCloud of ${dir} (docker compose names the projects and their volumes by the folder), ${1} here would act on its containers and its database (the volume ${project}_stf-db-volume; with the SECRET of this folder its access tokens fail). One MCloud runs on a server: use that folder, or remove that MCloud first (./zebrunner.sh down in ${dir}; its shutdown removes its database too), then ./zebrunner.sh start here (README.md#troubleshooting)."
+  ui_callout error "./zebrunner.sh ${1} did nothing: the docker compose project ${project} is the MCloud of ${dir} (docker compose names the projects and their volumes by the folder), ${1} here would act on its containers and its database (the volume ${project}_stf-db-volume; with the SECRET of this folder its access tokens fail). One MCloud runs on a server: use that folder, or remove that MCloud first (./zebrunner.sh down in ${dir}; its shutdown removes its database too), then ./zebrunner.sh start here (README.md#troubleshooting)."
   return 1
 }
 
@@ -1121,14 +1147,14 @@ ask() {
   local problem
   while true; do
     ended=0
-    read -r -p "${question} [${!name}]: " answer || ended=1
+    read -r -p "$(ui_prompt "$question" "[${!name}]")" answer || ended=1
     answer="${answer:-${!name}}"
     problem="$(answer_problem "$answer" "$optional")"
     if [[ -z "$problem" ]]; then
       break
     fi
     end_of_input "$ended" "$question" "$problem"
-    echo "$problem"
+    ui_warn "$problem"
   done
   printf -v "$name" '%s' "$answer"
 }
@@ -1143,7 +1169,7 @@ ask_secret() {
   local problem
   while true; do
     ended=0
-    read -r -s -p "${question} [$([[ -n "${!name}" ]] && echo keep)]: " answer || ended=1
+    read -r -s -p "$(ui_prompt "$question" "$([[ -n "${!name}" ]] && echo "[keep]")")" answer || ended=1
     echo
     answer="${answer:-${!name}}"
     problem="$(answer_problem "$answer")"
@@ -1151,7 +1177,7 @@ ask_secret() {
       break
     fi
     end_of_input "$ended" "$question" "$problem"
-    echo "$problem"
+    ui_warn "$problem"
   done
   printf -v "$name" '%s' "$answer"
 }
@@ -1170,7 +1196,7 @@ answer_problem() {
 end_of_input() {
   if [[ "$1" -eq 1 ]]; then
     echo
-    echo_warning "The input ended at the question '${2}': ${3} Run ./zebrunner.sh setup again with an answer."
+    ui_callout error "The input ended at the question '${2}': ${3} Run ./zebrunner.sh setup again with an answer."
     exit 1
   fi
 }
@@ -1242,7 +1268,7 @@ write_stf_token() {
   fi
   # a new file is made for the owner only, an existing one keeps its inode
   if ! (umask 077 && printf '%s\n' "$token" 2> /dev/null > "$file"); then
-    echo_warning "${file} is not writable for $(id -un): remove it (rm -f ${file}) and run ./zebrunner.sh restart (README.md#troubleshooting)."
+    ui_callout error "${file} is not writable for $(id -un): remove it (rm -f ${file}) and run ./zebrunner.sh restart (README.md#troubleshooting)."
     return
   fi
   chmod 600 "$file"
@@ -1263,7 +1289,7 @@ write_grid_env() {
     set_line variables.env "GRID_AUTH_SECRET=${secret}"
   fi
   if [[ -f configuration/stf-proxy/nginx.conf ]] && ! grep -q '/_hub_auth/' configuration/stf-proxy/nginx.conf; then
-    echo_warning "configuration/stf-proxy/nginx.conf is the one of an earlier MCloud, without the access to the grid with the access tokens of STF: the services are not started, the grid would be open to anyone. Run ./zebrunner.sh setup, it writes the new configuration (README.md#access-to-the-grid), then ./zebrunner.sh start."
+    ui_callout error "configuration/stf-proxy/nginx.conf is the one of an earlier MCloud, without the access to the grid with the access tokens of STF: the services are not started, the grid would be open to anyone. Run ./zebrunner.sh setup, it writes the new configuration (README.md#access-to-the-grid), then ./zebrunner.sh start."
     return 1
   fi
   if ! (umask 077 && {
@@ -1271,7 +1297,7 @@ write_grid_env() {
     grep -E '^(STF_TOKEN|PLAYWRIGHT_ENABLED)=' variables.env || true
     echo "GRID_AUTH_SECRET=${secret}"
   } 2> /dev/null > grid.env); then
-    echo_warning "grid.env is not writable for $(id -un): remove it (rm -f grid.env) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    ui_callout error "grid.env is not writable for $(id -un): remove it (rm -f grid.env) and run ./zebrunner.sh start (README.md#troubleshooting)."
     return 1
   fi
   chmod 600 grid.env
@@ -1283,7 +1309,7 @@ write_grid_env() {
     # shellcheck disable=SC2016
     printf 'map "" $grid_auth_secret {\n  default "%s";\n}\n' "$secret"
   } 2> /dev/null > "$conf"); then
-    echo_warning "${conf} is not writable for $(id -un): remove it (rm -f ${conf}) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    ui_callout error "${conf} is not writable for $(id -un): remove it (rm -f ${conf}) and run ./zebrunner.sh start (README.md#troubleshooting)."
     return 1
   fi
   chmod 600 "$conf"
@@ -1315,7 +1341,7 @@ set_sign_in() {
   local ended
   while true; do
     ended=0
-    read -r -p "Sign-in of STF: ${question} [${ZBR_MCLOUD_SIGN_IN}]: " answer || ended=1
+    read -r -p "$(ui_prompt "Sign-in of STF: ${question}" "[${ZBR_MCLOUD_SIGN_IN}]")" answer || ended=1
     answer="${answer:-$ZBR_MCLOUD_SIGN_IN}"
     if [[ "$answer" =~ ^(${choices})$ ]]; then
       ZBR_MCLOUD_SIGN_IN="$answer"
@@ -1323,7 +1349,7 @@ set_sign_in() {
     fi
     answer="${choices%|*}"
     end_of_input "$ended" "Sign-in of STF" "Please answer ${answer//|/, } or ${choices##*|}."
-    echo "Please answer ${answer//|/, } or ${choices##*|}."
+    ui_warn "Please answer ${answer//|/, } or ${choices##*|}."
   done
   export ZBR_MCLOUD_SIGN_IN
 
@@ -1332,7 +1358,7 @@ set_sign_in() {
     STF_AUTH_MOCK_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_BASIC_AUTH_USERNAME:-mcloud}"
     ;;
   oauth2)
-    echo "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${1}/auth/oauth/callback"
+    ui_info "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${1}/auth/oauth/callback"
     ask OAUTH_AUTHORIZATION_URL "Authorization URL"
     ask OAUTH_TOKEN_URL "Token URL"
     ask OAUTH_USERINFO_URL "User info URL"
@@ -1387,7 +1413,7 @@ set_curve_keys() {
   local key
   for key in "$STF_ZMQ_CURVE_SERVER_PUBLIC_KEY" "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" "$STF_ZMQ_CURVE_SECRET_KEY"; do
     if [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
-      echo_warning "The setup makes the CURVE keys with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements)."
+      ui_callout error "The setup makes the CURVE keys with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements)."
       return 1
     fi
   done
@@ -1399,23 +1425,22 @@ ask_valid() {
   local name="$1"
   local answer
   while true; do
-    if ! read -r -p "${2} [${!name}]: " answer && [[ -z "$answer" && ! "${!name}" =~ $3 ]]; then
+    if ! read -r -p "$(ui_prompt "$2" "[${!name}]")" answer && [[ -z "$answer" && ! "${!name}" =~ $3 ]]; then
       echo
-      echo_warning "${4}"
+      ui_callout error "${4}"
       exit 1
     fi
     answer="${answer:-${!name}}"
     if [[ "$answer" =~ $3 ]]; then
       break
     fi
-    echo "$4"
+    ui_warn "$4"
   done
   printf -v "$name" '%s' "$answer"
 }
 
 # set_mcloud_settings: asks the protocol, host, port and the admin of the interactive setup
 set_mcloud_settings() {
-  echo "Zebrunner MCloud Settings"
   if [[ -z "$ZBR_HOSTNAME" ]]; then
     ZBR_HOSTNAME="$(curl -s ifconfig.me)"
   fi
@@ -1445,12 +1470,12 @@ set_admin() {
   local local_admin_mail
 
   while true; do
-    read -r -p "Admin username [${ZBR_MCLOUD_ADMIN_NAME}]: " local_admin_name
+    read -r -p "$(ui_prompt "Admin username" "[${ZBR_MCLOUD_ADMIN_NAME}]")" local_admin_name
     if [[ -n "$local_admin_name" ]]; then
       ZBR_MCLOUD_ADMIN_NAME="$local_admin_name"
     fi
 
-    read -r -p "Admin user email [${ZBR_MCLOUD_ADMIN_EMAIL}]: " local_admin_mail
+    read -r -p "$(ui_prompt "Admin user email" "[${ZBR_MCLOUD_ADMIN_EMAIL}]")" local_admin_mail
     if [[ -n "$local_admin_mail" ]]; then
       ZBR_MCLOUD_ADMIN_EMAIL="$local_admin_mail"
     fi
@@ -1464,25 +1489,30 @@ set_admin() {
   export ZBR_MCLOUD_ADMIN_EMAIL
 }
 
-# echo_help: the usage
+# echo_help: the usage, the commands by group
 echo_help() {
-  echo "
-      Usage: ./zebrunner.sh [option]
-      Flags:
-          --help | -h    Print help
-      Arguments:
-          setup          Setup the services
-          start          Start container
-          stop           Stop and keep container
-          restart        Restart container
-          down           Stop and remove container
-          shutdown       Stop and remove container, clear volumes
-          backup         Backup container
-          restore        Restore container
-          version        Version of container
-          node-invite    <label> <address> [<minutes>]: the join string of a new node, a secret shown once
-          nodes          [list]: the enrolled nodes; check <label>: the diagnostics of a node; revoke <label>;
-                         delete <label> (README.md#nodes)"
+  ui_banner "MCloud" "$(mcloud_tag)"
+  ui_usage "./zebrunner.sh <command> [options]"
+  ui_help_group "Set up"
+  ui_help_cmd setup "" "Setup the services"
+  ui_help_group "Run"
+  ui_help_cmd start "" "Start container"
+  ui_help_cmd stop "" "Stop and keep container"
+  ui_help_cmd restart "" "Restart container"
+  ui_help_cmd down "" "Stop and remove container"
+  ui_help_group "Maintain"
+  ui_help_cmd backup "" "Backup container"
+  ui_help_cmd restore "" "Restore container"
+  ui_help_cmd shutdown "" "Stop and remove container, clear volumes"
+  ui_help_cmd version "" "Version of container"
+  ui_help_group "Nodes"
+  ui_help_cmd node-invite "<label> <address> [<minutes>]" "The join string of a new node, a secret shown once"
+  ui_help_cmd nodes "[list]" "The enrolled nodes"
+  ui_help_cmd nodes "check <label>" "The diagnostics of a node"
+  ui_help_cmd nodes "revoke <label>" "The revocation of a node"
+  ui_help_cmd nodes "delete <label>" "The removal of a revoked node (README.md#nodes)"
+  ui_help_group "Options"
+  ui_help_cmd "--help, -h" "" "Print help"
   echo_telegram
 }
 
@@ -1493,6 +1523,8 @@ cd "$BASEDIR" || exit
 
 # shellcheck source=patch/utility.sh
 source patch/utility.sh
+# shellcheck source=patch/ui.sh
+source patch/ui.sh
 # shellcheck source=patch/mdm.sh
 source patch/mdm.sh
 
@@ -1505,7 +1537,7 @@ setup)
   # Zebrunner CE starts the services itself
   if [[ "$installer" -ne 1 ]]; then
     echo_warning "Your services need to be started after setup."
-    if confirm "" "      Start now?" "y"; then
+    if confirm "" "Start now?" "y"; then
       start
     fi
   fi

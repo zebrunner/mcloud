@@ -5,6 +5,8 @@
 source "$(dirname "$0")/lib.sh"
 # shellcheck source=../patch/utility.sh
 source "${REPO}/patch/utility.sh"
+# shellcheck source=../patch/ui.sh
+source "${REPO}/patch/ui.sh"
 
 MCLOUD="${WORK}/mcloud"
 copy_repo "$MCLOUD"
@@ -23,8 +25,9 @@ printf "\n000"'
 zbr() {
   local input="$1"
   shift
-  printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
-    /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
+  printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb COLUMNS=80 STUB_DIR="$WORK" \
+    /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1 | unwrap
+  return "${PIPESTATUS[1]}"
 }
 
 # compose_calls: the calls of docker compose
@@ -195,7 +198,7 @@ check "MDM_ENABLED=false keeps mdm.env (the passwords of the databases)" "yes" "
 zbr "" backup > /dev/null
 check "backup copies mdm.env" "$token" "$(value mdm.env.bak MDM_ENROLL_TOKEN)"
 reset_calls
-printf 'y\n' | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
+printf 'y\n' | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb COLUMNS=80 STUB_DIR="$WORK" \
   /bin/bash "${MCLOUD}/zebrunner.sh" shutdown > /dev/null 2>&1
 check "shutdown removes the MDM with its volumes" "compose|--profile|adb-relay|--profile|mdm|down|-v" "$(compose_calls | tail -n 1)"
 check "shutdown removes mdm.env and its backup" "no:no" "$(exists mdm.env):$(exists mdm.env.bak)"

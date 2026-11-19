@@ -4,6 +4,8 @@
 source "$(dirname "$0")/lib.sh"
 # shellcheck source=../patch/utility.sh
 source "${REPO}/patch/utility.sh"
+# shellcheck source=../patch/ui.sh
+source "${REPO}/patch/ui.sh"
 
 MCLOUD="${WORK}/mcloud"
 copy_repo "$MCLOUD"
@@ -45,8 +47,9 @@ zbr_env=()
 zbr() {
   local input="$1"
   shift
-  printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
-    "${zbr_env[@]}" /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
+  printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb COLUMNS=80 STUB_DIR="$WORK" \
+    "${zbr_env[@]}" /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1 | unwrap
+  return "${PIPESTATUS[1]}"
 }
 
 # zbr_end <stdin text> <zebrunner.sh arguments...>: zbr for an input that ends, then "exit <status>"; at most 20
@@ -55,10 +58,10 @@ zbr_end() {
   local input="$1"
   shift
   {
-    printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
+    printf '%b' "$input" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb COLUMNS=80 STUB_DIR="$WORK" \
       "$TIMEOUT" 20 /bin/bash "${MCLOUD}/zebrunner.sh" "$@" 2>&1
     echo "exit $?"
-  } | head -n 50
+  } | unwrap | head -n 50
 }
 TIMEOUT="$(command -v timeout || command -v gtimeout)"
 
@@ -111,15 +114,36 @@ certificate() {
   openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=$2" -keyout "$1/ssl.key" -out "$1/ssl.crt" > /dev/null 2>&1
 }
 
+# badge <title>: a title of patch/ui.sh without colors
+badge() {
+  printf '[ %s ]' "$1"
+}
+
 section "help"
 output="$(zbr "" --help)"
 check "--help succeeds" "0" "$?"
-check_contains "help shows the usage" "Usage: ./zebrunner.sh [option]" "$output"
-for command in setup start stop restart down shutdown backup restore version node-invite nodes; do
-  check_contains "help lists ${command}" "          ${command} " "$output"
+check "-h is --help" "$output" "$(zbr "" -h)"
+check_contains "help starts with the banner of MCloud and its version" \
+  "[ ZEBRUNNER ] MCloud" "$(sed -n 2p <<< "$output")"
+check_contains "the banner shows the version of MCloud" "$(sed -n 's/^TAG_STF=//p' "${REPO}/.env.original")" "$(sed -n 2p <<< "$output")"
+check_contains "help shows the usage" "> ./zebrunner.sh <command> [options]" "$output"
+for group in "SET UP" RUN MAINTAIN NODES OPTIONS; do
+  check_contains "help groups the commands: ${group}" "  $(badge "$group")" "$output"
 done
+for command in setup start stop restart down shutdown backup restore version node-invite nodes "--help,"; do
+  check_contains "help lists ${command}" $'\n'"   ${command} " "$output"
+done
+check "the commands are in their groups" "SET UP setup RUN start stop restart down MAINTAIN backup restore shutdown version NODES node-invite nodes nodes nodes nodes OPTIONS --help," \
+  "$(sed -n -e 's/^  \[ \(.*\) \]$/\1/p' -e 's/^   \([^ ][^ ]*\).*/\1/p' <<< "$output" | tr '\n' ' ' | sed 's/ $//')"
+for subcommand in "[list]" "check <label>" "revoke <label>" "delete <label>"; do
+  check_contains "help lists nodes ${subcommand}" "   nodes       ${subcommand} " "$output"
+done
+check_contains "help shows the arguments of node-invite" "   node-invite <label> <address> [<minutes>]" "$output"
+check_contains "help ends with the telegram channel" "For more help join telegram channel: https://t.me/zebrunner" "$(tail -1 <<< "$output")"
+check "help is ASCII without a UTF-8 locale" "" "$(LC_ALL=C grep -n '[^ -~]' <<< "$output")"
 zbr "" unknown > /dev/null
 check "an unknown command fails" "1" "$?"
+check_contains "an unknown command shows the help" "> ./zebrunner.sh <command> [options]" "$(zbr "" unknown)"
 
 section "setup"
 output="$(zbr "$(answers "" mcloud.example.com "" "" "")" setup)"
@@ -184,6 +208,15 @@ check "the nodes reach the host of STF_URL" "mcloud.example.com" "$(value .env N
 check "the triproxies and the storage read the nodes from stf-api" "http://stf-api:3000" \
   "$(value variables.env STF_NODES_API_URL)"
 check_contains "the start is suggested" "need to be started after setup" "$output"
+check_contains "the setup starts with the banner of MCloud" "[ ZEBRUNNER ] MCloud" "$(sed -n 2p <<< "$output")"
+check "the phases of the setup" "$(badge SETTINGS) 1/3|$(badge FILES) 2/3|$(badge "NEXT STEPS") 3/3" \
+  "$(grep '^  \[ .* --* [0-9]' <<< "$output" | sed -e 's/^  //' -e 's/ -* / /' | paste -sd '|' -)"
+check_contains "the written files are reported" "   ok   .env and variables.env are written" "$output"
+check_contains "a warning is a callout" $'\n\n  | WARNING\n  | AGENTS_ADDRESS of .env is 0.0.0.0' "$output"
+check_not_contains "no WARNING! prefix" "WARNING!" "$output"
+check "the lines of the setup fit 80 columns" "" \
+  "$(answers http mcloud.example.com 80 "" "" | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb \
+    COLUMNS=80 STUB_DIR="$WORK" /bin/bash "${MCLOUD}/zebrunner.sh" setup 2>&1 | awk 'length($0) > 80')"
 check "the Playwright sessions are off by default" "false" "$(value variables.env PLAYWRIGHT_ENABLED)"
 grid_secret="$(value variables.env GRID_AUTH_SECRET)"
 check "the secret of the grid is generated" "48" "${#grid_secret}"
@@ -626,7 +659,7 @@ fi
 output="$(zbr "" setup)"
 check "the certificate of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.crt" "${SSL}/ssl.crt" && echo same)"
 check "the key of Zebrunner CE is used" "same" "$(cmp -s "${WORK}/nginx/ssl/ssl.key" "${SSL}/ssl.key" && echo same)"
-check "the setup asks nothing" "" "$(grep 'Zebrunner MCloud Settings' <<< "$output")"
+check "the setup asks nothing" "" "$(grep 'Zebrunner MCloud STF URL' <<< "$output")"
 check "STF_URL is the one of Zebrunner CE" "https://ce.example.com:443" "$(value .env STF_URL)"
 check "STF_PORT is the internal one" "8082" "$(value .env STF_PORT)"
 check "the Zebrunner sign-in" "auth-zebrunner" "$(value .env AUTH_SYSTEM)"
@@ -667,7 +700,7 @@ check "Zebrunner IAM is the default sign-in" "auth-zebrunner" "$(value .env AUTH
 # attribute, no start of the services
 output="$(zbr "$(printf '%s\n' "" "" y ldap ldap://ldap.example.com:389 "" ou=people,dc=example,dc=com "" n)" setup)"
 check "the setup of the MCloud of Zebrunner CE succeeds" "0" "$?"
-check "no protocol, host or port is asked" "" "$(grep 'Zebrunner MCloud Settings' <<< "$output")"
+check "no protocol, host or port is asked" "" "$(grep 'Zebrunner MCloud STF URL' <<< "$output")"
 check_contains "the URL of Zebrunner CE is shown" "Zebrunner MCloud of Zebrunner CE: https://ce.example.com:443" "$output"
 check "STF_URL stays the one of Zebrunner CE" "https://ce.example.com:443" "$(value .env STF_URL)"
 check "STF_PORT stays the internal one" "8082" "$(value .env STF_PORT)"
@@ -979,6 +1012,10 @@ check_contains "the pin is shown" "(SHA-256 of its public key): ${pin}" "$output
 check_contains "the invite is a secret for the join of the node" \
   "It is a secret, shown once: paste it into ./zebrunner.sh join of mcloud-agent on the node lab-1" "$output"
 check_contains "the validity is shown" "valid 30 minutes (until 2026-11-09T18:30:00.000Z)" "$output"
+check "the join string is alone on stdout, the other lines go to stderr" \
+  "mcloud-join://mcloud.example.com:443?label=lab-1&grid=mcloud.example.com:4446&pin=${pin_url}&token=${invite}" \
+  "$(env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb STUB_DIR="$WORK" \
+    /bin/bash "${MCLOUD}/zebrunner.sh" node-invite lab-1 10.0.0.5 30 2> /dev/null)"
 reset_calls
 output="$(zbr "" node-invite lab-2 NODE-2.Example.COM)"
 check "the default validity is the one of STF, the address in lower case" \
@@ -1120,12 +1157,18 @@ check "the devices of the node with the result" "SERIAL PLATFORM PRESENT SCREEN 
 emulator-5554 Android yes 7405 7406 reachable
 00008110-001 iOS yes 7600 - NOT REACHABLE
 R58M Android no 7410 7411 not checked: absent" "$(grep -E '^(SERIAL|emulator|00008110|R58M|other|unbound)' <<< "$output" | tr -s ' ')"
-check_contains "an unreachable screen is explained" "stf-proxy does not reach the screen of a device at 10.0.0.5: the address of the invite" "$output"
+check_contains "an unreachable screen fails" "   FAIL stf-proxy does not reach the screen of a device at 10.0.0.5" "$output"
+check_contains "an unreachable screen is explained" "The address of the invite must be the one the server reaches the node at" "$output"
 check_contains "the hint names the NAT hairpin" "NAT hairpin" "$output"
+check_contains "the record of an active node passes" "   ok   Node lab-1: active" "$output"
+check_contains "the devices bound to the node are counted" "   ok   Devices of STF bound to the node lab-1: 3" "$output"
+check "the summary of the checks" "2 ok, 0 warn, 1 fail" "$(tail -1 <<< "$output" | sed 's/^ *//')"
 : > "${WORK}/unreachable"
 output="$(zbr "" nodes check lab-1)"
 check "a node with its screens reachable passes the check" "0" "$?"
 check_not_contains "no hint when the screens are reachable" "does not reach" "$output"
+check_contains "the reachable screens pass" "   ok   stf-proxy reaches the screens of the present devices: 2" "$output"
+check "the summary of a node that passes" "3 ok, 0 warn, 0 fail" "$(tail -1 <<< "$output" | sed 's/^ *//')"
 touch "${WORK}/proxy-down"
 reset_calls
 output="$(zbr "" nodes check lab-1)"
@@ -1136,9 +1179,11 @@ check "no connection without stf-proxy" "" "$(calls docker | grep '^exec')"
 output="$(zbr "" nodes check lab-2)"
 check "a revoked node fails the check" "1" "$?"
 check_contains "a revoked node is explained" "The node lab-2 is revoked" "$output"
+check_contains "a revoked node is invited again" "fix a new invite enrolls it again: ./zebrunner.sh node-invite lab-2 node-2.lan" "$output"
 output="$(zbr "" nodes check lab-9)"
 check "an unknown node fails the check" "1" "$?"
-check_contains "an unknown node is explained" "There is no node lab-9 in the registry of STF" "$output"
+check_contains "an unknown node is explained" "   FAIL There is no node lab-9 in the registry of STF" "$output"
+check_contains "the fix of an unknown node" "fix ./zebrunner.sh node-invite lab-9 <address>" "$output"
 output="$(zbr "" nodes check lab-3)"
 check "a node without devices fails the check" "1" "$?"
 check_contains "a node the grid has not seen is explained" "The grid has not seen the node yet" "$output"

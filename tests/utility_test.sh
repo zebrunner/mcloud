@@ -4,6 +4,12 @@ source "$(dirname "$0")/lib.sh"
 cd "$REPO" || exit 1
 # shellcheck source=../patch/utility.sh
 source patch/utility.sh
+# shellcheck source=../patch/ui.sh
+source patch/ui.sh
+# the plain ASCII output, also when the tests run on a terminal with a UTF-8 locale
+# shellcheck disable=SC2034 # read by ui_init
+UI_COLOR=never UI_ASCII=true
+ui_init
 
 section "confirm"
 # answer <stdin text> <default>: the exit code of confirm
@@ -20,6 +26,22 @@ check "an empty answer takes the default n" "1" "$(answer '\n' n)"
 check "another answer is asked again" "0" "$(answer 'maybe\ny\n' n)"
 check_contains "another answer is explained" "Please answer y (yes) or n (no)." "$(printf 'maybe\ny\n' | confirm "" "question?" n)"
 check_contains "the message is shown" "the message" "$(printf 'y\n' | confirm "the message" "question?" n)"
+check "the message is a fact of patch/ui.sh" "   info the message" "$(printf 'y\n' | confirm "the message" "question?" n)"
+# prompt_of <default> <question>: the arguments confirm gives ui_prompt, read -p shows its prompt on a terminal only
+prompt_of() {
+  (
+    # the prompt of read -p, recorded on stderr
+    # shellcheck disable=SC2329
+    ui_prompt() {
+      echo "$1|$2" >&2
+    }
+    { printf 'y\n' | confirm "" "$2" "$1" > /dev/null; } 2>&1
+  )
+}
+check "the hint of the default y" "Start now?|[Y/n]" "$(prompt_of y "Start now?")"
+check "the hint of the default n" "Do you want to continue?|[y/N]" "$(prompt_of n "Do you want to continue?")"
+check "the leading spaces of the question are removed" "Start now?|[Y/n]" "$(prompt_of y "      Start now?")"
+check "the prompt of patch/ui.sh" "  > Start now? [Y/n] " "$(UI_COLOR=never UI_ASCII=true bash -c 'source patch/ui.sh; ui_prompt "Start now?" "[Y/n]"')"
 
 section "random_string"
 check "the default length" "48" "$(random_string | tr -d '\n' | wc -c | tr -d ' ')"
@@ -67,7 +89,11 @@ check_contains "the ZBR variables are saved" 'ZBR_HOSTNAME="mcloud.example.com"'
 check_not_contains "the other variables are not saved" "OTHER" "$(cat "${WORK}/settings/backup/settings.env")"
 
 section "messages"
-check_contains "echo_warning prefix" "WARNING! text" "$(echo_warning text)"
-check_contains "echo_telegram link" "https://t.me/zebrunner" "$(echo_telegram)"
+check "echo_warning is a callout of patch/ui.sh" "
+  | WARNING
+  | text" "$(echo_warning text)"
+check_not_contains "echo_warning has no WARNING! prefix" "WARNING!" "$(echo_warning text)"
+check "echo_telegram link" "
+  For more help join telegram channel: https://t.me/zebrunner" "$(echo_telegram)"
 
 finish
