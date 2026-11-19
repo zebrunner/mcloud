@@ -68,6 +68,8 @@ write_mdm_of() {
     cd "$MCLOUD" || exit 1
     # shellcheck source=../patch/utility.sh
     source patch/utility.sh
+    # shellcheck source=../patch/ui.sh
+    source patch/ui.sh
     # shellcheck source=../patch/mdm.sh
     source patch/mdm.sh
     set_line .env "STF_URL=https://mcloud.example.com:443"

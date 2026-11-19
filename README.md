@@ -66,6 +66,8 @@ The commands of `./zebrunner.sh`:
 | `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
 | `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
 
+The commands print their messages in the style of `patch/ui.sh` (CONVENTIONS.md#terminal-output): colors on a terminal only (`NO_COLOR` or `UI_COLOR=never` turns them off, `UI_COLOR=always` on), Unicode glyphs with a UTF-8 locale (`UI_ASCII=true` for ASCII). Without colors the statuses are the words `ok`, `info`, `warn`, `FAIL` and a warning is a block with a bar at the left of `WARNING` and its text, so a log stays readable. The data stays plain: the output of `version`, the join string of `node-invite`, the tables of `nodes`.
+
 ## Configuration
 
 `./zebrunner.sh setup` writes the settings from the `*.original` files, `./zebrunner.sh restart` applies their changes. The next setup keeps every value of the previous `.env` and `variables.env`, also the ones changed by hand and the variables added to them (e.g. `COMPOSE_PROJECT_NAME` of `.env`, which names the volume of the database, or `STF_SESSION_TTL_SECONDS` of `variables.env`), but the ones it writes itself: `STF_URL` and `STF_PORT` (the protocol, host and port of its answers), `NODES_HOST`, the sign-in (`AUTH_SYSTEM`, `AUTH_URL`, `OAUTH_CALLBACK_URL`, the `ZEBRUNNER_*` URLs of Zebrunner CE) and the image tags `TAG_*` of `.env.original`, the images of the release (see [Upgrade](#upgrade)). The previous values are the defaults of its questions (the admin of `STF_ADMIN_*` too), the generated secrets are kept. A value with other characters than letters, digits and `_./:@%+,=-` is written in single quotes.
@@ -269,7 +271,7 @@ The server needs https with the certificate of the host ([https](#https)), the s
    - the label is the name of the node, unique, 1-40 lower case letters, digits and `-`; `enroll`, `invites`, `relay` and `verify` are reserved by STF;
    - the address is the one the server connects to (the screens, Appium), the `STF_PROVIDER_HOST` of the node: an IPv4 address or a host name without the protocol and the port, not a loopback (`127.x`, `localhost`), `0.0.0.0`, link-local or multicast one, unique among the nodes; a host name is taken as it is, not resolved, so a name of a service of MCloud (e.g. `stf-api`) is accepted too and `stf-proxy` and the grid would connect to that service in the docker network: give the address or the DNS name of the node only; a node on the server itself has the LAN address of the server, see [Devices on the MCloud server](#devices-on-the-mcloud-server);
    - the invite is valid 60 minutes, `<minutes>` sets 1-1440, and enrolls once.
-2. It prints the join string once, a secret: copy it to the node over a trusted channel.
+2. It prints the join string once, a secret: copy it to the node over a trusted channel. The join string is alone on stdout (its own line), the lines around it go to stderr.
 3. On the node: `./zebrunner.sh join` of mcloud-agent reads the join string from stdin or a hidden prompt (never from its arguments), checks the certificate of `stf-proxy` by the pin, enrolls the key of the node with the invite and writes the token and the settings of MCloud into the settings of mcloud-agent; then `./zebrunner.sh ansible` and `zebrunner-farm restart` deploy them.
 4. `./zebrunner.sh nodes` shows the node `active`, with the time the grid last saw it; `./zebrunner.sh nodes check <label>` checks it and its devices ([Diagnostics](#diagnostics)).
 
@@ -310,7 +312,8 @@ They call the STF API through `stf-proxy` on `127.0.0.1:STF_PORT` of the server 
 
 - the record of the node: `active` or `revoked`, its address, the time of its enrollment and the time the grid last saw it (`-`: no Appium of the node registered with its token yet);
 - the devices STF binds to the node, with the platform, present or not, the screen port and the remote debug port;
-- for every present device, whether `stf-proxy` connects to `<address of the node>:<screen port>` (from inside the container, the path of the screens): `reachable` or `NOT REACHABLE`.
+- for every present device, whether `stf-proxy` connects to `<address of the node>:<screen port>` (from inside the container, the path of the screens): `reachable` or `NOT REACHABLE`;
+- a status per check (`ok` or `FAIL` with its fix, `warn`) and the summary of them, e.g. `2 ok, 0 warn, 1 fail`.
 
 It exits with `1` and a hint when something is wrong: an unknown or revoked node, a node the grid has not seen, no device bound to the node (the devices register with the token of the node from its address, `docker logs stf-processor001` names the refused registrations), `stf-proxy` not running, a screen the server does not reach (the address of the invite is not the one the server reaches the node at, the firewall of the node, a public address inside the LAN, NAT hairpin). `./zebrunner.sh doctor` of mcloud-agent checks the same from the node with its token (`GET /api/v1/nodes/self`, limited by `stf-proxy` to 30 a minute per address): the enrollment, the address, the devices STF knows and the deployed devices that are missing in STF.
 

@@ -1,6 +1,7 @@
 #!/bin/bash
-# The helpers of zebrunner.sh: the settings, random values, file edits and the questions to the user.
-# Keep it compatible with the macOS system bash 3.2 (CONVENTIONS.md).
+# The helpers of zebrunner.sh: the settings, random values, file edits and the questions to the user; the messages are
+# printed by patch/ui.sh, which the scripts source with this file. Keep it compatible with the macOS system bash 3.2
+# (CONVENTIONS.md).
 
 # export_settings: saves the ZBR* variables of the setup into backup/settings.env for the next setup
 export_settings() {
@@ -22,17 +23,15 @@ random_string() {
   echo "${result:0:$length}"
 }
 
-# echo_warning <message>: a warning for the user
+# echo_warning <message>: a warning for the user, a callout of patch/ui.sh
 echo_warning() {
-  echo "
-      WARNING! $1"
+  ui_callout warn "$1"
 }
 
 # echo_telegram: where to get help
 echo_telegram() {
-  echo "
-      For more help join telegram channel: https://t.me/zebrunner
-      "
+  echo
+  ui_muted "For more help join telegram channel: https://t.me/zebrunner"
 }
 
 # replace <file> <old> <new>: replaces every occurrence of a text in a file
@@ -67,19 +66,26 @@ set_line() {
   printf '%s' "$content" > "$file"
 }
 
-# confirm <message> <question> <default y|n>: asks until the answer is y or n; 0 for y, 1 for n
+# confirm <message> <question> <default y|n>: asks until the answer is y or n; 0 for y, 1 for n. The message (e.g. the
+# values to confirm) is shown before the question, the hint of the question is [Y/n] or [y/N] by the default
 confirm() {
   local message="$1"
   local question="$2"
   local default="$3"
+  local hint="[y/N]"
   local response
+  # the leading spaces of the question are of the earlier output style
+  question="${question#"${question%%[![:space:]]*}"}"
+  if [[ "$default" == "y" || "$default" == "Y" ]]; then
+    hint="[Y/n]"
+  fi
 
   while true; do
     if [[ -n "$message" ]]; then
-      echo "$message"
+      ui_info "$message"
     fi
 
-    read -r -p "${question} y/n [${default}]:" response
+    read -r -p "$(ui_prompt "$question" "$hint")" response
     if [[ -z "$response" ]]; then
       response="$default"
     fi
@@ -92,7 +98,6 @@ confirm() {
       return 1
     fi
 
-    echo "Please answer y (yes) or n (no)."
-    echo
+    ui_warn "Please answer y (yes) or n (no)."
   done
 }

@@ -32,3 +32,24 @@ compose_config() {
     return 1
   fi
 }
+
+# unwrap: stdin with the text of every callout of patch/ui.sh (ASCII, without colors, COLUMNS=80) on one line after its
+# title, the way zebrunner.sh wrote it before the wrapping: the checks of the messages do not depend on the wrapping. A
+# full line (78 columns) is a word longer than the line (e.g. a path), cut without a space
+unwrap() {
+  awk '
+    in_body && /^  \| / {
+      if (text == "") text = $0
+      else text = text (length(last) == 78 ? "" : " ") substr($0, 5)
+      last = $0
+      next
+    }
+    {
+      if (text != "") print text
+      text = ""
+      in_body = /^  \| [A-Z][A-Z-]*$/
+      print
+    }
+    END { if (text != "") print text }
+  '
+}
