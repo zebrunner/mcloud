@@ -96,6 +96,11 @@ check_contains "start shows the ssh tunnel of the admin UI" "ssh -L 9101:127.0.0
 check "mdm.env is readable for its owner only" "-rw-------" "$(mode mdm.env)"
 token="$(value mdm.env MDM_ENROLL_TOKEN)"
 check "the enrollment token is generated" "48" "${#token}"
+admin_token="$(value mdm.env MDM_ADMIN_TOKEN)"
+check "the admin token is generated" "48" "${#admin_token}"
+check "NanoHUB posts its webhook with the admin token" "http://admin:${admin_token}@mcloud-mdm:8081/webhook" \
+  "$(value mdm.env NANOHUB_WEBHOOK_URL)"
+check_not_contains "the admin token is not in the compose file" "NANOHUB_WEBHOOK_URL" "$(cat "${MCLOUD}/docker-compose.yml")"
 for name in NANOHUB_API_KEY MYSQL_PASSWORD HMDM_PASSWORD HMDM_SHARED_SECRET SQL_PASS; do
   check "${name} is generated" "yes" "$([[ -n "$(value mdm.env "$name")" ]] && echo yes)"
 done
@@ -112,6 +117,7 @@ locations="$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
 check_contains "stf-proxy calls mcloud-mdm with the enrollment token" "proxy_set_header Authorization \"Bearer ${token}\";" "$locations"
 check_contains "stf-proxy checks the node token" "proxy_pass http://\$upstream_node_auth/api/v1/nodes/self;" "$locations"
 check_not_contains "the admin UI is not published by default" "/mcloud/mdm/" "$locations"
+check_not_contains "the admin token is not in the locations by default" "$admin_token" "$locations"
 check "the MQTT proxy allows the valid addresses only" "    allow 203.0.113.10;
     allow 198.51.100.0/24;
     allow 2001:db8::/32;
@@ -132,6 +138,7 @@ section "the next start keeps the secrets"
 reset_calls
 output="$(zbr "" start)"
 check "the enrollment token is kept" "$token" "$(value mdm.env MDM_ENROLL_TOKEN)"
+check "the admin token is kept" "$admin_token" "$(value mdm.env MDM_ADMIN_TOKEN)"
 check_not_contains "unchanged locations are not read again" "exec|stf-proxy|nginx|-s|reload" "$(calls docker)"
 zbr "$SETUP_ANSWERS" setup > /dev/null
 check "the setup keeps the enrollment token" "$token" "$(value mdm.env MDM_ENROLL_TOKEN)"
@@ -173,6 +180,8 @@ setting MDM_ADMIN_PUBLIC true
 zbr "" start > /dev/null
 check_contains "MDM_ADMIN_PUBLIC=true publishes the admin UI for the admins of STF" "auth_request /_hub_auth/admin;" \
   "$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
+check_contains "stf-proxy calls the admin UI with the admin token" \
+  "proxy_set_header Authorization \"Bearer ${admin_token}\";" "$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
 setting MDM_SITE_ADDRESSES ""
 check_contains "no address is reported" "MDM_SITE_ADDRESSES of .env has no address" "$(zbr "" start)"
 check "no address: nobody reaches the MDM" "" "$(grep ' 1;$' "${MCLOUD}/${PROXY}/http-mdm.conf")"

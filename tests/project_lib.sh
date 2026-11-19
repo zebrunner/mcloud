@@ -67,3 +67,17 @@ unwrap() {
     END { if (text != "") print text }
   '
 }
+
+# compose_networks: "<service> <network,...>" per service of the profile mdm, the networks of docker-compose.yml
+compose_networks() {
+  local dir="${WORK}/compose"
+  mkdir -p "$dir"
+  cp "${REPO}/docker-compose.yml" "$dir/"
+  cp "${REPO}/.env.original" "${dir}/.env"
+  cp "${REPO}/variables.env.original" "${dir}/variables.env"
+  (cd "$dir" && docker compose --profile mdm --profile adb-relay config --format json 2> /dev/null) | python3 -c '
+import json, sys
+for name, service in sorted(json.load(sys.stdin)["services"].items()):
+    print(name, ",".join(sorted(service.get("networks") or ["host"])))
+'
+}

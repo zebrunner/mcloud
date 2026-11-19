@@ -29,6 +29,19 @@ project_checks() {
     run_check "docker compose config with .env.original and variables.env.original" compose_config
     run_check "docker compose config with the profile adb-relay" compose_config --profile adb-relay
     run_check "docker compose config with the profile mdm" compose_config --profile mdm
+    local networks
+    networks="$(compose_networks)"
+    check "the MDM services are not in infra, the network of the containers of the devices" "mcloud-mdm mdm
+mcloud-mdm-hmdm mdm,mdm-db
+mcloud-mdm-hmdm-init mdm-db
+mcloud-mdm-mqtt mdm
+mcloud-mdm-mysql mdm-db
+mcloud-mdm-nanohub mdm,mdm-db
+mcloud-mdm-postgres mdm-db" "$(grep '^mcloud-mdm' <<< "$networks")"
+    check "stf-proxy and stf-api reach the MDM" "stf-api default,mdm
+stf-proxy default,mdm" "$(grep -E '^stf-(proxy|api) ' <<< "$networks")"
+    check "the databases of the MDM have no internet" "true" \
+      "$(grep -A3 '^  mdm-db:' docker-compose.yml | sed -n 's/^ *internal: //p')"
   else
     skip_check "docker compose config" "requires docker compose"
   fi

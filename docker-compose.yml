@@ -7,6 +7,14 @@ networks:
   default:
     name: infra
     external: true
+  # the MDM services and the services of MCloud they talk to (stf-proxy, stf-api), apart from the containers of the
+  # devices of infra (README.md#mdm)
+  mdm:
+    name: mcloud-mdm
+  # the databases of the MDM: no other container, no internet
+  mdm-db:
+    name: mcloud-mdm-db
+    internal: true
 
 # the logs of every service are rotated: the default json-file driver of docker keeps them all (LOG_MAX_SIZE, LOG_MAX_FILE of .env)
 x-logging: &logging
@@ -64,6 +72,7 @@ services:
       - "${STF_PORT}:80" # primary HTTP port
       # the grid of the nodes, the grid of the join string of ./zebrunner.sh node-invite: the registration of Appium only
       - "${AGENTS_ADDRESS}:4446:4446"
+    networks: [default, mdm]
     depends_on:
       stf-app:
         condition: service_healthy
@@ -226,6 +235,8 @@ services:
     <<: *stf
     container_name: stf-api
     healthcheck: *http-healthcheck
+    # mcloud-mdm reads the devices of STF (MDM_STF_URL)
+    networks: [default, mdm]
     # --nodes-connect-*: the ZeroMQ endpoints of the answer of the enrollment, the published ports of the triproxies at
     # NODES_HOST (the host of the join string); --nodes-stf-url is STF_URL of variables.env, the public URL
     command: >-
@@ -265,6 +276,7 @@ services:
     # the admin UI: this server only, an ssh tunnel (MDM_ADMIN_PUBLIC=true publishes it on /mcloud/mdm/ too)
     ports:
       - "127.0.0.1:${MDM_ADMIN_PORT:-9101}:8081"
+    networks: [mdm]
     logging: *logging
     restart: always
   # NanoHUB: the MDM server of iOS, its storage in MySQL; it trusts the SCEP CA of mcloud-mdm (the data volume)
@@ -278,9 +290,10 @@ services:
     environment:
       - NANOHUB_CA=/mdm-data/scep/ca.pem
       - NANOHUB_STORAGE=mysql
-      - NANOHUB_WEBHOOK_URL=http://mcloud-mdm:8081/webhook
     volumes:
       - "mcloud-mdm-data:/mdm-data:ro"
+    # APNs: the internet of mdm
+    networks: [mdm, mdm-db]
     depends_on:
       mcloud-mdm-mysql:
         condition: service_healthy
@@ -305,6 +318,7 @@ services:
       - "mcloud-mdm-mysql:/var/lib/mysql"
       # the schemas of NanoHUB, applied at the first start
       - ./configuration/mdm/mysql:/docker-entrypoint-initdb.d:ro
+    networks: [mdm-db]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
       interval: 5s
@@ -339,6 +353,8 @@ services:
       - ./configuration/mdm/hmdm-entrypoint.sh:/hmdm-entrypoint.sh:ro
       - "mcloud-mdm-hmdm-work:/usr/local/tomcat/work"
       - "mcloud-mdm-hmdm-config:/usr/local/tomcat/conf/Catalina/localhost"
+    # the web application of HMDM_URL: the internet of mdm
+    networks: [mdm, mdm-db]
     depends_on:
       mcloud-mdm-postgres:
         condition: service_healthy
@@ -356,6 +372,7 @@ services:
       - POSTGRES_DB=hmdm
     volumes:
       - "mcloud-mdm-postgres:/var/lib/postgresql/data"
+    networks: [mdm-db]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "hmdm"]
       interval: 5s
@@ -381,6 +398,7 @@ services:
       - HMDM_INTERNAL_URL=http://mcloud-mdm-hmdm:8080
     volumes:
       - ./configuration/mdm/hmdm-init.sh:/hmdm-init.sh:ro
+    networks: [mdm-db]
     depends_on:
       mcloud-mdm-postgres:
         condition: service_healthy
@@ -396,6 +414,7 @@ services:
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
     ports:
       - "${MDM_MQTT_PORT:-31443}:31443"
+    networks: [mdm]
     depends_on:
       - mcloud-mdm-hmdm
     healthcheck:

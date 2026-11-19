@@ -213,8 +213,8 @@ The MDM of the devices, [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm): i
 
 1. Set `MDM_ENABLED=true` of `.env` and `MDM_SITE_ADDRESSES` to the fixed public addresses of the sites of the devices and of the nodes (`curl ifconfig.me` on a node and on a device on the Wi-Fi of the site; a site in the network of the server: its private network too).
 2. Put the agent of mcloud-mdm (`make agent` of mcloud-mdm, signed with the key of the farms) into `configuration/mdm/android/mcloud-mdm-agent.apk`.
-3. Run `./zebrunner.sh start`: it generates `mdm.env`, the secrets of the MDM (the enrollment token of the nodes, the API key of NanoHUB, the passwords of the databases and of Headwind MDM, the shared secret of the agents; with `STF_TOKEN` of `variables.env` also the API of STF for the names, nodes, locations and users of the devices in the admin UI, written again at every start), and the locations of `stf-proxy` (`configuration/stf-proxy/mdm`), then starts the profile `mdm`. A `configuration/stf-proxy/nginx.conf` of a setup before the MDM gets the includes of its locations (one changed by hand: a warning, add them or run `./zebrunner.sh setup`). Open `MDM_MQTT_PORT` for `MDM_SITE_ADDRESSES`, see [Firewall](#firewall).
-4. Open the admin UI: `ssh -L 9101:127.0.0.1:9101 <server>`, then `http://127.0.0.1:9101` (`MDM_ADMIN_PORT`; `MDM_ADMIN_PUBLIC=true`: also `/mcloud/mdm/` for the admins of STF). Upload the APNs push certificate of iOS there.
+3. Run `./zebrunner.sh start`: it generates `mdm.env`, the secrets of the MDM (the enrollment token of the nodes, the admin token of `mcloud-mdm` `MDM_ADMIN_TOKEN`, the API key of NanoHUB, the passwords of the databases and of Headwind MDM, the shared secret of the agents; with `STF_TOKEN` of `variables.env` also the API of STF for the names, nodes, locations and users of the devices in the admin UI, written again at every start), and the locations of `stf-proxy` (`configuration/stf-proxy/mdm`), then starts the profile `mdm`. A `configuration/stf-proxy/nginx.conf` of a setup before the MDM gets the includes of its locations (one changed by hand: a warning, add them or run `./zebrunner.sh setup`). Open `MDM_MQTT_PORT` for `MDM_SITE_ADDRESSES`, see [Firewall](#firewall).
+4. Open the admin UI: `ssh -L 9101:127.0.0.1:9101 <server>`, then `http://127.0.0.1:9101` (`MDM_ADMIN_PORT`); the browser asks for a password: `MDM_ADMIN_TOKEN` of `mdm.env` (any user). `MDM_ADMIN_PUBLIC=true`: also `/mcloud/mdm/` for the admins of STF, `stf-proxy` sends the admin token itself. Every request of the admin listener needs the token, NanoHUB sends it with its webhook (`NANOHUB_WEBHOOK_URL` of `mdm.env`). Upload the APNs push certificate of iOS there.
 5. The nodes enroll their devices with `./zebrunner.sh mdm enroll <device>` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent): they reach the MDM with their node token, `stf-proxy` checks it (`GET /api/v1/nodes/self` of `stf-api`) and calls `mcloud-mdm` with `MDM_ENROLL_TOKEN` of `mdm.env`; the nodes need no setting of their own.
 
 `stf-proxy` publishes for `MDM_SITE_ADDRESSES` only (`403` for any other address):
@@ -273,7 +273,7 @@ https://<user>:<token>@<host>:<port>/mcloud/wd/hub
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token and, with `MDM_ADMIN_PUBLIC=true`, its admin token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -370,7 +370,7 @@ The risks that stay:
 
 ## Services
 
-All the services but `adb-relay` (the network of the host) are in the external docker network `infra`, which `./zebrunner.sh start` creates.
+All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are.
 
 | Service | Image | What it does |
 | --- | --- | --- |
