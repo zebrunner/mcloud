@@ -227,7 +227,7 @@ The MDM of the devices, [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm): i
 | `/hmdm/...` | `mcloud-mdm-hmdm` | the Android agents: their paths only, the web panel and the API of Headwind MDM are not published (`404`) |
 | `MDM_MQTT_PORT` (TLS, the certificate of `stf-proxy`) | `mcloud-mdm-mqtt` -> `mcloud-mdm-hmdm` | the Android agents (the push of the commands) |
 
-`mdm.env` is readable for its owner only and kept from setup to setup (`backup` copies it); keep a copy in the store of the secrets: without `HMDM_SHARED_SECRET` and the server only a factory reset removes the device owner of the Android agents. The databases of the MDM are the volumes `mcloud-mdm-*`: `mcloud-mdm-data` has the SCEP CA, without it every iOS device enrolls again. `MDM_ENABLED=false` and `./zebrunner.sh restart` remove the services of the MDM, their volumes stay; `shutdown` removes them.
+`mdm.env` is readable for its owner only and kept from setup to setup (`backup` copies it); no container gets it: `start` writes the env file of every MDM service (`configuration/mdm/env/<service>.env`, `600`) with the secrets of that service only (MySQL and PostgreSQL their passwords, NanoHUB its API key, its database and its webhook, Headwind MDM its database and the secret of the agents, `mcloud-mdm` its tokens and `STF_TOKEN`); keep a copy in the store of the secrets: without `HMDM_SHARED_SECRET` and the server only a factory reset removes the device owner of the Android agents. The databases of the MDM are the volumes `mcloud-mdm-*`: `mcloud-mdm-data` has the SCEP CA, without it every iOS device enrolls again. `MDM_ENABLED=false` and `./zebrunner.sh restart` remove the services of the MDM, their volumes stay; `shutdown` removes them.
 
 ### Firewall
 
@@ -273,7 +273,7 @@ https://<user>:<token>@<host>:<port>/mcloud/wd/hub
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token and, with `MDM_ADMIN_PUBLIC=true`, its admin token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, the env files of its services `configuration/mdm/env/*.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token and, with `MDM_ADMIN_PUBLIC=true`, its admin token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -370,7 +370,7 @@ The risks that stay:
 
 ## Services
 
-All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are.
+All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay` and the MDM) and `GRID_AUTH_SECRET` are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
 
 | Service | Image | What it does |
 | --- | --- | --- |

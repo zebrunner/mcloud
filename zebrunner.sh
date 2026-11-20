@@ -267,6 +267,7 @@ shutdown() {
   rm -f grid.env configuration/stf-proxy/grid-auth.conf
   # the secrets of the MDM go with its volumes; the agent APK of configuration/mdm/android is kept
   rm -f "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}"/*.conf "$MDM_MQTT_CONF"
+  rm -rf "$MDM_ENV_DIR"
   # the copies of backup: the secrets of the settings (SECRET, the tokens, the keys of RethinkDB and of ZeroMQ)
   rm -f variables.env.bak .env.bak backup/settings.env.bak configuration/stf-proxy/nginx.conf.bak \
     configuration/stf-proxy/nginx.conf.sha256.bak
@@ -937,7 +938,7 @@ protect_files() {
     configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak grid.env configuration/stf-proxy/grid-auth.conf \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz \
-    "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}/server-mdm.conf"; do
+    "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}/server-mdm.conf" "${MDM_ENV_DIR}"/*.env; do
     if [[ ! -f "$file" ]]; then
       continue
     fi
@@ -946,7 +947,7 @@ protect_files() {
     fi
     case "$file" in
     variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz | \
-      mdm.env* | */server-mdm.conf)
+      mdm.env* | */server-mdm.conf | "${MDM_ENV_DIR}"/*.env)
       chmod 600 "$file" 2> /dev/null
       ;;
     esac

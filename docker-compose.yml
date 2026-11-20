@@ -28,9 +28,16 @@ x-stf: &stf
   image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
   env_file:
     - variables.env
-  # production: the errors answer no stack trace
-  environment:
+  # production: the errors answer no stack trace. variables.env has the secrets of other services too: the access token
+  # of the admin (STF_TOKEN: the grid, adb-relay, the MDM), the secret of the grid and the secrets of the sign-ins
+  # (stf-auth only); no STF unit reads them, they are empty here
+  environment: &stf-environment
     - NODE_ENV=production
+    - STF_TOKEN=
+    - GRID_AUTH_SECRET=
+    - LDAP_BIND_CREDENTIALS=
+    - OAUTH_CLIENT_SECRET=
+    - STF_AUTH_MOCK_BASIC_AUTH_PASSWORD=
   depends_on:
     stf-migrate:
       condition: service_completed_successfully
@@ -157,6 +164,7 @@ services:
     container_name: stf-migrate
     env_file:
       - variables.env
+    environment: *stf-environment
     command: stf migrate
     depends_on:
       rethinkdb:
@@ -170,6 +178,11 @@ services:
   stf-auth:
     <<: *stf
     container_name: stf-auth
+    # the sign-in: the secrets of the sign-ins of variables.env (LDAP, OAuth2, the mock sign-in), not the token of the admin
+    environment:
+      - NODE_ENV=production
+      - STF_TOKEN=
+      - GRID_AUTH_SECRET=
     healthcheck: *http-healthcheck
     # ${STF_URL}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
     command: stf ${AUTH_SYSTEM} --port 3000 --app-url ${STF_URL}/stf
@@ -265,7 +278,7 @@ services:
     container_name: mcloud-mdm
     profiles: [mdm]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm.env
         required: false
     environment:
       - MDM_PUBLIC_URL=${STF_URL}
@@ -288,7 +301,7 @@ services:
     container_name: mcloud-mdm-nanohub
     profiles: [mdm]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm-nanohub.env
         required: false
     environment:
       - NANOHUB_CA=/mdm-data/scep/ca.pem
@@ -311,7 +324,7 @@ services:
     # the schema of NanoMDM has foreign keys to non-unique keys, refused by default since MySQL 8.4
     command: ["--restrict-fk-on-non-standard-key=OFF"]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm-mysql.env
         required: false
     environment:
       - MYSQL_DATABASE=nanohub
@@ -339,7 +352,7 @@ services:
     # base.url and secure.enrollment, then the entrypoint of the image
     entrypoint: ["/bin/sh", "/hmdm-entrypoint.sh"]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm-hmdm.env
         required: false
     environment:
       - SQL_HOST=mcloud-mdm-postgres
@@ -368,7 +381,7 @@ services:
     container_name: mcloud-mdm-postgres
     profiles: [mdm]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm-postgres.env
         required: false
     environment:
       - POSTGRES_USER=hmdm
@@ -390,7 +403,7 @@ services:
     profiles: [mdm]
     entrypoint: ["/bin/sh", "/hmdm-init.sh"]
     env_file:
-      - path: mdm.env
+      - path: configuration/mdm/env/mcloud-mdm-hmdm-init.env
         required: false
     environment:
       - PGHOST=mcloud-mdm-postgres

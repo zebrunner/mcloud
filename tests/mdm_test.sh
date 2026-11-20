@@ -109,6 +109,24 @@ check "NanoHUB gets the password of MySQL" "nanohub:$(value mdm.env MYSQL_PASSWO
 check "Headwind MDM gets the shared secret of the agents" "$(value mdm.env HMDM_SHARED_SECRET)" "$(value mdm.env SHARED_SECRET)"
 check "PostgreSQL and Headwind MDM share its password" "$(value mdm.env SQL_PASS):$(value mdm.env SQL_PASS)" \
   "$(value mdm.env POSTGRES_PASSWORD):$(value mdm.env PGPASSWORD)"
+# the env file of every MDM service: the names of its secrets only, the values of mdm.env
+names() {
+  sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MCLOUD}/configuration/mdm/env/$1.env" | tr '\n' ' '
+}
+check "mcloud-mdm gets its tokens" "MDM_ENROLL_TOKEN NANOHUB_API_KEY MDM_ADMIN_TOKEN HMDM_PASSWORD HMDM_SHARED_SECRET " \
+  "$(names mcloud-mdm)"
+check "NanoHUB gets its API key, its database and its webhook" "NANOHUB_API_KEY NANOHUB_STORAGE_DSN NANOHUB_WEBHOOK_URL " \
+  "$(names mcloud-mdm-nanohub)"
+check "MySQL gets its password only" "MYSQL_PASSWORD " "$(names mcloud-mdm-mysql)"
+check "Headwind MDM gets its database and the secret of the agents" "SQL_PASS SHARED_SECRET " "$(names mcloud-mdm-hmdm)"
+check "PostgreSQL gets its password only" "POSTGRES_PASSWORD " "$(names mcloud-mdm-postgres)"
+check "the init of Headwind MDM gets its database and the password of the admin" "PGPASSWORD HMDM_PASSWORD " \
+  "$(names mcloud-mdm-hmdm-init)"
+check "the values are the ones of mdm.env" "$(value mdm.env MYSQL_PASSWORD)" \
+  "$(value configuration/mdm/env/mcloud-mdm-mysql.env MYSQL_PASSWORD)"
+for service in mcloud-mdm mcloud-mdm-nanohub mcloud-mdm-mysql mcloud-mdm-hmdm mcloud-mdm-postgres mcloud-mdm-hmdm-init; do
+  check "the env file of ${service} is readable for its owner only" "-rw-------" "$(mode "configuration/mdm/env/${service}.env")"
+done
 check "the sites of stf-proxy: the valid addresses" "  203.0.113.10 1;
   198.51.100.0/24 1;
   2001:db8::/32 1;" "$(grep ' 1;$' "${MCLOUD}/${PROXY}/http-mdm.conf")"
@@ -129,6 +147,8 @@ check "no STF_TOKEN: no API of STF" "" "$(value mdm.env MDM_STF_URL)"
 set_line "${MCLOUD}/variables.env" "STF_TOKEN=stf-token-123"
 zbr "" start > /dev/null
 check "STF_TOKEN of variables.env goes to mcloud-mdm" "http://stf-api:3000|stf-token-123" "$(value mdm.env MDM_STF_URL)|$(value mdm.env MDM_STF_TOKEN)"
+check "the token of STF goes to mcloud-mdm only" "configuration/mdm/env/mcloud-mdm.env" \
+  "$(cd "$MCLOUD" && grep -l stf-token-123 configuration/mdm/env/*.env)"
 set_line "${MCLOUD}/variables.env" "STF_TOKEN=stf-token-456"
 zbr "" start > /dev/null
 check "a new STF_TOKEN replaces it at the next start" "stf-token-456" "$(value mdm.env MDM_STF_TOKEN)"
