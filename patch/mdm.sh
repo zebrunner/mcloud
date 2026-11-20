@@ -6,6 +6,9 @@
 # compatible with the macOS system bash 3.2 (CONVENTIONS.md).
 
 MDM_ENV="mdm.env"
+# the env files of the MDM services, each with the secrets of its service only (write_mdm_service_envs)
+MDM_ENV_DIR="configuration/mdm/env"
+MDM_SERVICES="mcloud-mdm mcloud-mdm-nanohub mcloud-mdm-mysql mcloud-mdm-hmdm mcloud-mdm-postgres mcloud-mdm-hmdm-init"
 MDM_PROXY_DIR="configuration/stf-proxy/mdm"
 MDM_MQTT_CONF="configuration/mdm/mqtt.conf"
 MDM_AGENT_APK="configuration/mdm/android/mcloud-mdm-agent.apk"
@@ -140,6 +143,42 @@ write_mdm_env() {
     return 1
   fi
   chmod 600 "$MDM_ENV"
+}
+
+# mdm_service_secrets <service>: the names of the secrets of mdm.env a service reads, nothing else of mdm.env reaches it
+mdm_service_secrets() {
+  case "$1" in
+  mcloud-mdm) echo "MDM_ENROLL_TOKEN NANOHUB_API_KEY MDM_ADMIN_TOKEN HMDM_PASSWORD HMDM_SHARED_SECRET MDM_STF_URL MDM_STF_TOKEN" ;;
+  mcloud-mdm-nanohub) echo "NANOHUB_API_KEY NANOHUB_STORAGE_DSN NANOHUB_WEBHOOK_URL" ;;
+  mcloud-mdm-mysql) echo "MYSQL_PASSWORD" ;;
+  mcloud-mdm-hmdm) echo "SQL_PASS SHARED_SECRET" ;;
+  mcloud-mdm-postgres) echo "POSTGRES_PASSWORD" ;;
+  mcloud-mdm-hmdm-init) echo "PGPASSWORD HMDM_PASSWORD" ;;
+  esac
+}
+
+# write_mdm_service_envs: configuration/mdm/env/<service>.env of every MDM service (docker-compose.yml) from mdm.env, for
+# the owner only: a service gets its own secrets, not the admin token of STF or the passwords of the other services
+write_mdm_service_envs() {
+  local service
+  local name
+  local value
+  mkdir -p "$MDM_ENV_DIR" && chmod 700 "$MDM_ENV_DIR"
+  for service in $MDM_SERVICES; do
+    if ! (umask 077 && {
+      echo "# written by ./zebrunner.sh start from mdm.env (README.md#mdm): the secrets of ${service} only"
+      for name in $(mdm_service_secrets "$service"); do
+        value="$(mdm_secret "$name")"
+        if [[ -n "$value" ]]; then
+          echo "${name}=${value}"
+        fi
+      done
+    } 2> /dev/null > "${MDM_ENV_DIR}/${service}.env"); then
+      ui_callout error "${MDM_ENV_DIR}/${service}.env is not writable for $(id -un): remove it and run ./zebrunner.sh start (README.md#troubleshooting)."
+      return 1
+    fi
+    chmod 600 "${MDM_ENV_DIR}/${service}.env"
+  done
 }
 
 # write_mdm_proxy <on|off>: the locations of the MDM for stf-proxy and the configuration of the MQTT proxy (on), none
@@ -313,6 +352,7 @@ write_mdm() {
   mdm_env_keys
   if mdm_check; then
     write_mdm_env || return 1
+    write_mdm_service_envs || return 1
     write_mdm_proxy on || return 1
     # shellcheck disable=SC2034
     MDM_ON=1

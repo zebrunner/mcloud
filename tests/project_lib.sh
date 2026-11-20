@@ -68,6 +68,24 @@ unwrap() {
   '
 }
 
+# compose_secrets: "<service> <name>" per service of docker-compose.yml that gets a secret of variables.env, with
+# STF_TOKEN, GRID_AUTH_SECRET and LDAP_BIND_CREDENTIALS set in a copy of variables.env.original
+compose_secrets() {
+  local dir="${WORK}/compose-secrets"
+  mkdir -p "$dir"
+  cp "${REPO}/docker-compose.yml" "$dir/"
+  cp "${REPO}/.env.original" "${dir}/.env"
+  sed -e 's/^STF_TOKEN=.*/STF_TOKEN=admin-token/' -e 's/^GRID_AUTH_SECRET=.*/GRID_AUTH_SECRET=grid-secret/' \
+    -e 's/^LDAP_BIND_CREDENTIALS=.*/LDAP_BIND_CREDENTIALS=ldap-password/' "${REPO}/variables.env.original" > "${dir}/variables.env"
+  (cd "$dir" && docker compose --profile mdm --profile adb-relay config --format json 2> /dev/null) | python3 -c '
+import json, sys
+for name, service in sorted(json.load(sys.stdin)["services"].items()):
+    for key, value in sorted((service.get("environment") or {}).items()):
+        if key in ("STF_TOKEN", "GRID_AUTH_SECRET", "LDAP_BIND_CREDENTIALS") and value:
+            print(name, key)
+'
+}
+
 # compose_networks: "<service> <network,...>" per service of the profile mdm, the networks of docker-compose.yml
 compose_networks() {
   local dir="${WORK}/compose"

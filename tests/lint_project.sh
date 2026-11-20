@@ -40,6 +40,10 @@ mcloud-mdm-nanohub mdm,mdm-db
 mcloud-mdm-postgres mdm-db" "$(grep '^mcloud-mdm' <<< "$networks")"
     check "stf-proxy and stf-api reach the MDM" "stf-api default,mdm
 stf-proxy default,mdm" "$(grep -E '^stf-(proxy|api) ' <<< "$networks")"
+    check "the token of the admin, the secret of the grid and of LDAP reach no STF unit but the sign-in" \
+      "stf-auth LDAP_BIND_CREDENTIALS" "$(compose_secrets)"
+    check "every MDM service has an env file of its own, none gets mdm.env" "" \
+      "$(grep -n 'path: mdm.env' docker-compose.yml)"
     check "the databases of the MDM have no internet" "true" \
       "$(grep -A3 '^  mdm-db:' docker-compose.yml | sed -n 's/^ *internal: //p')"
   else
