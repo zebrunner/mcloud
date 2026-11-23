@@ -5,8 +5,8 @@
 # (host:port), E2E_ADB_KEYS the adb keys it trusts (~/.android), E2E_LOGS the directory of the logs.
 # MCloud and the node are on one machine (README.md#devices-on-the-mcloud-server): AGENTS_ADDRESS and the address of the
 # node are the address of the machine, the node is enrolled with ./zebrunner.sh node-invite and join over https.
-# It changes the machine: ports 443 and 7401-7410, the udev rules, zebrunner-farm and the shell profiles of mcloud-agent
-# (sudo without a password), the docker volume mcloud-key-volume; for CI and disposable machines only.
+# It changes the machine: ports 443, 7401-7410 and 9000 (MinIO), the udev rules, zebrunner-farm and the shell profiles
+# of mcloud-agent (sudo without a password), the docker volume mcloud-key-volume; for CI and disposable machines only.
 source "$(dirname "$0")/../lib.sh"
 
 require_cmd docker
@@ -174,7 +174,10 @@ run_check "STF answers after the restart" wait_for 300 stf_up
 [[ "$FAILED" -eq 0 ]] || finish
 
 section "S3"
-docker run -d --name "$MINIO" --network infra -e MINIO_ROOT_USER="$S3_USER" -e MINIO_ROOT_PASSWORD="$S3_PASSWORD" \
+# the uploader of a device is on the docker network of its device (mcloud-agent DEVICE_NETWORK_ISOLATION), not on infra:
+# it reaches MinIO by its port published on the address of the machine, as an S3 outside the host
+docker run -d --name "$MINIO" --network infra -p "${HOST_IP}:9000:9000" \
+  -e MINIO_ROOT_USER="$S3_USER" -e MINIO_ROOT_PASSWORD="$S3_PASSWORD" \
   docker.io/pgsty/minio:latest server /data > /dev/null
 run_check "MinIO answers" wait_for 60 s3 s3 ls
 run_check "the bucket of the artifacts" s3 s3 mb "s3://${BUCKET}"
@@ -191,11 +194,12 @@ check "the node joins MCloud" "0" "$?"
 check_contains "the node is enrolled and active" "e2e ${HOST_IP} active" \
   "$(bash "${MCLOUD}/zebrunner.sh" nodes 2>&1 | grep '^e2e ' | tr -s ' ')"
 # the settings of the host in config/settings.yml, its devices in config/devices.yml (written by mcloud-agent setup)
-python3 - "${AGENT}/config/settings.yml" "${AGENT}/config/devices.yml" "$ADB_ADDRESS" "$MINIO" "$BUCKET" "$S3_USER" "$S3_PASSWORD" << 'EOF'
+python3 - "${AGENT}/config/settings.yml" "${AGENT}/config/devices.yml" "$ADB_ADDRESS" "http://${HOST_IP}:9000" "$BUCKET" \
+  "$S3_USER" "$S3_PASSWORD" << 'EOF'
 import re, sys
-settings_file, devices_file, address, minio, bucket, user, password = sys.argv[1:]
+settings_file, devices_file, address, endpoint, bucket, user, password = sys.argv[1:]
 settings = {
-    "S3_BUCKET": bucket, "S3_ENDPOINT": "http://%s:9000" % minio, "S3_ACCESS_KEY_ID": user, "S3_SECRET": password,
+    "S3_BUCKET": bucket, "S3_ENDPOINT": endpoint, "S3_ACCESS_KEY_ID": user, "S3_SECRET": password,
     "S3_REGION": "us-east-1",
 }
 text = open(settings_file).read()
