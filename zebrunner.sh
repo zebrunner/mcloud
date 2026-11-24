@@ -302,6 +302,10 @@ start() {
   if ! check_certificate || ! check_other_deployment start; then
     return 1
   fi
+  # an empty STF_TOKEN gets an access token of the admin of STF: the grid gets it in grid.env
+  if ensure_stf_token && ! write_grid_env; then
+    return 1
+  fi
   # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
   set_nodes_host
   # GRID_AUTH_SECRET of variables.env may have changed since the setup: a running stf-proxy reads it again
@@ -1298,6 +1302,30 @@ check_adb_relay_auto() {
 # stf_token: STF_TOKEN of variables.env, without the quotes
 stf_token() {
   sed -n "s/^STF_TOKEN=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" variables.env 2> /dev/null | tail -1
+}
+
+# ensure_stf_token: an empty STF_TOKEN of variables.env gets an access token of the admin of STF (STF_ADMIN_EMAIL),
+# made in the database by `stf token-add` of the STF image after `stf migrate` (which creates the admin), so no sign-in
+# is needed, also with the OAuth2 and LDAP sign-ins (README.md#stf_token). Succeeds when it set STF_TOKEN; without it
+# (an STF image without token-add, a database that does not start) start goes on and asks for the token as before
+ensure_stf_token() {
+  local output
+  local token
+  [[ -z "$(stf_token)" ]] || return 1
+  ui_info "STF_TOKEN of variables.env is empty: creating an access token of the admin of STF"
+  # the migration with the database it waits for, then the token on the same database
+  if ! output="$(docker compose run --rm -T stf-migrate 2>&1)"; then
+    echo_warning "The database of STF is not migrated, STF_TOKEN is not created: $(tail -n 3 <<< "$output" | tr '\n' ' ')"
+    return 1
+  fi
+  output="$(docker compose run --rm -T --no-deps stf-migrate stf token-add --title mcloud 2>&1)"
+  token="$(sed -n 's/^token=\([0-9a-f]\{64\}\)$/\1/p' <<< "$output" | tail -n 1)"
+  if [[ -z "$token" ]]; then
+    echo_warning "STF_TOKEN is not created (an STF image without stf token-add?): $(tail -n 3 <<< "$output" | tr '\n' ' ')"
+    return 1
+  fi
+  set_line variables.env "STF_TOKEN=${token}"
+  ui_ok "STF_TOKEN of variables.env is a new access token of the admin of STF (Settings, Keys: mcloud)"
 }
 
 # write_stf_token: configuration/adb-relay/stf-token, STF_TOKEN of variables.env for the auto mode of adb-relay

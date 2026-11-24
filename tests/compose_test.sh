@@ -109,6 +109,18 @@ check "/stf is the app" "302" "$(http_code /stf)"
 check "the mock sign-in needs its password" "401" "$(http_code /auth/mock/)"
 check "the mock sign-in page with the password of variables.env" "200" "$(http_code /auth/mock/ -u "$sign_in")"
 check "the API needs an access token" "401" "$(http_code /api/v1/user)"
+# start makes STF_TOKEN with stf token-add of the STF image (README.md#stf_token); an older TAG_STF has no such command
+admin_token="$(sed -n 's/^STF_TOKEN=//p' "${MCLOUD}/variables.env")"
+if [[ -z "$admin_token" ]]; then
+  skip_check "the access token of the admin made by start" "the STF of TAG_STF has no stf token-add"
+else
+  check "start makes STF_TOKEN: a valid access token of STF" "200" \
+    "$(http_code /api/v1/user -H "Authorization: Bearer ${admin_token}")"
+  check_contains "STF_TOKEN is a token of the admin" '"privilege":"admin"' \
+    "$(curl -s --max-time 10 -H "Authorization: Bearer ${admin_token}" "${URL}/api/v1/user")"
+  check_contains "the grid gets the STF_TOKEN made by start" "STF_TOKEN=${admin_token}" \
+    "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' mcloud-grid)"
+fi
 check "the storage refuses a request without the token" "401" "$(http_code /s/blob/none/none)"
 check "the storage accepts the token of variables.env" "404" \
   "$(http_code /s/blob/none/none -H "x-stf-internal-token: ${storage_token}")"
@@ -311,8 +323,8 @@ check "the services run again after the backup" "$expected" "$running"
 run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "$sign_in" "${URL}/auth/mock/"
 
 section "adb relay"
-# the auto mode with the access token of variables.env (empty here): adb-relay runs, reads the devices of the nodes and
-# reports the empty token
+# the auto mode with the access token of variables.env: adb-relay runs and reads the devices of the nodes with the
+# token start made, or reports the empty token (an STF of TAG_STF without stf token-add)
 sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=true|" "${MCLOUD}/.env"
 run_check "start with ADB_RELAY=true" zbr "" start
 # shellcheck disable=SC2329 # called through wait_for
@@ -321,8 +333,17 @@ healthy_relay() {
 }
 run_check "adb-relay is healthy" wait_for 60 healthy_relay
 check "adb-relay is in the network of the host" "host" "$(docker inspect --format '{{.HostConfig.NetworkMode}}' adb-relay)"
-check_contains "adb-relay reports the empty access token" "The access token of STF (STF_TOKEN of variables.env) is empty" \
-  "$(docker logs adb-relay 2>&1)"
+if [[ -n "$admin_token" ]]; then
+  # shellcheck disable=SC2329 # called through wait_for
+  relay_read() {
+    docker logs adb-relay 2>&1 | grep -q "Android devices of the nodes relayed:"
+  }
+  run_check "adb-relay reads the devices of the nodes with STF_TOKEN made by start" wait_for 30 relay_read
+  check_not_contains "adb-relay has the access token" "STF_TOKEN of variables.env) is empty" "$(docker logs adb-relay 2>&1)"
+else
+  check_contains "adb-relay reports the empty access token" "The access token of STF (STF_TOKEN of variables.env) is empty" \
+    "$(docker logs adb-relay 2>&1)"
+fi
 # adb-relay goes with the services also when ADB_RELAY is turned off (the shutdown below)
 sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=false|" "${MCLOUD}/.env"
 
