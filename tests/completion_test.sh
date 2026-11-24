@@ -23,7 +23,7 @@ files() {
   (cd "$MCLOUD" && find . -exec ls -ld {} + | awk '{print $1, $5, $6, $7, $8, $9}' | sort)
 }
 
-commands="setup start stop restart down shutdown backup restore version node-invite nodes help completion"
+commands="setup start stop restart down shutdown backup restore version doctor node-invite nodes help completion"
 
 section "candidates"
 before="$(files)"
@@ -41,7 +41,7 @@ check "the commands of help" "$commands" "$(complete 2 help "")"
 check "the shells of completion" "bash zsh" "$(complete 2 completion "")"
 check "an option after a command: its help" "--help -h" "$(complete 2 shutdown -)"
 check "an option after a subcommand: its help" "--help -h" "$(complete 3 nodes check --h)"
-for command in setup start stop restart down shutdown backup restore version; do
+for command in setup start stop restart down shutdown backup restore version doctor; do
   check "nothing after ${command}" "" "$(complete 2 "$command" "")"
 done
 check "nothing after an unknown command" "" "$(complete 2 unknown "")"

@@ -103,6 +103,23 @@ running="$(cd "$MCLOUD" && docker compose ps --services --status running | sort 
 expected="$(cd "$MCLOUD" && docker compose config --services | grep -vx stf-migrate | sort | tr '\n' ' ')"
 check "every service but stf-migrate runs" "$expected" "$running"
 
+section "doctor"
+# the healthy services of the test: warnings only (http, STF_URL of .env changed above, AGENTS_ADDRESS 0.0.0.0, no
+# node), no failure; the healthchecks of the services may still be starting right after the start
+# shellcheck disable=SC2329 # called through wait_for
+doctor_settled() {
+  zbr "" doctor > "${WORK}/doctor.txt"
+  grep -q "services run" "${WORK}/doctor.txt"
+}
+run_check "doctor sees every service running" wait_for 120 doctor_settled
+zbr "" doctor > "${WORK}/doctor.txt"
+check "doctor of the started services passes" "0" "$?"
+output="$(unwrap < "${WORK}/doctor.txt")"
+check_contains "doctor sees the admin token" "STF_TOKEN is an access token of the admin" "$output"
+check_contains "doctor sees the grid" "The grid answers on 127.0.0.1:4446" "$output"
+check_contains "doctor sees the ports of the nodes" "The ports of the nodes listen on 127.0.0.1: 4446, 7160, 7250, 7260, 7270" "$output"
+check_contains "doctor finds no failure" "0 fail" "$output"
+
 section "STF"
 check "the app redirects to the sign-in" "302" "$(http_code /)"
 check "/stf is the app" "302" "$(http_code /stf)"
