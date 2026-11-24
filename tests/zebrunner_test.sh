@@ -148,10 +148,10 @@ check_contains "help shows the usage" "> ./zebrunner.sh <command> [options]" "$o
 for group in "SET UP" RUN MAINTAIN NODES HELP OPTIONS; do
   check_contains "help groups the commands: ${group}" "  $(badge "$group")" "$output"
 done
-for command in setup start stop restart down shutdown backup restore version node-invite nodes help completion "--help,"; do
+for command in setup start stop restart down shutdown backup restore version doctor node-invite nodes help completion "--help,"; do
   check_contains "help lists ${command}" $'\n'"   ${command} " "$output"
 done
-check "the commands are in their groups" "SET UP setup RUN start stop restart down MAINTAIN backup restore shutdown version NODES node-invite nodes nodes nodes nodes HELP help completion OPTIONS --help," \
+check "the commands are in their groups" "SET UP setup RUN start stop restart down MAINTAIN backup restore shutdown version doctor NODES node-invite nodes nodes nodes nodes HELP help completion OPTIONS --help," \
   "$(sed -n -e 's/^  \[ \(.*\) \]$/\1/p' -e 's/^   \([^ ][^ ]*\).*/\1/p' <<< "$output" | tr '\n' ' ' | sed 's/ $//')"
 for subcommand in "[list]" "check <label>" "revoke <label>" "delete <label>"; do
   check_contains "help lists nodes ${subcommand}" "   nodes       ${subcommand} " "$output"
@@ -183,7 +183,7 @@ check_not_contains "a long unknown command is cut before its end" "mci1.secret" 
   "$(zbr "" "mcloud-join://mcloud.example.com:443?token=mci1.secret")"
 
 section "help of a command"
-for command in setup start stop restart down shutdown backup restore version node-invite nodes help completion; do
+for command in setup start stop restart down shutdown backup restore version doctor node-invite nodes help completion; do
   output="$(zbr "" help "$command")"
   check "help ${command} succeeds" "0" "$?"
   check_contains "help ${command} shows its usage" "> ./zebrunner.sh ${command}" "$(sed -n 2p <<< "$output")"
@@ -206,7 +206,7 @@ zbr_env=(ZBR_INSTALLER=1)
 zbr "" setup -h > /dev/null
 zbr_env=()
 check "setup -h of Zebrunner CE writes nothing" "no" "$([[ -e "${MCLOUD}/.env" ]] && echo yes || echo no)"
-for command in start stop restart down backup restore node-invite nodes; do
+for command in start stop restart down backup restore doctor node-invite nodes; do
   zbr "" "$command" --help > /dev/null
   check "${command} --help runs nothing" "0:" "$?:$(calls docker)$(calls curl)"
 done

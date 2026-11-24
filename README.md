@@ -62,6 +62,7 @@ The commands of `./zebrunner.sh`:
 | `shutdown` | removes the containers, the data and the settings with their backup copies (`*.bak`, they hold the secrets); the certificate of `configuration/stf-proxy/ssl` (and its copies) and the archive of the database `backup/rethinkdb.tar.gz` stay, remove the archive by hand |
 | `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently; `restore` stops the services, puts the settings back and extracts the archive over the volume of the database (it is not emptied first: the files of the archive replace their copies, the files that are not in the archive stay), then removes the containers: `./zebrunner.sh start` runs it again |
 | `version` | the version of MCloud, the tag of the STF image |
+| `doctor` | the diagnostics of the server: a status and a fix per check, see [Doctor](#doctor) |
 | `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
 | `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
 | `help [<command>]` | the help of all the commands, or the usage, the description and the arguments of one command without running it; `./zebrunner.sh <command> --help` (or `-h`) is the same, e.g. `./zebrunner.sh shutdown --help` shuts nothing down |
@@ -443,9 +444,25 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 3. Restart the services: `./zebrunner.sh restart`; `stf-migrate` updates the tables of the database.
 4. Update mcloud-agent of every node to the same release, see its README; a node of a release without the enrollment is enrolled as a new one ([Enrollment](#enrollment)).
 
+## Doctor
+
+`./zebrunner.sh doctor` checks the server and prints `ok`, `warn` or `FAIL` with the fix of every check, then the summary; it changes nothing and exits with `1` when a check fails:
+
+| Group | Checks |
+| --- | --- |
+| Host | docker answers, docker compose 2.24.0 or newer, the disk of docker (`warn` from 85%, `FAIL` from 95%), the network `infra` |
+| Settings | `STF_URL` of `.env` (`warn` for http of a public host) and the same one of `variables.env`, `AGENTS_ADDRESS` (`warn` for `0.0.0.0`, `FAIL` for an address that is not of the server), the secrets of `variables.env` (`SECRET` not the default, the tokens, the CURVE keys and their pair, the password of the mock sign-in), the files with secrets readable for their owner only |
+| TLS | for https: the certificate and its key, not the shared pair of Zebrunner CE, its expiry (`warn` within 30 days), its host (the host of `STF_URL`, with an openssl that has `-checkhost`), self-signed or not |
+| Services | the services of `docker-compose.yml` (with the profiles of `ADB_RELAY` and `MDM_ENABLED`) are created and run, healthy where they have a healthcheck, `stf-migrate` exited with `0`, no service restarted more than 3 times, the project is not the one of another folder |
+| STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` |
+| Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7160`, `7250`, `7260`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS`; the firewall is not seen from the server, see [Firewall](#firewall) |
+| Nodes | the enrolled nodes (`warn` without one), [`nodes check`](#diagnostics) of every active node |
+
+The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
+
 ## Troubleshooting
 
-`docker logs <service>` shows the log of a service, `docker ps` the unhealthy ones (see [Services](#services)); `./zebrunner.sh nodes check <label>` on the server and `./zebrunner.sh doctor` of mcloud-agent on the node check a node ([Diagnostics](#diagnostics)).
+`./zebrunner.sh doctor` checks the whole server first (see [Doctor](#doctor)); `docker logs <service>` shows the log of a service, `docker ps` the unhealthy ones (see [Services](#services)); `./zebrunner.sh nodes check <label>` on the server and `./zebrunner.sh doctor` of mcloud-agent on the node check a node ([Diagnostics](#diagnostics)).
 
 | Symptom | Cause and fix |
 | --- | --- |

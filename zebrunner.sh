@@ -6,7 +6,7 @@
 #### Completion
 
 # The commands of echo_help, of the completion and of the hint of an unknown command
-COMMANDS="setup start stop restart down shutdown backup restore version node-invite nodes help completion"
+COMMANDS="setup start stop restart down shutdown backup restore version doctor node-invite nodes help completion"
 
 # complete_words <index> <words...>: the candidates of the word <index> of the command line, one per line
 # (CONVENTIONS.md#completion); the labels of the nodes are not offered, only the STF API knows them
@@ -885,10 +885,15 @@ stf_api() {
   [[ "$api_status" =~ ^2[0-9][0-9]$ ]]
 }
 
-# api_error <action>: why a request of stf_api failed; the API answers the details in the log of stf-api only. A 500 is
+# api_error <action>: why a request of stf_api failed (api_reason), as an error callout
+api_error() {
+  ui_callout error "${1} failed: $(api_reason)."
+}
+
+# api_reason: why the last request of stf_api failed; the API answers the details in the log of stf-api only. A 500 is
 # asked again of /api/v1/user, which needs the access token only: STF answers 500 without a log line for a token made
 # with another SECRET (it cannot read the JWT of the token) and for a token of a removed user
-api_error() {
+api_reason() {
   local reason
   local status="$api_status"
   local port
@@ -909,7 +914,7 @@ api_error() {
     ;;
   *) reason="the STF API answered ${status}, see docker logs stf-api" ;;
   esac
-  ui_callout error "${1} failed: ${reason}."
+  echo "$reason"
 }
 
 # json_value <name>: the value of a field of a flat JSON object (stdin), a string without its quotes; empty for null
@@ -1578,6 +1583,7 @@ echo_help() {
   ui_help_cmd restore "" "Restore container"
   ui_help_cmd shutdown "" "Stop and remove container, clear volumes"
   ui_help_cmd version "" "Version of container"
+  ui_help_cmd doctor "" "The diagnostics of the server (README.md#doctor)"
   ui_help_group "Nodes"
   ui_help_cmd node-invite "<label> <address> [<minutes>]" "The join string of a new node, a secret shown once"
   ui_help_cmd nodes "[list]" "The enrolled nodes"
@@ -1651,6 +1657,11 @@ command_help() {
     ui_usage "./zebrunner.sh version"
     echo
     ui_paragraph "Prints the version of MCloud, the tag of the STF image: mcloud: <tag>."
+    ;;
+  doctor)
+    ui_usage "./zebrunner.sh doctor"
+    echo
+    ui_paragraph "Checks the server and prints ok, warn or FAIL with the fix of every check: docker and docker compose, the disk of docker, STF_URL and AGENTS_ADDRESS, the secrets of variables.env, the certificate of https, the services, STF_TOKEN and the grid, the ports of the nodes and ./zebrunner.sh nodes check of every node. It changes nothing and exits with 1 when a check fails (README.md#doctor)."
     ;;
   node-invite)
     ui_usage "./zebrunner.sh node-invite <label> <address> [<minutes>]"
@@ -1815,6 +1826,8 @@ source patch/utility.sh
 source patch/ui.sh
 # shellcheck source=patch/mdm.sh
 source patch/mdm.sh
+# shellcheck source=patch/doctor.sh
+source patch/doctor.sh
 
 # Zebrunner CE runs the setup with ZBR_INSTALLER=1, the setup of its MCloud reads ZBR_INSTALLER of its settings too
 installer="${ZBR_INSTALLER:-0}"
@@ -1867,6 +1880,13 @@ restore)
   ;;
 version)
   version
+  ;;
+doctor)
+  if [[ -f .disabled ]]; then
+    exit 0
+  fi
+  doctor
+  exit
   ;;
 node-invite)
   if [[ -f .disabled ]]; then
