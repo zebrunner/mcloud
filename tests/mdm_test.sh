@@ -30,9 +30,9 @@ zbr() {
   return "${PIPESTATUS[1]}"
 }
 
-# compose_calls: the calls of docker compose
+# compose_calls: the calls of docker compose but the creation of STF_TOKEN (compose run of stf-migrate)
 compose_calls() {
-  calls docker | grep '^compose|'
+  calls docker | grep '^compose|' | grep -v '^compose|run|'
 }
 
 # setting <name> <value>: a setting of .env of the copy

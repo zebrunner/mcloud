@@ -40,8 +40,7 @@ The server:
 2. Set `AGENTS_ADDRESS` of `.env` to the address of the server the nodes reach (its LAN address for the nodes in its network or on the server itself, see [Nodes in a private network](#nodes-in-a-private-network) and [Devices on the MCloud server](#devices-on-the-mcloud-server)); `0.0.0.0`, the default, lets the nodes use the public name of `STF_URL`.
 3. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
 4. Open `https://<host>:<port>/stf` and sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then the name and the email of the admin (`STF_ADMIN_*`); the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
-5. Go to Settings, Keys, generate an access token of the admin and set it as `STF_TOKEN` of `variables.env`: the grid reserves the devices with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it.
-6. Restart the services: `./zebrunner.sh restart`.
+5. `STF_TOKEN` of `variables.env`, the access token of the admin the grid reserves the devices with (the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it): `start` makes it when it is empty, see [STF_TOKEN](#stf_token).
 
 Every node (a Linux or macOS host with Android and iOS devices, [mcloud-agent](https://github.com/zebrunner/mcloud-agent)):
 
@@ -56,7 +55,7 @@ The commands of `./zebrunner.sh`:
 | Command | What it does |
 | --- | --- |
 | `setup` | writes `.env`, `variables.env` and `configuration/stf-proxy/nginx.conf` from their `*.original` files, then offers to start the services; the values of the previous setup are kept, a `nginx.conf` changed by hand is kept as `nginx.conf.previous` (its changes are made again in the new one, see [Security headers](#security-headers)) |
-| `start` | starts the services and shows their URLs, warns while `STF_TOKEN` is empty and while `AGENTS_ADDRESS` is `0.0.0.0`; the first start (no `.env` yet) runs `setup` instead and exits with `1` without starting the services: run `./zebrunner.sh start` again |
+| `start` | starts the services and shows their URLs, makes an empty `STF_TOKEN` (see [STF_TOKEN](#stf_token)) and warns while it stays empty and while `AGENTS_ADDRESS` is `0.0.0.0`; the first start (no `.env` yet) runs `setup` instead and exits with `1` without starting the services: run `./zebrunner.sh start` again |
 | `stop` | stops the services, the containers are kept |
 | `restart` | `down` and `start` |
 | `down` | stops and removes the containers, the data is kept |
@@ -123,7 +122,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | --- | --- | --- |
 | `SECRET` | generated | the secret of the sessions and the access tokens of STF; the setup generates it once, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
 | `STF_STORAGE_TOKEN` | generated | the internal token of the STF units: the storage, the triproxies and the internal routes of the registry of the nodes; the nodes use their own tokens |
-| `STF_TOKEN` | | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it |
+| `STF_TOKEN` | made by `start` | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it; see [STF_TOKEN](#stf_token) |
 | `GRID_AUTH_SECRET` | generated | the secret `stf-proxy` gives the grid with the users of STF it let in, see [Access to the grid](#access-to-the-grid); `setup` generates it once (`start` too for a `variables.env` of an earlier MCloud) and writes it into `grid.env` and `configuration/stf-proxy/grid-auth.conf` |
 | `STF_URL` | the setup | the public URL of MCloud, `STF_URL` of `.env`, also the one the enrollment gives the nodes |
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
@@ -139,6 +138,10 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `STF_NODES_API_URL` | `http://stf-api:3000` | the API of the nodes for the units without the database, called with `STF_STORAGE_TOKEN`: the triproxies read the keys of the nodes every 5 seconds, the storage checks the token of a node there and trusts a valid one 30 seconds (a refused one 5 seconds); `stf-proxy` refuses its internal routes (`/api/v1/zebrunner/nodes`) |
 
 More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session, or `STF_STORAGE_TEMP_DOWNLOAD_ALLOW`, the private networks the apps may be installed from by URL) are described in [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#configuration). The settings of the grid (e.g. `NODE_ALLOWED_NETWORKS`, `MAX_NEW_COMMAND_TIMEOUT`, `MCLOUD_LOG_LEVEL`) are described in [mcloud-grid](https://github.com/zebrunner/mcloud-grid#configuration), they go to `environment` of `mcloud-grid` in `docker-compose.yml`.
+
+### STF_TOKEN
+
+`./zebrunner.sh start` makes an empty `STF_TOKEN` of `variables.env` before it starts the services: `stf migrate` (it creates the admin of `STF_ADMIN_NAME` and `STF_ADMIN_EMAIL`), then `stf token-add` of the STF image (`docker compose run` of `stf-migrate`) creates an access token of the admin in the database, signed with `SECRET`, with the title `mcloud` (Settings, Keys of the admin). No sign-in is needed, so it works with every sign-in (mock, OAuth2, LDAP, Zebrunner). The token is written to `variables.env` and `grid.env`; a token that is set is never replaced, so set your own one there to use it, or empty it and run `./zebrunner.sh restart` for a new one (the earlier token titled `mcloud` is removed). When the token can't be made (an STF image of `TAG_STF` without `stf token-add`, a database that does not start), `start` goes on and warns: generate an access token of the admin in STF (Settings, Keys), set it as `STF_TOKEN` and run `./zebrunner.sh restart`.
 
 ### Sign-in
 

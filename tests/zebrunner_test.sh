@@ -22,6 +22,18 @@ stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 # docker inspect of stf-proxy: running unless ${STUB_DIR}/proxy-down; docker exec: the ports of ${STUB_DIR}/unreachable fail
 [[ "$1" == "inspect" ]] && { [[ -f "${STUB_DIR}/proxy-down" ]] && echo false || echo true; }
 [[ "$1" == "exec" ]] && grep -qx "${*: -1}" "${STUB_DIR}/unreachable" 2> /dev/null && exit 1
+# compose run of stf-migrate: the migration fails with ${STUB_DIR}/migrate-fails; stf token-add prints the token of
+# ${STUB_DIR}/new-token, without it the STF image has no such command
+if [[ "$1 $2" == "compose run" ]]; then
+  if [[ "$*" == *"token-add"* ]]; then
+    [[ -f "${STUB_DIR}/new-token" ]] || { echo "Unknown argument: token-add"; exit 1; }
+    echo "INF/cli:token-add 1 [*] Access token \"mcloud\" of \"admin@zebrunner.com\" created"
+    echo "token=$(cat "${STUB_DIR}/new-token")"
+  elif [[ -f "${STUB_DIR}/migrate-fails" ]]; then
+    echo "FTL/cli:migrate 1 [*] Migration had an error: connection refused"
+    exit 1
+  fi
+fi
 exit 0'
 # curl: the address of ifconfig.me; the STF API answers ${STUB_DIR}/answer with the status ${STUB_DIR}/status (of
 # ${STUB_DIR}/status.user for /api/v1/user when it exists), the configuration of stdin goes to ${STUB_DIR}/curl.stdin
@@ -36,9 +48,15 @@ status="${STUB_DIR}/status"
 cat "$answer" 2> /dev/null
 printf "\n%s" "$(cat "$status" 2> /dev/null || echo 000)"'
 
-# docker_calls: the calls of docker but the check of the containers of another folder (docker ps)
+# docker_calls: the calls of docker but the check of the containers of another folder (docker ps) and the creation of
+# STF_TOKEN (compose run, see token_calls)
 docker_calls() {
-  calls docker | grep -v '^ps|'
+  calls docker | grep -v -e '^ps|' -e '^compose|run|'
+}
+
+# token_calls: the calls of docker that create STF_TOKEN
+token_calls() {
+  calls docker | grep '^compose|run|'
 }
 
 # zbr <stdin text> <zebrunner.sh arguments...>: runs zebrunner.sh of the copy without the user's environment,
@@ -909,6 +927,46 @@ check_contains "root gives variables.env back to the owner of the folder" "${own
 check_contains "root gives stf-token back to the owner of the folder" \
   "${owner}|configuration/adb-relay/stf-token" "$(calls chown)"
 check_contains "root gives grid.env back to the owner of the folder" "${owner}|grid.env" "$(calls chown)"
+
+section "STF_TOKEN of the admin"
+token="$(printf 'a%.0s' $(seq 64))"
+sed -i.bak 's/^STF_TOKEN=.*/STF_TOKEN=/' "${MCLOUD}/variables.env"
+rm -f "${MCLOUD}/variables.env.bak" "${WORK}/new-token" "${WORK}/migrate-fails"
+# an STF image without stf token-add: the token is asked as before
+reset_calls
+output="$(zbr "" start)"
+check "an empty STF_TOKEN: the migration, then stf token-add" "compose|run|--rm|-T|stf-migrate
+compose|run|--rm|-T|--no-deps|stf-migrate|stf|token-add|--title|mcloud" "$(token_calls)"
+check_contains "an STF image without token-add is reported" "STF_TOKEN is not created (an STF image without stf token-add?): Unknown argument: token-add" "$output"
+check_contains "without token-add the token is asked as before" "STF_TOKEN of variables.env is empty: the grid reserves no device" "$output"
+check "without token-add STF_TOKEN stays empty" "" "$(value variables.env STF_TOKEN)"
+check "without token-add the services start" "network|inspect|infra
+compose|up|-d" "$(docker_calls)"
+# the token of stf token-add
+echo "$token" > "${WORK}/new-token"
+reset_calls
+output="$(zbr "" start)"
+check_contains "the new STF_TOKEN is reported" "STF_TOKEN of variables.env is a new access token of the admin of STF" "$output"
+check_not_contains "a new STF_TOKEN is not asked" "the grid reserves no device" "$output"
+check "STF_TOKEN of variables.env is the token of stf token-add" "$token" "$(value variables.env STF_TOKEN)"
+check "the grid gets the new STF_TOKEN" "STF_TOKEN=${token}" "$(grep '^STF_TOKEN=' "${MCLOUD}/grid.env")"
+check "the token is made before the services start" "run run up" \
+  "$(calls docker | grep '^compose|' | grep -o -e 'run' -e 'up' | paste -s -d ' ' -)"
+check "variables.env with the token is readable for its owner only" "-rw-------" "$(mode variables.env)"
+reset_calls
+zbr "" start > /dev/null
+check "an STF_TOKEN that is set is kept" "" "$(token_calls)"
+# a database that is not migrated: no token, the services start
+sed -i.bak 's/^STF_TOKEN=.*/STF_TOKEN=/' "${MCLOUD}/variables.env"
+rm -f "${MCLOUD}/variables.env.bak"
+touch "${WORK}/migrate-fails"
+reset_calls
+output="$(zbr "" start)"
+check_contains "a failed migration is reported" "The database of STF is not migrated, STF_TOKEN is not created: FTL/cli:migrate" "$output"
+check "a failed migration: no stf token-add" "compose|run|--rm|-T|stf-migrate" "$(token_calls)"
+check "a failed migration: STF_TOKEN stays empty" "" "$(value variables.env STF_TOKEN)"
+check_contains "a failed migration: the services start" "compose|up|-d" "$(docker_calls)"
+rm -f "${WORK}/new-token" "${WORK}/migrate-fails"
 
 section "stop, down, restart"
 # with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
