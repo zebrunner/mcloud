@@ -404,6 +404,17 @@ http {
       client_max_body_size 2048m;
       client_body_buffer_size 128k;
 
+      # defense in depth: /s/ serves user-uploaded blobs from this origin; sandbox
+      # them so an uploaded document can never run as script on it, even if a blob
+      # is ever served inline (STF forces a download, this is the second layer). A
+      # location with its own add_header does not inherit the server ones, repeat
+      # them (see the note above); the CSP is stricter here than the site default.
+      add_header Strict-Transport-Security $hsts always;
+      add_header Referrer-Policy "no-referrer" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header Content-Security-Policy "default-src 'none'; sandbox; frame-ancestors 'self'" always;
+
       set $upstream_storage_temp stf-storage-temp:3000;
       proxy_pass http://$upstream_storage_temp;
     }

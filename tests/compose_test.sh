@@ -142,6 +142,8 @@ check "the storage refuses a request without the token" "401" "$(http_code /s/bl
 check "the storage accepts the token of variables.env" "404" \
   "$(http_code /s/blob/none/none -H "x-stf-internal-token: ${storage_token}")"
 check "the apk plugin forwards the credentials" "401" "$(http_code /s/apk/none/none)"
+check_contains "the storage sandboxes blobs (no inline script on the origin)" "sandbox" \
+  "$(curl -s -o /dev/null -D - --max-time 10 "${URL}/s/blob/none/none" | tr -d '\r' | grep -i '^content-security-policy:')"
 headers="$(curl -s -o /dev/null -D - --max-time 10 -u "$sign_in" "${URL}/auth/mock/" | tr -d '\r')"
 check "stf-proxy hides the nginx version" "Server: nginx" "$(grep -i '^server:' <<< "$headers")"
 check "no X-Powered-By" "" "$(grep -i '^x-powered-by:' <<< "$headers")"
