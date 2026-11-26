@@ -217,6 +217,11 @@ doctor_settings() {
     doctor_fail "The mock sign-in has no password (STF_AUTH_MOCK_BASIC_AUTH_PASSWORD of variables.env): anyone signs in as any user." \
       "./zebrunner.sh setup generates it"
   fi
+  if [[ "$(doctor_value .env AUTH_SYSTEM)" == "auth-mock" && -z "$(doctor_value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD)" ]]; then
+    secrets_ok=0
+    doctor_fail "The mock sign-in has no password of the admins (STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD of variables.env): whoever has the password of the users signs in as an admin of STF." \
+      "./zebrunner.sh start generates it (README.md#sign-in)"
+  fi
   if [[ "$secrets_ok" -eq 1 ]]; then
     doctor_ok "The secrets of variables.env are set"
   fi

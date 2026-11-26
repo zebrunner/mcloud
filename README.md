@@ -130,6 +130,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `STF_ADMIN_NAME`, `STF_ADMIN_EMAIL` | `admin`, `admin@zebrunner.com` | the administrator of STF, the owner of the root group |
 | `ZEBRUNNER_LOGIN_URL`, `ZEBRUNNER_USERINFO_URL` | | the endpoints of Zebrunner IAM for `auth-zebrunner`, set by the setup of Zebrunner CE |
 | `STF_AUTH_MOCK_USE_BASIC_AUTH`, `STF_AUTH_MOCK_BASIC_AUTH_USERNAME`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD` | `true`, `mcloud`, generated | the shared user and password in front of the mock sign-in |
+| `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD` | `mcloud-admin`, generated | the user and the password the admins of STF sign in with: the shared password of the users signs in no admin; `setup` and, for a `variables.env` of an earlier MCloud, `start` make them and print them once |
 | `OAUTH_AUTHORIZATION_URL`, `OAUTH_TOKEN_URL`, `OAUTH_USERINFO_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_SCOPE`, `OAUTH_DOMAIN` | | the OAuth2 sign-in, asked by the setup; `OAUTH_CALLBACK_URL` is `<STF_URL>/auth/oauth/callback` |
 | `LDAP_URL`, `LDAP_BIND_DN`, `LDAP_BIND_CREDENTIALS`, `LDAP_SEARCH_DN`, `LDAP_SEARCH_FIELD` | | the LDAP sign-in, asked by the setup |
 | `RETHINKDB_PORT_28015_TCP` | `tcp://rethinkdb:28015` | the database of STF |
@@ -150,7 +151,7 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 
 | Sign-in | Who is the user | The setup asks |
 | --- | --- | --- |
-| `mock` (default) | anyone who knows the shared user and password (basic authentication) types a name and an email: whoever knows the name and the email of the admin (`STF_ADMIN_*`) signs in as the admin, so share the password with the trusted users only | nothing, the password is generated and printed |
+| `mock` (default) | anyone who knows the shared user and password (basic authentication) types a name and an email; an admin of STF (`STF_ADMIN_*` and the users made admins) signs in only with the user and the password of the admins (`STF_AUTH_MOCK_ADMIN_BASIC_AUTH_*`), the shared ones sign in no admin. The users may still sign in as each other (any name and email): share the password with the trusted users only, use OAuth2 or LDAP for users who must not | nothing, both passwords are generated and printed |
 | `oauth2` | the user of an OpenID Connect / OAuth2 provider (Google, Azure AD, Keycloak, GitLab, ...): an email of `OAUTH_DOMAIN` that the provider does not report as unverified; the admin is the user with the email `STF_ADMIN_EMAIL` | the authorization, token and user info URLs, the client of MCloud at the provider (its redirect URL is `<STF_URL>/auth/oauth/callback`), the scope (`openid email`), the domain |
 | `ldap` | the user of the directory with its password | the URL, the bind DN and password (empty for an anonymous search), the search DN and the attribute of the user name (`uid`) |
 
@@ -374,7 +375,7 @@ The risks that stay:
 
 ## Services
 
-All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay` and the MDM) and `GRID_AUTH_SECRET` are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
+All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay` and the MDM) and `GRID_AUTH_SECRET` are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
 
 | Service | Image | What it does |
 | --- | --- | --- |

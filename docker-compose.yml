@@ -38,6 +38,7 @@ x-stf: &stf
     - LDAP_BIND_CREDENTIALS=
     - OAUTH_CLIENT_SECRET=
     - STF_AUTH_MOCK_BASIC_AUTH_PASSWORD=
+    - STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=
   depends_on:
     stf-migrate:
       condition: service_completed_successfully

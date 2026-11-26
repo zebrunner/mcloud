@@ -255,6 +255,11 @@ check "the user of the basic authentication" "'mcloud'" "$(value variables.env S
 mock_password="$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
 check "the password of the basic authentication is generated" "26" "${#mock_password}"
 check_contains "the password of the sign-in is shown" "the password ${mock_password}" "$output"
+check "the user of the admins" "'mcloud-admin'" "$(value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME)"
+admin_password="$(value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD)"
+check "the password of the admins is generated" "26" "${#admin_password}"
+check_not_contains "the password of the admins is not the one of the users" "$mock_password" "$admin_password"
+check_contains "the password of the admins is shown" "$admin_password" "$output"
 check "the nginx configuration is the original one for http" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf" "${REPO}/configuration/stf-proxy/nginx.conf.original" && echo same)"
 check "the checksum of the nginx configuration is stored" "$(sha256_of "${MCLOUD}/configuration/stf-proxy/nginx.conf")" \
@@ -347,6 +352,7 @@ check "every variable of .env.original is in .env once" "" \
   "$(sed -n 's/^\([A-Z_]*\)=.*/\1/p' "${MCLOUD}/.env" | sort | uniq -d)"
 
 check "the password of the sign-in is kept" "$mock_password" "$(value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
+check "the password of the admins is kept" "$admin_password" "$(value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD)"
 
 replace "${MCLOUD}/variables.env" "SECRET=${secret}" "SECRET=password"
 zbr "$(answers "" "" "" "" "")" setup > /dev/null
@@ -392,6 +398,16 @@ new_secret="$(value variables.env GRID_AUTH_SECRET)"
 check "start makes the missing secret of the grid" "48" "${#new_secret}"
 check "start gives the grid the new secret" "GRID_AUTH_SECRET=${new_secret}" "$(grep '^GRID_AUTH_SECRET=' "${MCLOUD}/grid.env")"
 set_line "${MCLOUD}/variables.env" "GRID_AUTH_SECRET=${grid_secret}"
+# a variables.env of an earlier MCloud has no password of the admins of the mock sign-in: start makes and shows it once
+sed -i.orig '/^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_/d' "${MCLOUD}/variables.env"
+output="$(zbr "" start)"
+made_password="$(value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD)"
+check "start makes the missing password of the admins" "24" "${#made_password}"
+check "start makes the user of the admins" "mcloud-admin" "$(value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME)"
+check_contains "start shows the new password of the admins" "'${made_password}'" "$output"
+check_not_contains "start shows the password of the admins once" "SIGN-IN OF THE ADMINS" "$(zbr "" start)"
+check "variables.env stays readable for its owner only" "-rw-------" "$(mode variables.env)"
+set_line "${MCLOUD}/variables.env" "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=${admin_password}"
 # a nginx.conf of an earlier MCloud does not send the users to the grid: nothing starts until the setup
 cp "$conf" "${WORK}/nginx.conf.new"
 grep -v '_hub_auth' "${WORK}/nginx.conf.new" > "$conf"
