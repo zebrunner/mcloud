@@ -79,15 +79,16 @@ stf_up() {
   curl -sf --max-time 5 -u "$SIGN_IN" "${URL}/auth/mock/"
 }
 
-# sign_in: a session of a user of the mock sign-in in the cookie jar ${WORK}/cookies
+# sign_in: a session of the admin of STF of the mock sign-in in the cookie jar ${WORK}/cookies; the admin signs in with
+# the user and the password of the admins (ADMIN_SIGN_IN), the shared ones of the users sign in no admin (README.md#sign-in)
 sign_in() {
   local jar="${WORK}/cookies"
   local xsrf
   local redirect
   rm -f "$jar"
-  curl -s -o /dev/null -c "$jar" -u "$SIGN_IN" --max-time 10 "${URL}/auth/mock/"
+  curl -s -o /dev/null -c "$jar" -u "$ADMIN_SIGN_IN" --max-time 10 "${URL}/auth/mock/"
   xsrf="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$jar")"
-  redirect="$(curl -s -b "$jar" -c "$jar" -u "$SIGN_IN" --max-time 10 -H "Content-Type: application/json" \
+  redirect="$(curl -s -b "$jar" -c "$jar" -u "$ADMIN_SIGN_IN" --max-time 10 -H "Content-Type: application/json" \
     -H "X-XSRF-TOKEN: ${xsrf}" -d '{"name":"admin","email":"admin@zebrunner.com"}' "${URL}/auth/api/v1/mock" |
     sed -n 's/.*"redirect":"\([^"]*\)".*/\1/p')"
   curl -s -o /dev/null -b "$jar" -c "$jar" --max-time 10 "$redirect"
@@ -163,6 +164,7 @@ sed -i.bak "s/^AGENTS_ADDRESS=.*/AGENTS_ADDRESS=${HOST_IP}/" "${MCLOUD}/.env"
 echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> "${MCLOUD}/variables.env"
 run_check "start" mcloud start
 SIGN_IN="$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_USERNAME):$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_BASIC_AUTH_PASSWORD)"
+ADMIN_SIGN_IN="$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME):$(value "${MCLOUD}/variables.env" STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD)"
 run_check "STF answers through stf-proxy" wait_for 300 stf_up
 sign_in
 STF_TOKEN="$(curl -s -b "${WORK}/cookies" --max-time 10 -H "X-XSRF-TOKEN: $(xsrf)" -X POST \
