@@ -267,6 +267,19 @@ check_contains "a missing service fails" "mcloud-grid is not created." "$OUT"
 check_contains "a restarting service fails" "stf-proxy is restarting." "$OUT"
 check_not_contains "broken services: not all run" "services run" "$OUT"
 healthy
+echo "mcloud-mdm-hmdm-init" >> "${WORK}/services"
+echo "mcloud-mdm-hmdm-init|exited||0|mcloud-mdm-hmdm-init" >> "${WORK}/ps"
+zbr doctor
+check_not_contains "the one-shot setup of Headwind MDM done is no failure" "mcloud-mdm-hmdm-init" "$OUT"
+check_contains "the one-shot setup of Headwind MDM done counts as running" "The 7 services run" "$OUT"
+sed -i.bak 's/^mcloud-mdm-hmdm-init|exited||0/mcloud-mdm-hmdm-init|running||0/' "${WORK}/ps"
+zbr doctor
+check_not_contains "the one-shot setup of Headwind MDM at work is no failure" "mcloud-mdm-hmdm-init" "$OUT"
+sed -i.bak 's/^mcloud-mdm-hmdm-init|running||0/mcloud-mdm-hmdm-init|exited||1/' "${WORK}/ps"
+zbr doctor
+check_contains "a failed setup of Headwind MDM fails" \
+  "mcloud-mdm-hmdm-init, the setup of the admin of Headwind MDM, failed (exit 1)" "$OUT"
+healthy
 echo 7 > "${WORK}/restarts"
 zbr doctor
 check_contains "restarts are a warning" "stf-app restarted 7 times." "$OUT"
