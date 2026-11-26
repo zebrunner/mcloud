@@ -126,12 +126,17 @@ setup() {
   if [[ -z "$STF_ZMQ_CURVE_SERVER_SECRET_KEY" ]] && ! set_curve_keys; then
     abort_setup
   fi
+  # the private key of the WireGuard tunnel of the nodes, with NODES_WIREGUARD=true of the previous .env (the setup
+  # keeps it), kept afterwards (README.md#wireguard-tunnel-of-the-nodes)
+  if [[ -z "$NODES_WG_PRIVATE_KEY" ]] && wg_on && ! NODES_WG_PRIVATE_KEY="$(wg_new_key)"; then
+    ui_callout error "The setup makes the private key of the WireGuard tunnel with openssl (X25519, OpenSSL 1.1.1+) or python3, neither works here: install one of them (README.md#system-requirements)."
+    abort_setup
+  fi
 
   cp .env.original .env
   replace .env "STF_URL=http://localhost:8082" "STF_URL=${url}"
   replace .env "STF_PORT=8082" "STF_PORT=${ZBR_MCLOUD_PORT}"
   keep_env "$previous_env"
-  set_nodes_host
 
   # the sign-in unit of STF and its path: the choice of the interactive setup, Zebrunner IAM in Zebrunner CE by default
   case "$sign_in" in
@@ -198,6 +203,8 @@ setup() {
   if [[ -n "$added" ]]; then
     printf '%s\n' "$added" >> variables.env
   fi
+  # NODES_HOST and the values of the WireGuard tunnel (its public key of variables.env)
+  set_nodes_host
   ui_ok ".env and variables.env are written"
 
   # a configuration of the previous setup changed by hand is kept aside: its changes are made again in the new one; the
@@ -220,11 +227,16 @@ setup() {
   # the user input for the next setup
   export_settings
   write_stf_token
+  write_wireguard_files
   write_grid_env
   protect_files
 
   ui_section "Next steps" "3/3"
-  ui_callout note "Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env: ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on the node (README.md#nodes); https only." "NODES"
+  if wg_on; then
+    ui_callout note "Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env: ./zebrunner.sh node-invite <label> prints the join string for ./zebrunner.sh join of mcloud-agent on the node, its WireGuard address is the next free one of NODES_WG_NETWORK (README.md#wireguard-tunnel-of-the-nodes); https only. The nodes dial the UDP port $(env_setting NODES_WG_PORT) of this server: open it in the firewall." "NODES"
+  else
+    ui_callout note "Enroll every node (a device host of mcloud-agent) once the services run with STF_TOKEN of variables.env: ./zebrunner.sh node-invite <label> <address> prints the join string for ./zebrunner.sh join of mcloud-agent on the node (README.md#nodes); https only." "NODES"
+  fi
   check_agents_address
   # a new SECRET with the database of an earlier deployment: its access tokens and sessions fail
   if [[ "$is_new" -eq 1 ]]; then
@@ -262,13 +274,14 @@ shutdown() {
     fi
   fi
 
-  docker compose --profile adb-relay --profile mdm down -v
+  docker compose --profile adb-relay --profile mdm --profile wireguard down -v
 
   rm -f backup/settings.env
   rm -f .env
   rm -f variables.env
   rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256
   rm -f configuration/adb-relay/stf-token
+  rm -f "$WG_KEY_FILE" "$WG_TOKEN_FILE" "$WG_STF_API_ENV"
   rm -f grid.env configuration/stf-proxy/grid-auth.conf
   # the secrets of the MDM go with its volumes; the agent APK of configuration/mdm/android is kept
   rm -f "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}"/*.conf "$MDM_MQTT_CONF"
@@ -308,11 +321,15 @@ start() {
   if ! check_certificate || ! check_other_deployment start; then
     return 1
   fi
+  # the WireGuard tunnel of the nodes (README.md#wireguard-tunnel-of-the-nodes): valid settings and the key of the server
+  if ! check_wireguard || ! ensure_wg_key; then
+    return 1
+  fi
   # an empty STF_TOKEN gets an access token of the admin of STF: the grid gets it in grid.env
   if ensure_stf_token && ! write_grid_env; then
     return 1
   fi
-  # AGENTS_ADDRESS and the settings of adb-relay of .env may have changed since the setup
+  # AGENTS_ADDRESS, the settings of the WireGuard tunnel and of adb-relay of .env may have changed since the setup
   set_nodes_host
   # GRID_AUTH_SECRET of variables.env may have changed since the setup: a running stf-proxy reads it again
   local reload_proxy=""
@@ -322,7 +339,9 @@ start() {
   check_htpasswd
   check_agents_address
   check_adb_relay_auto
+  check_wireguard_token
   write_stf_token
+  write_wireguard_files || return 1
   # the MDM of MDM_ENABLED of .env (README.md#mdm): its secrets and the locations of stf-proxy, changed ones are read
   # again by a running stf-proxy
   write_mdm || return 1
@@ -344,10 +363,14 @@ start() {
     fi
   fi
   protect_files
-  # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay), the MDM with MDM_ENABLED=true
+  # adb-relay runs with ADB_RELAY=true only (README.md#remote-debug-through-the-adb-relay), the MDM with MDM_ENABLED=true,
+  # the WireGuard tunnel with NODES_WIREGUARD=true (README.md#wireguard-tunnel-of-the-nodes)
   local profiles=()
   if [[ -n "$adb_relay" ]]; then
     profiles+=(--profile adb-relay)
+  fi
+  if wg_on; then
+    profiles+=(--profile wireguard)
   fi
   if [[ -n "$MDM_ON" ]]; then
     profiles+=(--profile mdm)
@@ -366,6 +389,9 @@ start() {
     if [[ -z "$(sed -n 's/^STF_TOKEN=//p' variables.env 2> /dev/null)" ]]; then
       echo_warning "STF_TOKEN of variables.env is empty: the grid reserves no device. Sign in to ${url}/stf, generate an access token (Settings, Keys), set it as STF_TOKEN of variables.env and run ./zebrunner.sh restart."
     fi
+    if wg_on; then
+      ui_callout note "WireGuard tunnel of the nodes: the nodes dial $(env_setting NODES_WG_ENDPOINT) (UDP), the ports of the nodes listen on $(env_setting NODES_WG_SERVER_ADDRESS) only; a node enrolled without the tunnel joins again with a new invite (./zebrunner.sh nodes shows WIREGUARD no) (README.md#wireguard-tunnel-of-the-nodes)"
+    fi
     if [[ -n "$MDM_ON" ]]; then
       ui_callout note "MDM: the admin UI on 127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) of this server (ssh -L $(mdm_setting MDM_ADMIN_PORT):127.0.0.1:$(mdm_setting MDM_ADMIN_PORT) <server>, http://127.0.0.1:$(mdm_setting MDM_ADMIN_PORT))$([[ "$(mdm_setting MDM_ADMIN_PUBLIC)" == "true" ]] && echo ", ${url}/mcloud/mdm/ for the admins of STF"); MQTT over TLS of the Android agents on the port $(mdm_setting MDM_MQTT_PORT) (README.md#mdm)"
     fi
@@ -378,11 +404,11 @@ stop() {
     exit 0
   fi
 
-  # with the profiles: adb-relay and the MDM stop also when they were turned off after their start
+  # with the profiles: adb-relay, the MDM and the WireGuard tunnel stop also when they were turned off after their start
   if ! check_other_deployment stop; then
     return 1
   fi
-  docker compose --profile adb-relay --profile mdm stop
+  docker compose --profile adb-relay --profile mdm --profile wireguard stop
 }
 
 # down: stops and removes the containers, the data is kept
@@ -391,11 +417,12 @@ down() {
     exit 0
   fi
 
-  # with the profiles: adb-relay and the MDM are removed also when they were turned off after their start
+  # with the profiles: adb-relay, the MDM and the WireGuard tunnel are removed also when they were turned off after
+  # their start
   if ! check_other_deployment down; then
     return 1
   fi
-  docker compose --profile adb-relay --profile mdm down
+  docker compose --profile adb-relay --profile mdm --profile wireguard down
 }
 
 # backup: copies the settings to *.bak and the database into backup/rethinkdb.tar.gz
@@ -513,26 +540,58 @@ mcloud_tag() {
 
 #### Nodes
 
-# The port of the grid the nodes register on (docker-compose.yml: ${AGENTS_ADDRESS}:4446)
+# The port of the grid the nodes register on (docker-compose.yml: ${NODES_ADDRESS:-${AGENTS_ADDRESS}}:4446)
 GRID_PORT=4446
 
 # node_invite <label> <address> [<minutes>]: an invite of a node (README.md#nodes): prints the join string for
 # ./zebrunner.sh join of mcloud-agent on the node once, with the pin of the certificate of stf-proxy; the join string is
-# alone on stdout, the lines around it go to stderr
+# alone on stdout, the lines around it go to stderr. With the WireGuard tunnel of the nodes the address is optional:
+# node_invite <label> [<address>] [<minutes>], the address of the node of the label or the next free one of
+# NODES_WG_NETWORK (README.md#wireguard-tunnel-of-the-nodes)
 node_invite() {
   local label="$1"
-  local address
-  local minutes="$3"
-  local pin host port invite expires body
+  local address=""
+  local minutes=""
+  local wireguard=""
+  local pin host port invite expires body network
   if ! require_setup; then
     return 1
   fi
-  if [[ $# -lt 2 || $# -gt 3 ]]; then
-    ui_warn "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]"
+  if wg_on; then
+    wireguard=1
+    network="$(env_setting NODES_WG_NETWORK)"
+    if [[ $# -lt 1 || $# -gt 3 ]]; then
+      ui_warn "Usage: ./zebrunner.sh node-invite <label> [<address>] [<minutes>] (NODES_WIREGUARD=true: the address of NODES_WG_NETWORK is optional)"
+      return 1
+    fi
+    # the second argument is the validity when it is a number
+    if [[ $# -eq 3 ]] || { [[ $# -eq 2 ]] && [[ ! "$2" =~ ^-?[0-9]+$ ]]; }; then
+      address="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
+      minutes="$3"
+    else
+      minutes="$2"
+    fi
+  else
+    if [[ $# -lt 2 || $# -gt 3 ]]; then
+      ui_warn "Usage: ./zebrunner.sh node-invite <label> <address> [<minutes>]"
+      return 1
+    fi
+    address="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
+    minutes="$3"
+  fi
+  if ! valid_label "$label"; then
     return 1
   fi
-  address="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
-  if ! valid_label "$label" || ! node_address "$address"; then
+  if [[ -n "$wireguard" ]]; then
+    if ! wg_network "$network" > /dev/null; then
+      echo_warning "NODES_WG_NETWORK of .env '${network}' is not a network of the WireGuard tunnel: set it and run ./zebrunner.sh restart (README.md#wireguard-tunnel-of-the-nodes)."
+      return 1
+    fi
+    if [[ -n "$address" ]] && ! wg_node_address "$network" "$address"; then
+      echo_warning "'${address}' is not an address of a node in NODES_WG_NETWORK ${network} (not its network, broadcast or server address $(wg_server)): the WireGuard address of the node is its address; leave it out for the next free one (README.md#wireguard-tunnel-of-the-nodes)."
+      return 1
+    fi
+  elif ! node_address "$address"; then
     return 1
   fi
   case "$label" in
@@ -557,6 +616,17 @@ node_invite() {
     ui_callout error "The pin of configuration/stf-proxy/ssl/ssl.crt cannot be made: it needs openssl or python3 and a PEM certificate."
     return 1
   fi
+  # the WireGuard address of the node: the one it has, or the next free one of the network
+  if [[ -n "$wireguard" && -z "$address" ]]; then
+    if ! stf_api GET /api/v1/nodes; then
+      api_error "The list of the nodes for the WireGuard address of the node ${label}"
+      return 1
+    fi
+    if ! address="$(wg_invite_address "$label")"; then
+      ui_callout error "NODES_WG_NETWORK ${network} has no free address for the node ${label}: remove the revoked nodes (./zebrunner.sh nodes delete <label>) or set a larger network (README.md#wireguard-tunnel-of-the-nodes)."
+      return 1
+    fi
+  fi
   body="{\"label\":\"${label}\",\"address\":\"${address}\"${minutes:+,\"ttlMinutes\":$((10#$minutes))}}"
   if ! stf_api POST /api/v1/nodes/invites "$body"; then
     api_error "The invite of the node ${label}"
@@ -571,10 +641,10 @@ node_invite() {
   host="$(join_host)"
   port="$(sed -n 's/^STF_PORT=//p' .env)"
   {
-    ui_ok "The invite of the node ${label} at ${address}, valid ${minutes:-60} minutes (until ${expires:-?}), for one join:"
+    ui_ok "The invite of the node ${label} at ${address}${wireguard:+ (its WireGuard address)}, valid ${minutes:-60} minutes (until ${expires:-?}), for one join:"
     echo
   } >&2
-  echo "mcloud-join://${host}:${port}?label=${label}&grid=${host}:${GRID_PORT}&pin=$(url_encode "$pin")&token=${invite}"
+  echo "mcloud-join://${host}:${port}?label=${label}&grid=$(nodes_host):${GRID_PORT}&pin=$(url_encode "$pin")&token=${invite}"
   {
     ui_callout note "It is a secret, shown once: paste it into ./zebrunner.sh join of mcloud-agent on the node ${label} (it reads it from stdin, never put it into the arguments), valid ${minutes:-60} minutes. A new invite of ${label} replaces it." "SECRET"
     ui_info "The node checks the certificate of stf-proxy by its pin (SHA-256 of its public key): ${pin}"
@@ -635,6 +705,8 @@ nodes() {
 # nodes_list: the nodes of the registry of STF, a line per node
 nodes_list() {
   local nodes line
+  local wireguard=""
+  local columns=()
   if ! stf_api GET /api/v1/nodes; then
     api_error "The list of the nodes"
     return 1
@@ -645,11 +717,22 @@ nodes_list() {
     ui_info "No node is enrolled: ./zebrunner.sh node-invite <label> <address> (README.md#nodes)."
     return 0
   fi
-  ui_table_head "$(printf '%-20s %-24s %-8s %-20s %-20s %s' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY)"
+  # with the WireGuard tunnel: whether the node enrolled with a WireGuard key, a node without one has no tunnel
+  if wg_on; then
+    wireguard=1
+    ui_table_head "$(printf '%-20s %-24s %-8s %-20s %-20s %-20s %s' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY WIREGUARD)"
+  else
+    ui_table_head "$(printf '%-20s %-24s %-8s %-20s %-20s %s' LABEL ADDRESS STATUS "LAST SEEN" ENROLLED KEY)"
+  fi
   while read -r line; do
-    printf '%-20s %-24s %-8s %-20s %-20s %s\n' "$(json_value label <<< "$line")" "$(json_value address <<< "$line")" \
-      "$(json_value status <<< "$line")" "$(json_time lastSeenAt <<< "$line")" "$(json_time createdAt <<< "$line")" \
-      "$(json_value publicKey <<< "$line" | cut -c 1-16)..."
+    columns=("$(json_value label <<< "$line")" "$(json_value address <<< "$line")" "$(json_value status <<< "$line")"
+    "$(json_time lastSeenAt <<< "$line")" "$(json_time createdAt <<< "$line")" "$(json_value publicKey <<< "$line" | cut -c 1-16)...")
+    if [[ -n "$wireguard" ]]; then
+      printf '%-20s %-24s %-8s %-20s %-20s %-20s %s\n' "${columns[@]}" \
+        "$([[ -n "$(json_value wgPublicKey <<< "$line")" ]] && echo yes || echo no)"
+    else
+      printf '%-20s %-24s %-8s %-20s %-20s %s\n' "${columns[@]}"
+    fi
   done <<< "$nodes"
 }
 
@@ -764,6 +847,10 @@ screen_reachable() {
 # check_agents_address: warns when AGENTS_ADDRESS of .env is every address: the nodes reach MCloud at the host of
 # STF_URL then, which a node in the network of the server or on the server itself may not reach (README.md#nodes)
 check_agents_address() {
+  # the WireGuard tunnel publishes the ports of the nodes on its own address
+  if wg_on; then
+    return 0
+  fi
   case "$(sed -n 's/^AGENTS_ADDRESS=//p' .env)" in
   "" | 0.0.0.0)
     echo_warning "AGENTS_ADDRESS of .env is 0.0.0.0: the nodes reach MCloud at $(join_host) (the host of STF_URL, the join string of ./zebrunner.sh node-invite). A node in the network of the server or on the server itself often does not reach a public name or address (NAT hairpin): set AGENTS_ADDRESS to the LAN address of the server and run ./zebrunner.sh restart (README.md#devices-on-the-mcloud-server)."
@@ -831,26 +918,44 @@ url_encode() {
   echo "${value//=/%3D}"
 }
 
-# set_nodes_host: NODES_HOST of .env, the host of join_host for the ZeroMQ endpoints stf-api gives the nodes
-# (docker-compose.yml); the line is added to the .env of an earlier MCloud
+# set_nodes_host: NODES_HOST of .env, the host of nodes_host for the ZeroMQ endpoints stf-api gives the nodes
+# (docker-compose.yml), and the values of the WireGuard tunnel (set_wg_settings); the line is added to the .env of an
+# earlier MCloud
 set_nodes_host() {
   local host
   local current
-  host="$(join_host)"
+  host="$(nodes_host)"
   if ! grep -q '^NODES_HOST=' .env; then
     echo "NODES_HOST=${host}" >> .env
-    return
+  else
+    current="$(sed -n 's/^NODES_HOST=//p' .env)"
+    if [[ "$current" != "$host" ]]; then
+      replace .env "NODES_HOST=${current}" "NODES_HOST=${host}"
+    fi
   fi
-  current="$(sed -n 's/^NODES_HOST=//p' .env)"
-  if [[ "$current" != "$host" ]]; then
-    replace .env "NODES_HOST=${current}" "NODES_HOST=${host}"
-  fi
+  set_wg_settings
 }
 
-# join_host: the host the nodes reach stf-proxy, the grid and ZeroMQ at: AGENTS_ADDRESS of .env (their ports are
-# published there), the host of STF_URL when it is every address of the server
+# nodes_host: the host the nodes reach the grid and ZeroMQ at: join_host, the WireGuard address of the server with the
+# tunnel of the nodes (README.md#wireguard-tunnel-of-the-nodes)
+nodes_host() {
+  local server
+  if wg_on && server="$(wg_server)"; then
+    echo "$server"
+    return
+  fi
+  join_host
+}
+
+# join_host: the host the nodes reach stf-proxy at (the host of the join string), and the grid and ZeroMQ without the
+# WireGuard tunnel: AGENTS_ADDRESS of .env (their ports are published there), the host of STF_URL when it is every
+# address of the server or with the tunnel (the nodes enroll on the public address and dial the tunnel there)
 join_host() {
   local address
+  if wg_on; then
+    wg_url_host
+    return
+  fi
   address="$(sed -n 's/^AGENTS_ADDRESS=//p' .env)"
   case "$address" in
   "" | 0.0.0.0 | "::" | "[::]")
@@ -950,7 +1055,7 @@ protect_files() {
   for file in .env .env.bak variables.env variables.env.bak backup/settings.env backup/settings.env.bak \
     configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.bak configuration/stf-proxy/nginx.conf.previous \
     configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/nginx.conf.sha256.bak \
-    configuration/adb-relay/stf-token configuration/stf-proxy/ssl/ssl.crt \
+    configuration/adb-relay/stf-token "$WG_KEY_FILE" "$WG_TOKEN_FILE" configuration/stf-proxy/ssl/ssl.crt \
     configuration/stf-proxy/ssl/ssl.crt.bak grid.env configuration/stf-proxy/grid-auth.conf \
     configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/ssl/ssl.key.bak backup/rethinkdb.tar.gz \
     "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}/server-mdm.conf" "${MDM_ENV_DIR}"/*.env; do
@@ -961,7 +1066,7 @@ protect_files() {
       chown "$owner" "$file"
     fi
     case "$file" in
-    variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | backup/rethinkdb.tar.gz | \
+    variables.env* | grid.env | */grid-auth.conf | backup/settings.env* | */ssl.key* | */stf-token | */private-key | backup/rethinkdb.tar.gz | \
       mdm.env* | */server-mdm.conf | "${MDM_ENV_DIR}"/*.env)
       chmod 600 "$file" 2> /dev/null
       ;;
@@ -1116,8 +1221,8 @@ previous_admin() {
 
 # keep_env <previous .env>: the variables of .env (a copy of .env.original) get their values of the previous .env, the
 # ones that are not in .env.original (e.g. COMPOSE_PROJECT_NAME, it names the volume of the database) are added; but
-# the ones of the setup (STF_URL, STF_PORT, NODES_HOST, the sign-in AUTH_*), the images of this MCloud (TAG_*) and the
-# ones of earlier MCloud releases
+# the ones of the setup (STF_URL, STF_PORT, NODES_HOST, the derived values of the WireGuard tunnel, the sign-in
+# AUTH_*), the images of this MCloud (TAG_*) and the ones of earlier MCloud releases
 keep_env() {
   local line
   while IFS= read -r line; do
@@ -1125,7 +1230,7 @@ keep_env() {
       continue
     fi
     case "${line%%=*}" in
-    STF_URL | STF_PORT | NODES_HOST | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
+    STF_URL | STF_PORT | NODES_HOST | NODES_ADDRESS | NODES_WG_ENDPOINT | NODES_WG_PUBLIC_KEY | NODES_WG_SERVER_ADDRESS | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
     *)
       set_line .env "$line"
       ;;
@@ -1699,9 +1804,9 @@ command_help() {
   node-invite)
     ui_usage "./zebrunner.sh node-invite <label> <address> [<minutes>]"
     echo
-    ui_paragraph "Prints the join string of a new node once, for ./zebrunner.sh join of mcloud-agent on the node: a secret, valid for one join. It needs https, the certificate of stf-proxy and STF_TOKEN (README.md#nodes)."
+    ui_paragraph "Prints the join string of a new node once, for ./zebrunner.sh join of mcloud-agent on the node: a secret, valid for one join. It needs https, the certificate of stf-proxy and STF_TOKEN (README.md#nodes). With NODES_WIREGUARD=true the address is optional: ./zebrunner.sh node-invite <label> [<address>] [<minutes>] (README.md#wireguard-tunnel-of-the-nodes)."
     ui_help_cmd "<label>" "" "The name of the node: 1-40 lower case letters, digits and -, not - first"
-    ui_help_cmd "<address>" "" "The IPv4 address or the host name the server reaches the node at"
+    ui_help_cmd "<address>" "" "The IPv4 address or the host name the server reaches the node at; with the WireGuard tunnel an address of NODES_WG_NETWORK, the one of the node of the label or the next free one by default"
     ui_help_cmd "<minutes>" "" "The validity of the invite, 1-1440 minutes, 60 by default"
     ;;
   nodes)
@@ -1861,6 +1966,10 @@ source patch/ui.sh
 source patch/mdm.sh
 # shellcheck source=patch/doctor.sh
 source patch/doctor.sh
+# shellcheck source=configuration/wireguard/network.sh
+source configuration/wireguard/network.sh
+# shellcheck source=patch/wireguard.sh
+source patch/wireguard.sh
 
 # Zebrunner CE runs the setup with ZBR_INSTALLER=1, the setup of its MCloud reads ZBR_INSTALLER of its settings too
 installer="${ZBR_INSTALLER:-0}"

@@ -23,7 +23,8 @@ $(VENV)/.installed: tests/requirements-lint.txt
 	touch $@
 # <<< mcloud-conventions
 
-DOCKER_TESTS := tests/compose_test.sh tests/adb_relay_docker_test.sh tests/stf_proxy_docker_test.sh tests/mdm_proxy_docker_test.sh
+DOCKER_TESTS := tests/compose_test.sh tests/adb_relay_docker_test.sh tests/stf_proxy_docker_test.sh tests/mdm_proxy_docker_test.sh \
+  tests/wireguard_docker_test.sh
 
 .PHONY: help check lint test docker
 

@@ -15,6 +15,9 @@ DOCTOR_DISK_WARN=85
 DOCTOR_DISK_FAIL=95
 # the certificate of https: a warning when it expires within this many seconds (30 days)
 DOCTOR_CERT_DAYS=30
+# the WireGuard tunnel of the nodes: a warning for a peer without a handshake within this many seconds (a node sends
+# a keepalive every 25 seconds, WireGuard makes a new handshake every 2 minutes)
+DOCTOR_WG_HANDSHAKE_SECONDS=180
 
 # doctor_ok <message>: a passed check
 doctor_ok() {
@@ -76,9 +79,14 @@ file_mode() {
   stat -c '%a' "$1" 2> /dev/null || stat -f '%Lp' "$1" 2> /dev/null
 }
 
-# agents_ip: the address the ports of the nodes are published on, the loopback address for every address
+# agents_ip: the address the ports of the nodes are published on, the loopback address for every address; the
+# WireGuard address of the server with the tunnel of the nodes
 agents_ip() {
   local address
+  if wg_on && address="$(wg_server)"; then
+    echo "$address"
+    return
+  fi
   address="$(doctor_value .env AGENTS_ADDRESS)"
   case "$address" in
   "" | 0.0.0.0 | "::" | "[::]") echo 127.0.0.1 ;;
@@ -170,7 +178,13 @@ doctor_settings() {
     doctor_warn "STF_URL of variables.env is not the one of .env: the links of STF lead elsewhere." "./zebrunner.sh setup writes both"
   fi
   agents="$(doctor_value .env AGENTS_ADDRESS)"
+  if wg_on; then
+    agents="wireguard"
+  fi
   case "$agents" in
+  wireguard)
+    ui_info "AGENTS_ADDRESS is not used: the ports of the nodes are on the WireGuard address of the server (NODES_WIREGUARD=true)."
+    ;;
   "" | 0.0.0.0)
     doctor_warn "AGENTS_ADDRESS of .env is 0.0.0.0: the nodes reach MCloud at the host of STF_URL (${host}), which a node in the network of the server or on the server itself often does not reach (NAT hairpin)." \
       "set AGENTS_ADDRESS of .env to the LAN address of the server, then ./zebrunner.sh restart (README.md#devices-on-the-mcloud-server)"
@@ -232,6 +246,21 @@ doctor_settings() {
     doctor_fail "The mock sign-in has no password of the admins (STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD of variables.env): whoever has the password of the users signs in as an admin of STF." \
       "./zebrunner.sh start generates it (README.md#sign-in)"
   fi
+  if wg_on; then
+    value="$(doctor_value variables.env NODES_WG_PRIVATE_KEY)"
+    if [[ ! "$value" =~ $WG_KEY_REGEX ]]; then
+      secrets_ok=0
+      doctor_fail "NODES_WG_PRIVATE_KEY of variables.env is not a WireGuard key: the tunnel of the nodes does not start." \
+        "./zebrunner.sh start makes it when it is empty (README.md#wireguard-tunnel-of-the-nodes)"
+    else
+      public="$(wg_public_key <<< "$value")"
+      if [[ -n "$public" && "$public" != "$(doctor_value .env NODES_WG_PUBLIC_KEY)" ]]; then
+        secrets_ok=0
+        doctor_fail "NODES_WG_PUBLIC_KEY of .env is not the public key of NODES_WG_PRIVATE_KEY of variables.env: the nodes get another key than the one of the tunnel." \
+          "./zebrunner.sh restart writes it, then a new invite of every node"
+      fi
+    fi
+  fi
   if [[ "$secrets_ok" -eq 1 ]]; then
     doctor_ok "The secrets of variables.env are set"
   fi
@@ -241,7 +270,8 @@ doctor_settings() {
       "the sign-in oauth2 or ldap of ./zebrunner.sh setup for a farm on the internet (README.md#sign-in)"
   fi
   private_files=""
-  for file in variables.env grid.env backup/settings.env configuration/stf-proxy/ssl/ssl.key configuration/adb-relay/stf-token; do
+  for file in variables.env grid.env backup/settings.env configuration/stf-proxy/ssl/ssl.key configuration/adb-relay/stf-token \
+    "$WG_KEY_FILE" "$WG_TOKEN_FILE"; do
     mode="$(file_mode "$file")"
     if [[ -f "$file" && "$mode" =~ ^[0-7]*[0-7][1-7]$|^[0-7]*[1-7][0-7]$ ]]; then
       private_files="${private_files:+${private_files}, }${file} (${mode})"
@@ -340,6 +370,9 @@ doctor_services() {
   fi
   if [[ "$(doctor_value .env MDM_ENABLED)" == "true" ]]; then
     profiles+=(--profile mdm)
+  fi
+  if wg_on; then
+    profiles+=(--profile wireguard)
   fi
   if ! services="$(docker compose "${profiles[@]+"${profiles[@]}"}" config --services 2>&1)"; then
     doctor_fail "docker compose does not read docker-compose.yml: $(head -n 1 <<< "$services")" "./zebrunner.sh setup, then ./zebrunner.sh start"
@@ -460,7 +493,79 @@ doctor_ports() {
   else
     doctor_ok "The ports of the nodes listen on $(agents_ip): ${ports// /, }"
   fi
-  ui_info "The firewall of the server must let the nodes in on these ports and on STF_PORT, the users on STF_PORT; it is not seen from here (README.md#firewall)."
+  if wg_on; then
+    ui_info "The firewall of the server must let the nodes in on the UDP port $(doctor_value .env NODES_WG_PORT) (WireGuard) and on STF_PORT, the users on STF_PORT; 4446, 7250 and 7270 are on the WireGuard address only, no rule for them. The firewall is not seen from here (README.md#firewall)."
+  else
+    ui_info "The firewall of the server must let the nodes in on these ports and on STF_PORT, the users on STF_PORT; it is not seen from here (README.md#firewall)."
+  fi
+}
+
+# doctor_wireguard: the WireGuard tunnel of the nodes (NODES_WIREGUARD=true): its network, the interface on the server
+# with its address, and per active node its peer and the latest handshake (README.md#wireguard-tunnel-of-the-nodes)
+doctor_wireguard() {
+  local network server handshakes nodes line label status address key latest age now
+  ui_section "WireGuard" "" "README.md#wireguard-tunnel-of-the-nodes"
+  network="$(doctor_value .env NODES_WG_NETWORK)"
+  if ! server="$(wg_server_address "$network")"; then
+    doctor_fail "NODES_WG_NETWORK of .env '${network}' is not a private network <address>/<16-30> without the host bits, out of ${WG_DEVICE_NETWORKS}: the tunnel does not start." \
+      "set it (e.g. 10.234.0.0/24), then ./zebrunner.sh restart"
+    return 0
+  fi
+  doctor_ok "NODES_WG_NETWORK ${network}, the server is ${server}, its UDP endpoint $(doctor_value .env NODES_WG_ENDPOINT)"
+  host_has_address "$server"
+  case $? in
+  0) doctor_ok "The interface mcloud of the server has ${server}" ;;
+  1)
+    doctor_fail "${server} is not an address of this server: the service wireguard does not run, the nodes reach nothing." \
+      "docker logs wireguard (the wireguard module of the kernel, Linux 5.6+); ./zebrunner.sh start"
+    return 0
+    ;;
+  *) ui_info "The interface of the tunnel is not checked: no ip and no ifconfig on this server." ;;
+  esac
+  if [[ -z "$(stf_token)" ]]; then
+    doctor_fail "STF_TOKEN of variables.env is empty: the tunnel lets no node in." "./zebrunner.sh restart makes it (README.md#stf_token)"
+    return 0
+  fi
+  if ! stf_api GET /api/v1/nodes; then
+    ui_info "The peers are not checked: the list of the nodes failed."
+    return 0
+  fi
+  # shellcheck disable=SC2154 # set by stf_api of zebrunner.sh
+  nodes="$(tr -d '\n' <<< "$api_body" | tr '{}' '\n' | grep '"label"')"
+  # <public key> <epoch of the latest handshake, 0 for none> per peer; read only
+  handshakes="$(docker exec wireguard wg show mcloud latest-handshakes 2> /dev/null)"
+  now="$(date +%s)"
+  while read -r line; do
+    [[ -n "$line" ]] || continue
+    label="$(json_value label <<< "$line")"
+    status="$(json_value status <<< "$line")"
+    address="$(json_value address <<< "$line")"
+    key="$(json_value wgPublicKey <<< "$line")"
+    if [[ "$status" != "active" ]]; then
+      continue
+    fi
+    if [[ -z "$key" ]]; then
+      doctor_warn "Node ${label} (${address}) enrolled without a WireGuard key: it has no tunnel, the server does not reach it." \
+        "update mcloud-agent of the node, then a new invite: ./zebrunner.sh node-invite ${label}"
+      continue
+    fi
+    latest="$(awk -v key="$key" '$1 == key { print $2 }' <<< "$handshakes")"
+    if [[ -z "$latest" ]]; then
+      doctor_fail "Node ${label} (${address}) is no peer of the tunnel." \
+        "docker logs wireguard tells why (its address out of NODES_WG_NETWORK, a key of another node); ./zebrunner.sh start"
+    elif [[ ! "$latest" =~ ^[0-9]+$ || "$latest" -eq 0 ]]; then
+      doctor_warn "Node ${label} (${address}): no handshake of the tunnel yet." \
+        "on the node: ./zebrunner.sh doctor of mcloud-agent; the firewall of the server lets in the UDP port $(doctor_value .env NODES_WG_PORT)"
+    else
+      age=$((now - latest))
+      if [[ "$age" -gt "$DOCTOR_WG_HANDSHAKE_SECONDS" ]]; then
+        doctor_warn "Node ${label} (${address}): the latest handshake of the tunnel was ${age} seconds ago." \
+          "on the node: ./zebrunner.sh doctor of mcloud-agent (the interface mcloud is up); the firewall of the server lets in the UDP port $(doctor_value .env NODES_WG_PORT)"
+      else
+        doctor_ok "Node ${label} (${address}): the latest handshake of the tunnel ${age} seconds ago"
+      fi
+    fi
+  done <<< "$nodes"
 }
 
 # doctor_nodes: the enrolled nodes; ./zebrunner.sh nodes check of every active one
@@ -515,6 +620,9 @@ doctor() {
     if doctor_services; then
       doctor_api
       doctor_ports
+      if wg_on; then
+        doctor_wireguard
+      fi
       doctor_nodes
     fi
   else

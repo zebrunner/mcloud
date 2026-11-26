@@ -7,7 +7,7 @@ copy_repo() {
   mkdir -p "$1"
   (cd "$REPO" && tar --exclude=.git --exclude=.venv --exclude=.idea -cf - .) | (cd "$1" && tar -xf -)
   (cd "$1" && rm -f .env variables.env .disabled backup/settings.env configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256 \
-    configuration/adb-relay/stf-token \
+    configuration/adb-relay/stf-token configuration/wireguard/private-key configuration/wireguard/stf-token configuration/wireguard/stf-api.env \
     configuration/stf-proxy/ssl/ssl.crt configuration/stf-proxy/ssl/ssl.key configuration/stf-proxy/htpasswd/mcloud.htpasswd grid.env \
     configuration/stf-proxy/grid-auth.conf mdm.env configuration/stf-proxy/mdm/*.conf configuration/mdm/mqtt.conf \
     configuration/mdm/android/*.apk &&
@@ -69,19 +69,20 @@ unwrap() {
 }
 
 # compose_secrets: "<service> <name>" per service of docker-compose.yml that gets a secret of variables.env, with
-# STF_TOKEN, GRID_AUTH_SECRET and LDAP_BIND_CREDENTIALS set in a copy of variables.env.original
+# STF_TOKEN, GRID_AUTH_SECRET, LDAP_BIND_CREDENTIALS and NODES_WG_PRIVATE_KEY set in a copy of variables.env.original
 compose_secrets() {
   local dir="${WORK}/compose-secrets"
   mkdir -p "$dir"
   cp "${REPO}/docker-compose.yml" "$dir/"
   cp "${REPO}/.env.original" "${dir}/.env"
   sed -e 's/^STF_TOKEN=.*/STF_TOKEN=admin-token/' -e 's/^GRID_AUTH_SECRET=.*/GRID_AUTH_SECRET=grid-secret/' \
-    -e 's/^LDAP_BIND_CREDENTIALS=.*/LDAP_BIND_CREDENTIALS=ldap-password/' "${REPO}/variables.env.original" > "${dir}/variables.env"
-  (cd "$dir" && docker compose --profile mdm --profile adb-relay config --format json 2> /dev/null) | python3 -c '
+    -e 's/^LDAP_BIND_CREDENTIALS=.*/LDAP_BIND_CREDENTIALS=ldap-password/' \
+    -e 's|^NODES_WG_PRIVATE_KEY=.*|NODES_WG_PRIVATE_KEY=wg-private-key|' "${REPO}/variables.env.original" > "${dir}/variables.env"
+  (cd "$dir" && docker compose --profile mdm --profile adb-relay --profile wireguard config --format json 2> /dev/null) | python3 -c '
 import json, sys
 for name, service in sorted(json.load(sys.stdin)["services"].items()):
     for key, value in sorted((service.get("environment") or {}).items()):
-        if key in ("STF_TOKEN", "GRID_AUTH_SECRET", "LDAP_BIND_CREDENTIALS") and value:
+        if key in ("STF_TOKEN", "GRID_AUTH_SECRET", "LDAP_BIND_CREDENTIALS", "NODES_WG_PRIVATE_KEY") and value:
             print(name, key)
 '
 }

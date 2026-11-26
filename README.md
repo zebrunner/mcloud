@@ -26,6 +26,7 @@ Feel free to support the development with a [**donation**](https://www.paypal.co
 - openssl with X25519 (OpenSSL 1.1.1+) or Python 3: the setup makes the [CURVE keys](#authentication-of-the-nodes) of the server with them (the LibreSSL of macOS has no X25519, Python 3 is used there); `./zebrunner.sh node-invite` makes the pin of the certificate with openssl (LibreSSL too) or Python 3
 - curl: the [node commands](#commands-of-the-nodes) call the STF API with it
 - a certificate of the host for https (`configuration/stf-proxy/ssl`, see [https](#https)): the nodes are enrolled over https only
+- the optional [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes): a Linux server with the `wireguard` module of its kernel (Linux 5.6+, the docker host itself, not the VM of Docker Desktop)
 
 ### Installation
 
@@ -37,10 +38,10 @@ The server:
    git clone https://github.com/zebrunner/mcloud.git && cd mcloud && ./zebrunner.sh setup
    ```
 
-2. Set `AGENTS_ADDRESS` of `.env` to the address of the server the nodes reach (its LAN address for the nodes in its network or on the server itself, see [Nodes in a private network](#nodes-in-a-private-network) and [Devices on the MCloud server](#devices-on-the-mcloud-server)); `0.0.0.0`, the default, lets the nodes use the public name of `STF_URL`.
+2. Set `AGENTS_ADDRESS` of `.env` to the address of the server the nodes reach (its LAN address for the nodes in its network or on the server itself, see [Nodes in a private network](#nodes-in-a-private-network) and [Devices on the MCloud server](#devices-on-the-mcloud-server)); `0.0.0.0`, the default, lets the nodes use the public name of `STF_URL`. Or, instead, `NODES_WIREGUARD=true`: every flow between the server and its nodes goes through a WireGuard tunnel, see [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes).
 3. Start the services: the setup offers it, otherwise `./zebrunner.sh start`.
 4. Open `https://<host>:<port>/stf` and sign in: the default mock sign-in asks the user and the password the setup printed (`STF_AUTH_MOCK_BASIC_AUTH_*` of `variables.env`), then the name and the email of the admin (`STF_ADMIN_*`); the setup also offers OAuth2 and LDAP, see [Sign-in](#sign-in).
-5. `STF_TOKEN` of `variables.env`, the access token of the admin the grid reserves the devices with (the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it): `start` makes it when it is empty, see [STF_TOKEN](#stf_token).
+5. `STF_TOKEN` of `variables.env`, the access token of the admin the grid reserves the devices with (the [node commands](#commands-of-the-nodes), `adb-relay` and `wireguard` read the registry of the nodes with it): `start` makes it when it is empty, see [STF_TOKEN](#stf_token).
 
 Every node (a Linux or macOS host with Android and iOS devices, [mcloud-agent](https://github.com/zebrunner/mcloud-agent)):
 
@@ -63,7 +64,7 @@ The commands of `./zebrunner.sh`:
 | `backup`, `restore` | the settings to `*.bak` and the database to `backup/rethinkdb.tar.gz`, and back; `backup` stops the database and the STF units for the copy (the UI and the devices are unavailable meanwhile) and starts them again, a database being written is not copied consistently; `restore` stops the services, puts the settings back and extracts the archive over the volume of the database (it is not emptied first: the files of the archive replace their copies, the files that are not in the archive stay), then removes the containers: `./zebrunner.sh start` runs it again |
 | `version` | the version of MCloud, the tag of the STF image |
 | `doctor` | the diagnostics of the server: a status and a fix per check, see [Doctor](#doctor) |
-| `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes) |
+| `node-invite <label> <address> [<minutes>]` | an invite of a node: prints the join string once, see [Nodes](#nodes); with the [WireGuard tunnel](#wireguard-tunnel-of-the-nodes) the address is optional: `node-invite <label> [<address>] [<minutes>]` |
 | `nodes [list]`, `nodes check <label>`, `nodes revoke <label>`, `nodes delete <label>` | the nodes, the diagnostics of a node, the revocation of a node, the removal of a revoked node, see [Nodes](#nodes) |
 | `help [<command>]` | the help of all the commands, or the usage, the description and the arguments of one command without running it; `./zebrunner.sh <command> --help` (or `-h`) is the same, e.g. `./zebrunner.sh shutdown --help` shuts nothing down |
 | `completion bash\|zsh` | the completion of the commands for the shell, see [Completion](#completion) |
@@ -86,7 +87,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 
 ## Configuration
 
-`./zebrunner.sh setup` writes the settings from the `*.original` files, `./zebrunner.sh restart` applies their changes. The next setup keeps every value of the previous `.env` and `variables.env`, also the ones changed by hand and the variables added to them (e.g. `COMPOSE_PROJECT_NAME` of `.env`, which names the volume of the database, or `STF_SESSION_TTL_SECONDS` of `variables.env`), but the ones it writes itself: `STF_URL` and `STF_PORT` (the protocol, host and port of its answers), `NODES_HOST`, the sign-in (`AUTH_SYSTEM`, `AUTH_URL`, `OAUTH_CALLBACK_URL`, the `ZEBRUNNER_*` URLs of Zebrunner CE) and the image tags `TAG_*` of `.env.original`, the images of the release (see [Upgrade](#upgrade)). The previous values are the defaults of its questions (the admin of `STF_ADMIN_*` too), the generated secrets are kept. A value with other characters than letters, digits and `_./:@%+,=-` is written in single quotes.
+`./zebrunner.sh setup` writes the settings from the `*.original` files, `./zebrunner.sh restart` applies their changes. The next setup keeps every value of the previous `.env` and `variables.env`, also the ones changed by hand and the variables added to them (e.g. `COMPOSE_PROJECT_NAME` of `.env`, which names the volume of the database, or `STF_SESSION_TTL_SECONDS` of `variables.env`), but the ones it writes itself: `STF_URL` and `STF_PORT` (the protocol, host and port of its answers), `NODES_HOST`, the values derived from the settings of the [WireGuard tunnel](#wireguard-tunnel-of-the-nodes) (`NODES_ADDRESS`, `NODES_WG_ENDPOINT`, `NODES_WG_PUBLIC_KEY`, `NODES_WG_SERVER_ADDRESS`), the sign-in (`AUTH_SYSTEM`, `AUTH_URL`, `OAUTH_CALLBACK_URL`, the `ZEBRUNNER_*` URLs of Zebrunner CE) and the image tags `TAG_*` of `.env.original`, the images of the release (see [Upgrade](#upgrade)). The previous values are the defaults of its questions (the admin of `STF_ADMIN_*` too), the generated secrets are kept. A value with other characters than letters, digits and `_./:@%+,=-` is written in single quotes.
 
 `.env`, the settings of `docker-compose.yml`:
 
@@ -94,8 +95,13 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | --- | --- | --- |
 | `STF_URL` | the setup | the public URL of MCloud: the protocol, host and port of the setup, `https` for the nodes (the interactive setup offers `https` and the port `443` first, see [Run](#run)) |
 | `STF_PORT` | the setup | the port of `stf-proxy` on the host, the one of the setup; `8082` in [Zebrunner CE](#zebrunner-ce), its nginx is in front |
-| `AGENTS_ADDRESS` | `0.0.0.0` | the address of the host the ports of the nodes are published on (ZeroMQ of STF and the grid, see [Firewall](#firewall)) and the host of the join string: the LAN address of the server for the nodes in its network or on the server itself; `0.0.0.0` publishes them on every address and gives the nodes the host of `STF_URL`, `start` warns about it; the value of the previous setup is kept |
-| `NODES_HOST` | `localhost` | written by `setup` and `start`, not set by hand: `AGENTS_ADDRESS`, the host of `STF_URL` for `0.0.0.0`; the host of the join string and of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) |
+| `AGENTS_ADDRESS` | `0.0.0.0` | the address of the host the ports of the nodes are published on (ZeroMQ of STF and the grid, see [Firewall](#firewall)) and the host of the join string: the LAN address of the server for the nodes in its network or on the server itself; `0.0.0.0` publishes them on every address and gives the nodes the host of `STF_URL`, `start` warns about it; not used with `NODES_WIREGUARD=true`; the value of the previous setup is kept |
+| `NODES_HOST` | `localhost` | written by `setup` and `start`, not set by hand: `AGENTS_ADDRESS`, the host of `STF_URL` for `0.0.0.0`, the WireGuard address of the server with `NODES_WIREGUARD=true`; the host of the ZeroMQ endpoints `stf-api` gives the nodes (`--nodes-connect-*` in `docker-compose.yml`) and, without the tunnel, of the join string |
+| `NODES_WIREGUARD` | `false` | `true`: the [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) (the service `wireguard`), every flow between the server and its nodes goes through it and the ports of the nodes are published on its address only; the value of the previous setup is kept |
+| `NODES_WG_PORT` | `51820` | the UDP port of the tunnel on the server, opened in the firewall for the nodes; the value of the previous setup is kept |
+| `NODES_WG_NETWORK` | `10.234.0.0/24` | the network of the tunnel, a private `<network address>/<16-30>` out of `10.233.0.0/16` (the docker networks of the devices of a node): the server is its first host, the nodes get the next ones; the value of the previous setup is kept |
+| `NODES_WG_SYNC_SECONDS` | `5` | `wireguard` reads the nodes of the registry of STF every these seconds: an enrolled node is let in and a revoked node is cut within this time; the value of the previous setup is kept |
+| `NODES_ADDRESS`, `NODES_WG_ENDPOINT`, `NODES_WG_PUBLIC_KEY`, `NODES_WG_SERVER_ADDRESS` | | written by `setup` and `start`, not set by hand, empty without the tunnel: the address the ports of the nodes are published on (`AGENTS_ADDRESS` when empty), the UDP endpoint of the server for the nodes (`<host of STF_URL>:<NODES_WG_PORT>`), the public key of `NODES_WG_PRIVATE_KEY` and the WireGuard address of the server (the first host of `NODES_WG_NETWORK`) |
 | `ADB_RELAY` | `false` | `true`: `adb-relay` relays the remote debug ports of the Android devices of the nodes, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay); the value of the previous setup is kept |
 | `ADB_RELAY_PORTS` | | `adb-relay` relays the ports of this range only, `<first>-<last>` (e.g. `7400-7999`): the range opened in the firewall; empty: any port; the value of the previous setup is kept |
 | `ADB_RELAY_SYNC_SECONDS` | `300` | `adb-relay` reads the devices of the nodes every these seconds: a new device is relayed within this time (at once after `./zebrunner.sh restart`); the value of the previous setup is kept |
@@ -106,6 +112,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `MDM_ADMIN_PUBLIC` | `false` | `true`: the admin UI is also `/mcloud/mdm/` for the admins of STF; the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
+| `TAG_ALPINE` | `3.24.4` | the tag of `alpine` (the service `wireguard`) |
 | `TAG_SELENIUM_HUB` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/mcloud-grid`: on `develop` the newest image of the `develop` of mcloud-grid, a release has its version |
 | `TAG_RETHINKDB` | `2.4.4-bookworm-slim` | the tag of `rethinkdb` |
 | `TAG_STF` | `3.1-develop-latest` | the tag of `public.ecr.aws/zebrunner/stf`: on `develop` the newest image of the `develop` of zebrunner/stf, a release has its version |
@@ -123,7 +130,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | --- | --- | --- |
 | `SECRET` | generated | the secret of the sessions and the access tokens of STF; the setup generates it once, a change of it ends the sessions and invalidates the access tokens (`STF_TOKEN` too) |
 | `STF_STORAGE_TOKEN` | generated | the internal token of the STF units: the storage, the triproxies and the internal routes of the registry of the nodes; the nodes use their own tokens |
-| `STF_TOKEN` | made by `start` | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes) and `adb-relay` read the registry of the nodes with it; see [STF_TOKEN](#stf_token) |
+| `STF_TOKEN` | made by `start` | the access token of an admin of STF: the grid reserves the devices and verifies the tokens of the nodes with it, the [node commands](#commands-of-the-nodes), `adb-relay` and `wireguard` read the registry of the nodes with it; see [STF_TOKEN](#stf_token) |
 | `GRID_AUTH_SECRET` | generated | the secret `stf-proxy` gives the grid with the users of STF it let in, see [Access to the grid](#access-to-the-grid); `setup` generates it once (`start` too for a `variables.env` of an earlier MCloud) and writes it into `grid.env` and `configuration/stf-proxy/grid-auth.conf` |
 | `STF_URL` | the setup | the public URL of MCloud, `STF_URL` of `.env`, also the one the enrollment gives the nodes |
 | `STF_ROOT_GROUP_NAME` | `MCloud` | the root group of STF |
@@ -137,6 +144,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `RETHINKDB_ENV_AUTHKEY` | generated | the password of the `admin` of RethinkDB the STF units connect with, `stf-migrate` sets it in the database |
 | `STF_ZMQ_CURVE_SERVER_SECRET_KEY`, `STF_ZMQ_CURVE_SERVER_PUBLIC_KEY` | generated | the CURVE key pair of the triproxies of STF, the enrollment gives the public key to the node |
 | `STF_ZMQ_CURVE_SECRET_KEY` | generated | the CURVE key of the STF units |
+| `NODES_WG_PRIVATE_KEY` | made by `setup` and `start` | the private key of the [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) (base64, as `wg genkey`): made with `NODES_WIREGUARD=true` when it is empty (openssl or `patch/curve_keygen.py`) and kept afterwards, also when the tunnel is turned off; no STF unit gets it, `wireguard` reads it from `configuration/wireguard/private-key`; a new key needs a new invite of every node |
 | `STF_NODES_API_URL` | `http://stf-api:3000` | the API of the nodes for the units without the database, called with `STF_STORAGE_TOKEN`: the triproxies read the keys of the nodes every 5 seconds, the storage checks the token of a node there and trusts a valid one 30 seconds (a refused one 5 seconds); `stf-proxy` refuses its internal routes (`/api/v1/zebrunner/nodes`) |
 
 More settings of STF (e.g. `STF_SESSION_TTL_SECONDS`, the lifetime of a session, or `STF_STORAGE_TEMP_DOWNLOAD_ALLOW`, the private networks the apps may be installed from by URL) are described in [ZEBRUNNER.md of STF](https://github.com/zebrunner/stf/blob/develop/ZEBRUNNER.md#configuration). The settings of the grid (e.g. `NODE_ALLOWED_NETWORKS`, `MAX_NEW_COMMAND_TIMEOUT`, `MCLOUD_LOG_LEVEL`) are described in [mcloud-grid](https://github.com/zebrunner/mcloud-grid#configuration), they go to `environment` of `mcloud-grid` in `docker-compose.yml`.
@@ -212,6 +220,28 @@ The relay reads the API with `STF_TOKEN` of `variables.env`, an access token of 
 
 The relay has no authentication of its own, it makes its ports public as they are. The remote debug port of a device listens only while a user of STF uses the device (the Remote debug of its dashboard starts it) and accepts an adb client with an adb key of that user only (STF, Settings, ADB keys): an unknown key makes STF ask that user to add it, add only your own keys.
 
+### WireGuard tunnel of the nodes
+
+Without the tunnel the server and its nodes talk over the network between them: the ports of the nodes of the server (`4446`, `7250`, `7270`) are open to the nodes, and the server reaches the screens, Appium and the remote debug of the devices at the address of their node, over plain HTTP and WebSocket (only ZeroMQ is encrypted). With `NODES_WIREGUARD=true` (off by default) every flow between the server and its nodes goes through a WireGuard tunnel instead: ZeroMQ, the grid registration, the grid to Appium, `stf-proxy` to the screens and `adb-relay` to the remote debug ports are encrypted and authenticated by the key of every node, the ports of the nodes of the server are published on its WireGuard address only (no rule of the firewall for them), and a node publishes the ports of its devices on its WireGuard address only. A node behind NAT or in another network needs no inbound port: it dials the server. The users (STF, the grid), the enrollment of a node and its `STF_URL` (https with the pin of the certificate) and the devices to the [MDM](#mdm) stay on the public network.
+
+- The network is `NODES_WG_NETWORK` (`10.234.0.0/24`): the server is its first host (`10.234.0.1`), every node gets its own address there, which is its address in STF (the address of its invite), so the screens, the grid, `adb-relay` and `nodes check` work with it as with any address. Keep the network out of `10.233.0.0/16`, the docker networks of the devices of a node, and of the networks of the server and of the nodes.
+- The server listens on the UDP port `NODES_WG_PORT` (`51820`) of the host of `STF_URL`, the nodes dial it there (`PersistentKeepalive` 25 seconds, for the nodes behind NAT).
+- `./zebrunner.sh node-invite <label>` takes the address of the node of the label when it has one, otherwise the next free address of the network (not an address of a node of the registry, revoked ones too: `nodes delete` frees it); `node-invite <label> <address> [<minutes>]` takes an address of the network. The join string has the host of `STF_URL` and `grid=<WireGuard address of the server>:4446`. Two invites of new labels before one of them joins get the same address: STF refuses the second enrollment, invite it again.
+- The enrollment gives the node the endpoint, the public key and the address of the server and its own address (`--nodes-wg-*` of `stf-api`); the node sends its WireGuard key with its CURVE key. STF refuses the enrollment of a node without a WireGuard key with `403` (`docker logs stf-api`: `the head needs WireGuard: update mcloud-agent`), and a key of another node.
+- The service `wireguard` (the profile `wireguard`, `./zebrunner.sh start` runs it with `NODES_WIREGUARD=true` only) creates the interface `mcloud` in the network of the host with the private key of the server and its address and makes its peers the active nodes of the registry of STF with a WireGuard key and an address of the network, read every `NODES_WG_SYNC_SECONDS` (`5`) with `STF_TOKEN` as `adb-relay` does (`GET /api/v1/nodes` through `stf-proxy` on `127.0.0.1:STF_PORT`): an enrolled node is let in and a revoked or deleted node is cut within that time, without a restart; a failed read keeps the peers. `docker logs wireguard` shows the peers it adds and removes and the active nodes that are no peer, with the reason; it never logs the key of the server. `stf-proxy` and `stf-triproxy-dev` start once the interface is up (it holds their address).
+- `wireguard` is the `alpine` image (`TAG_ALPINE`) with `wireguard-tools`, `iproute2`, `curl` and `bash` of its packages, installed by `apk` (signed packages) at the first start of the container, and `configuration/wireguard/wireguard.sh`: no image of its own to build or to keep up to date, the packages of the release of alpine. The tunnel is the `wireguard` module of the kernel of the server (Linux 5.6+), not a user space one: a server without it (`modprobe wireguard`) logs it and has no tunnel; Docker Desktop runs the tunnel in its VM but publishes the ports on its host, so the head with the tunnel needs a Linux server.
+- The private key of the server is `NODES_WG_PRIVATE_KEY` of `variables.env`, made by `setup` or `start` once and kept; `setup` and `start` write it into `configuration/wireguard/private-key` (`600`, empty without the tunnel), which `wireguard` reads: never an environment variable or an argument of a process.
+
+To turn it on for a farm:
+
+1. Update STF first (`TAG_STF` of the release with the `--nodes-wg-*` options of `stf-api`, an STF without them does not start with the tunnel), then this repository, then mcloud-agent of the nodes (it sends its WireGuard key with the enrollment and runs the interface `mcloud` of the node).
+2. Set `NODES_WIREGUARD=true` of `.env` (and `NODES_WG_NETWORK`, `NODES_WG_PORT` if needed), run `./zebrunner.sh setup` (or `start`: it makes the key) and `./zebrunner.sh restart`.
+3. Open the UDP port `NODES_WG_PORT` of the server for the nodes; `4446`, `7250` and `7270` need no rule any more, close them on the public addresses (see [Firewall](#firewall)).
+4. Invite every node again, `./zebrunner.sh node-invite <label>`: it enrolls with a WireGuard key and gets its address of the network (the nodes enrolled before the tunnel keep their old address and have no tunnel: `./zebrunner.sh nodes` shows `WIREGUARD no`, the server does not reach them). On the node: `./zebrunner.sh join`, `./zebrunner.sh ansible` and `zebrunner-farm restart` of mcloud-agent.
+5. `./zebrunner.sh doctor` checks the tunnel: the network, the interface, the ports of the nodes on the WireGuard address and the latest handshake of every node (`warn` after 3 minutes or none); `./zebrunner.sh doctor` of mcloud-agent checks it on the node.
+
+`NODES_WIREGUARD=false` and `./zebrunner.sh restart` turn it off: the ports of the nodes are on `AGENTS_ADDRESS` again, the key stays in `variables.env`; the nodes join again with an invite of the address the server reaches them at (`node-invite <label> <address>`).
+
 ### MDM
 
 The MDM of the devices, [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm): iOS with NanoHUB, Android with Headwind MDM and the agent of mcloud-mdm as the device owner (no factory reset), the admin UI of mcloud-mdm. Optional (the profile `mdm`), `https` only, on the domain of MCloud: no DNS name or certificate of its own.
@@ -241,12 +271,13 @@ The ports of the host and who needs them; close the others:
 | Port | Service | Clients |
 | --- | --- | --- |
 | `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the diagnostics) |
+| `NODES_WG_PORT` (`51820`, UDP) | `wireguard` (optional) | the nodes: the [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes); with it `4446`, `7250` and `7270` are on the WireGuard address of the server only, no rule for them |
 | `7250`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-dev`: the devices subscribe to `7250` and push to `7270`; the dealers `7160`, `7260` are not published, STF refuses the keys of the nodes there) | the nodes |
 | `4446` (`AGENTS_ADDRESS`) | `stf-proxy` -> `mcloud-grid` | the nodes: the registration of Appium only (`/grid/register`, `GET /grid/api/proxy`), the other paths answer `403`; the tests use `/mcloud/wd/hub` of `STF_PORT` |
 | `MDM_MQTT_PORT` (`31443`) | `mcloud-mdm-mqtt` (optional) | the Android agents of `MDM_SITE_ADDRESSES`: MQTT over TLS of the MDM, see [MDM](#mdm) |
 | `ADB_RELAY_PORTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the nodes in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
-`AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
+`AGENTS_ADDRESS` publishes the ports of the nodes on one address of the host, the one the nodes reach (the join string gives it to them, the host of `STF_URL` for `0.0.0.0`); with the WireGuard tunnel they are on its address (`NODES_ADDRESS`). A node publishes the ports of its devices (the screens, Appium, the remote debug) for the server: `stf-proxy` serves the screens to the users, the grid connects to Appium, see [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
 
 ### Access to the grid
 
@@ -278,7 +309,7 @@ https://<user>:<token>@<host>:<port>/mcloud/wd/hub
 
 ### Files and secrets
 
-`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, the env files of its services `configuration/mdm/env/*.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token and, with `MDM_ADMIN_PUBLIC=true`, its admin token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
+`variables.env`, `backup/settings.env`, the key of the certificate (`configuration/stf-proxy/ssl/ssl.key`), the access token of the auto mode of `adb-relay` (`configuration/adb-relay/stf-token`), the private key and the access token of the WireGuard tunnel (`configuration/wireguard/private-key`, `configuration/wireguard/stf-token`), the variables of the grid (`grid.env`, `STF_TOKEN` and `GRID_AUTH_SECRET`), the secret of the grid for `stf-proxy` (`configuration/stf-proxy/grid-auth.conf`), the archive of the database (`backup/rethinkdb.tar.gz`), the secrets of the MDM (`mdm.env`, the env files of its services `configuration/mdm/env/*.env`, `configuration/stf-proxy/mdm/server-mdm.conf` with its enrollment token and, with `MDM_ADMIN_PUBLIC=true`, its admin token) and their backups hold the secrets of the deployment: `setup`, `start`, `backup` and `restore` keep them readable for their owner only (`600`). Run `zebrunner.sh` as the user of the deployment; a `sudo ./zebrunner.sh` gives the files it writes back to the owner of the folder.
 
 ## Nodes
 
@@ -286,7 +317,7 @@ A node is a host of [mcloud-agent](https://github.com/zebrunner/mcloud-agent) wi
 
 ### Enrollment
 
-The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and `AGENTS_ADDRESS` of `.env` the nodes reach ([Run](#run)).
+The server needs https with the certificate of the host ([https](#https)), the services running, `STF_TOKEN` of `variables.env` of an admin of STF and `AGENTS_ADDRESS` of `.env` the nodes reach ([Run](#run)), or the [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes): then the address of `node-invite` is optional, the next free address of `NODES_WG_NETWORK`.
 
 1. On the server: `./zebrunner.sh node-invite <label> <address> [<minutes>]`, e.g. `./zebrunner.sh node-invite lab-1 192.168.30.2`:
    - the label is the name of the node, unique, 1-40 lower case letters, digits and `-`; `enroll`, `invites`, `relay` and `verify` are reserved by STF;
@@ -306,21 +337,21 @@ mcloud-join://<host>:<port>?label=<label>&grid=<grid host>:<grid port>&pin=<pin>
 
 | Part | Value |
 | --- | --- |
-| `<host>` | `NODES_HOST`: `AGENTS_ADDRESS` of `.env`, the host of `STF_URL` when it is `0.0.0.0` (every address) |
+| `<host>` | `NODES_HOST`: `AGENTS_ADDRESS` of `.env`, the host of `STF_URL` when it is `0.0.0.0` (every address) or with the [WireGuard tunnel](#wireguard-tunnel-of-the-nodes) |
 | `<port>` | `STF_PORT`, the port of `stf-proxy`: the enrollment, the storage, the API |
 | `label` | the label of the node |
-| `grid` | `<host>:4446`, the published port of the grid (`docker-compose.yml`) |
+| `grid` | `<host>:4446`, the published port of the grid (`docker-compose.yml`); with the WireGuard tunnel the WireGuard address of the server, `<NODES_WG_SERVER_ADDRESS>:4446` |
 | `pin` | base64 of the SHA-256 of the public key (DER SubjectPublicKeyInfo) of `configuration/stf-proxy/ssl/ssl.crt`, as `curl --pinnedpubkey 'sha256//<pin>'` takes it, with `+`, `/` and `=` percent-encoded (`%2B`, `%2F`, `%3D`); `node-invite` also prints it as it is |
 | `token` | the invite, `mci1.<secret>` |
 
-The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`) and their host from the join string: the triproxies publish `7250` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall) (the dealers `7160` and `7260` of the answer are not published: the nodes do not use them). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
+The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`, the WireGuard address of the server with the tunnel) and, without the tunnel, their host from the join string: the triproxies publish `7250` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall) (the dealers `7160` and `7260` of the answer are not published: the nodes do not use them). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
 
 ### Commands of the nodes
 
 | Command | What it does |
 | --- | --- |
-| `./zebrunner.sh node-invite <label> <address> [<minutes>]` | an invite of a node, the join string is printed once |
-| `./zebrunner.sh nodes`, `nodes list` | the nodes of the registry: the label, the address, `active` or `revoked`, the time the grid last saw it, the time of its enrollment, the first characters of its key |
+| `./zebrunner.sh node-invite <label> <address> [<minutes>]` | an invite of a node, the join string is printed once; with the [WireGuard tunnel](#wireguard-tunnel-of-the-nodes) `node-invite <label> [<address>] [<minutes>]` |
+| `./zebrunner.sh nodes`, `nodes list` | the nodes of the registry: the label, the address, `active` or `revoked`, the time the grid last saw it, the time of its enrollment, the first characters of its key; with the WireGuard tunnel also whether it enrolled with a WireGuard key (`WIREGUARD`) |
 | `./zebrunner.sh nodes check <label>` | the diagnostics of a node, see [Diagnostics](#diagnostics) |
 | `./zebrunner.sh nodes revoke <label>` | revokes a node and restarts `stf-triproxy-app` and `stf-triproxy-dev`, which ends its open ZeroMQ sessions (the other nodes reconnect at once) |
 | `./zebrunner.sh nodes delete <label>` | removes a revoked node from the registry: its label and its address are free again |
@@ -340,7 +371,7 @@ It exits with `1` and a hint when something is wrong: an unknown or revoked node
 
 ### Revocation
 
-Revoke a node that is lost or given away, whose host or settings may be read by others, or that is not needed any more: `./zebrunner.sh nodes revoke <label>`. STF refuses its token and its devices lose their binding at once (no screen); the triproxies refuse its key within 5 seconds (they read the keys every 5 seconds) and `nodes revoke` restarts them, which ends its open ZeroMQ sessions; the storage refuses its token within 30 seconds (it trusts a checked token 30 seconds); `adb-relay` drops its devices on its next sync (`ADB_RELAY_SYNC_SECONDS`, or `./zebrunner.sh restart` at once); the grid drops its Appium nodes on the next check of their token (every 60 seconds). A new invite of the label enrolls it again with a new key and token; `nodes delete` removes it.
+Revoke a node that is lost or given away, whose host or settings may be read by others, or that is not needed any more: `./zebrunner.sh nodes revoke <label>`. STF refuses its token and its devices lose their binding at once (no screen); the triproxies refuse its key within 5 seconds (they read the keys every 5 seconds) and `nodes revoke` restarts them, which ends its open ZeroMQ sessions; the storage refuses its token within 30 seconds (it trusts a checked token 30 seconds); `adb-relay` drops its devices on its next sync (`ADB_RELAY_SYNC_SECONDS`, or `./zebrunner.sh restart` at once); the grid drops its Appium nodes on the next check of their token (every 60 seconds); the [WireGuard tunnel](#wireguard-tunnel-of-the-nodes) cuts it within `NODES_WG_SYNC_SECONDS`. A new invite of the label enrolls it again with a new key and token; `nodes delete` removes it.
 
 ### Devices on the MCloud server
 
@@ -360,7 +391,7 @@ What the enrollment gives:
 - the node trusts the server by the pin of the certificate of `stf-proxy`, a self-signed certificate is fine; the join string is never an argument of a command (the process list), the server prints it once;
 - the address of a node is the one of the admin, never one the node reports: the grid takes a node token only for an Appium node at that address, a device is bound to the node only with a proof of the token of the node (an HMAC) and at that address, the screens and the remote debug relay go to the registered address only, so a node cannot point the server at another host;
 - the screens are served to the user of the device only, and `stf-proxy` never passes the session cookie, the access token or the `X-Stf-*` headers of the user to the node;
-- `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` gets it alone;
+- `STF_TOKEN` stays on the server: the commands give it to curl on its stdin, `adb-relay` and `wireguard` get it alone (in a file of their own, `600`);
 - `stf-proxy` refuses the internal routes of the registry (`/api/v1/zebrunner/nodes`, the keys and the tokens for the triproxies and the storage on `stf-api:3000`) and the decision about the grid (`/api/v1/zebrunner/hub-auth`) with `403`;
 - the grid is for the users of STF only, each with the own sessions, and a node never gets their tokens or cookies, see [Access to the grid](#access-to-the-grid).
 
@@ -368,14 +399,14 @@ The risks that stay:
 
 - the join string is a secret until it is used or expires: whoever uses it first enrolls as that node (still bound to its address). Send it over a trusted channel, keep the validity short and revoke a node enrolled by surprise (`nodes` shows the key and the time it was last seen);
 - whoever is root on a node, or in its docker group, has its key and token and acts as that node (its devices, the sessions of its devices, its uploads) until it is revoked, not as another node;
-- the server reaches the screens and Appium of a node over plain HTTP and WebSocket at its address; only ZeroMQ is encrypted. Someone who takes the address of a node in its network (ARP or DNS spoofing) sees that traffic: keep the nodes in a trusted network or a VPN;
+- without the [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) the server reaches the screens and Appium of a node over plain HTTP and WebSocket at its address; only ZeroMQ is encrypted. Someone who takes the address of a node in its network (ARP or DNS spoofing) sees that traffic: keep the nodes in a trusted network, or turn the tunnel on;
 - the limits of `stf-proxy` are per client address: behind another proxy all the clients share one, and many addresses only slow down; the 256 bits of an invite keep the guessing hopeless anyway;
 - a revocation ends the open ZeroMQ sessions by a restart of the triproxies (all the nodes reconnect), the grid drops a revoked node within 60 seconds and the storage may accept its token for up to 60 seconds (its cache);
 - `STF_TOKEN` of `variables.env` is a token of an admin of STF: `variables.env` is readable for its owner only, see [Files and secrets](#files-and-secrets).
 
 ## Services
 
-All the services but `adb-relay` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay` and the MDM) and `GRID_AUTH_SECRET` are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
+All the services but `adb-relay` and `wireguard` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay`, `wireguard` and the MDM), `GRID_AUTH_SECRET` and `NODES_WG_PRIVATE_KEY` (the private key of the WireGuard tunnel) are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
 
 | Service | Image | What it does |
 | --- | --- | --- |
@@ -388,9 +419,10 @@ All the services but `adb-relay` (the network of the host) and the MDM are in th
 | `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7250` and `7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; for the STF units and the tokens of the nodes only |
 | `mcloud-mdm`, `mcloud-mdm-nanohub`, `mcloud-mdm-mysql`, `mcloud-mdm-hmdm`, `mcloud-mdm-postgres`, `mcloud-mdm-hmdm-init`, `mcloud-mdm-mqtt` | `public.ecr.aws/zebrunner/mcloud-mdm`, `ghcr.io/micromdm/nanohub`, `mysql`, `headwindmdm/hmdm`, `postgres`, `nginx` | optional, with `MDM_ENABLED=true` only: the MDM of the devices, see [MDM](#mdm) |
+| `wireguard` | `alpine` | optional, with `NODES_WIREGUARD=true` only: the WireGuard tunnel of the nodes, the interface `mcloud` in the network of the host and its peers, see [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) |
 | `adb-relay` | `nginx` | optional, with `ADB_RELAY=true` only: the TCP relay of the remote debug ports of the devices of the nodes in a private network, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
 
-Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `adb-relay` (nginx listens on its ports), `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
+Every service has a healthcheck (`docker ps` shows `unhealthy` for one that stopped answering): the STF units with an HTTP port and the triproxies (a TCP connection), `stf-proxy`, `rethinkdb`, `adb-relay` (nginx listens on its ports), `wireguard` (the interface is up with the address of the server), `mcloud-grid` (the one of its image), and the units without a port, `stf-processor001`, `stf-reaper` and `stf-api-groups-engine`: they are healthy while they are connected to their ZeroMQ brokers and to RethinkDB (`stf-migrate` runs once); `stf-proxy` starts once `stf-app` is healthy. Docker restarts a service when it exits, not when it is unhealthy. The logs of every service are rotated (`LOG_MAX_SIZE`, `LOG_MAX_FILE`).
 
 ## Endpoints
 
@@ -452,11 +484,12 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | Group | Checks |
 | --- | --- |
 | Host | docker answers, docker compose 2.24.0 or newer, the disk of docker (`warn` from 85%, `FAIL` from 95%), the network `infra` |
-| Settings | `STF_URL` of `.env` (`warn` for http of a public host, and for the mock sign-in at a public host: use `oauth2` or `ldap` on the internet) and the same one of `variables.env`, `AGENTS_ADDRESS` (`warn` for `0.0.0.0`, `FAIL` for an address that is not of the server), the secrets of `variables.env` (`SECRET` not the default, the tokens, the CURVE keys and their pair, the password of the mock sign-in), the files with secrets readable for their owner only |
+| Settings | `STF_URL` of `.env` (`warn` for http of a public host, and for the mock sign-in at a public host: use `oauth2` or `ldap` on the internet) and the same one of `variables.env`, `AGENTS_ADDRESS` (`warn` for `0.0.0.0`, `FAIL` for an address that is not of the server; not used with the WireGuard tunnel), the secrets of `variables.env` (`SECRET` not the default, the tokens, the CURVE keys and their pair, the password of the mock sign-in, with the tunnel `NODES_WG_PRIVATE_KEY` and its public key of `.env`), the files with secrets readable for their owner only |
 | TLS | for https: the certificate and its key, not the shared pair of Zebrunner CE, its expiry (`warn` within 30 days), its host (the host of `STF_URL`, with an openssl that has `-checkhost`), self-signed or not |
-| Services | the services of `docker-compose.yml` (with the profiles of `ADB_RELAY` and `MDM_ENABLED`) are created and run, healthy where they have a healthcheck, the one-shot services (`stf-migrate`, `mcloud-mdm-hmdm-init` of the MDM) exited with `0`, no service restarted more than 3 times, the project is not the one of another folder |
-| STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` |
-| Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7250`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS`; the firewall is not seen from the server, see [Firewall](#firewall) |
+| Services | the services of `docker-compose.yml` (with the profiles of `ADB_RELAY`, `MDM_ENABLED` and `NODES_WIREGUARD`) are created and run, healthy where they have a healthcheck, the one-shot services (`stf-migrate`, `mcloud-mdm-hmdm-init` of the MDM) exited with `0`, no service restarted more than 3 times, the project is not the one of another folder |
+| STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` (the WireGuard address of the server with the tunnel) |
+| Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7250`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS` (the WireGuard address of the server with the tunnel); the firewall is not seen from the server, see [Firewall](#firewall) |
+| WireGuard | with `NODES_WIREGUARD=true` only: `NODES_WG_NETWORK`, the interface `mcloud` has the address of the server, every active node is a peer with a WireGuard key and its latest handshake (`warn` when it is older than 3 minutes or none, `warn` for a node enrolled without a WireGuard key), see [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) |
 | Nodes | the enrolled nodes (`warn` without one), [`nodes check`](#diagnostics) of every active node |
 
 The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent).
@@ -495,6 +528,9 @@ The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https:/
 | `The certificate of Zebrunner CE (../nginx/ssl/ssl.crt and ssl.key) cannot be copied` | the key of Zebrunner CE is readable for root only (e.g. written by certbot): make it readable for the user of the setup (its group and `chmod 640`) instead of `sudo ./zebrunner.sh setup` |
 | a device of a gone node is not removed by Settings, Devices of STF (nothing happens) | the removing filters of the page skip the devices that are controlled, booked or annotated, and a device whose node went away during a session stays controlled: set *Controlled* (and the others) of the filters to *Any* |
 | macOS (Docker Desktop): `./zebrunner.sh start` hangs, `stf-proxy` stays `Created`, `docker inspect stf-proxy` does not answer | the port forwarding of Docker Desktop hangs (seen after a failed start): `docker desktop restart` (or quit and start Docker Desktop), then `./zebrunner.sh start` |
+| `wireguard` restarts, `docker logs wireguard` shows `The interface mcloud is not created` | the kernel of the server has no `wireguard` module (Linux 5.6+: `sudo modprobe wireguard`) or it is Docker Desktop; `is not set up`: another program has the UDP port `NODES_WG_PORT` or the address of the server (`NODES_WG_NETWORK` overlaps a network of the server); `NODES_WG_NETWORK ... is not a private network`: set a valid one, see [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) |
+| with the WireGuard tunnel, after a reboot of the server `stf-proxy` or `stf-triproxy-dev` is not running (`cannot assign requested address`) | docker started them before `wireguard` made the WireGuard address of the server, which their ports of the nodes are published on (docker restarts the containers without the order of `docker-compose.yml`): `./zebrunner.sh start` starts them after it |
+| with the WireGuard tunnel a node is not reached: `nodes check` shows `NOT REACHABLE`, `doctor` shows no handshake of the node | the node does not reach the UDP port `NODES_WG_PORT` of the host of `STF_URL` (the firewall of the server), it enrolled without a WireGuard key (`./zebrunner.sh nodes`: `WIREGUARD no`, an mcloud-agent without the tunnel: update it and invite it again) or it is no peer (`docker logs wireguard` tells why); on the node `./zebrunner.sh doctor` of mcloud-agent |
 | `stf-processor001`, `stf-reaper` or `stf-api-groups-engine` is `unhealthy` | the unit lost its ZeroMQ brokers (`stf-triproxy-*`) or RethinkDB, docker does not restart an unhealthy unit: see the state and the logs of the brokers and of `rethinkdb`, then `./zebrunner.sh restart` |
 
 ## Components
@@ -510,9 +546,9 @@ The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https:/
 | Target | What it checks | Needs |
 | --- | --- | --- |
 | `make check` | everything below, as CI runs it | |
-| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings, also with the profile `adb-relay` | Python 3; on macOS `brew install hadolint` |
-| `make test` | `tests/zebrunner_test.sh` and `tests/utility_test.sh`: the commands of `zebrunner.sh` on a copy of the repository with `docker` and `curl` stubs (the node commands with answers of the STF API, the configuration of `stf-proxy`); `tests/adb_relay_test.sh`: the sync of `configuration/adb-relay/adb-relay.sh` with answers of the STF API and stubs | bash, openssl, Python 3 |
-| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, `adb-relay`, then their shutdown; `tests/adb_relay_docker_test.sh`: the auto mode of `adb-relay` with a fake STF API and a stand-in node (the sessions, the reload, the errors); `tests/stf_proxy_docker_test.sh`: the configuration of `stf-proxy` with a fake `stf-api` and a fake node (the decision about the screens, the headers each side gets, the internal routes, the limits of the enrollment and of the record of a node); `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
+| `make lint` | `tests/lint.sh`: yamllint, actionlint, pymarkdown, shellcheck, shfmt, ruff, the text files, `docker compose config` with the `*.original` settings, also with the profiles `adb-relay`, `mdm` and `wireguard` | Python 3; on macOS `brew install hadolint` |
+| `make test` | `tests/zebrunner_test.sh` and `tests/utility_test.sh`: the commands of `zebrunner.sh` on a copy of the repository with `docker` and `curl` stubs (the node commands with answers of the STF API, the configuration of `stf-proxy`); `tests/adb_relay_test.sh`: the sync of `configuration/adb-relay/adb-relay.sh` with answers of the STF API and stubs; `tests/wireguard_test.sh`: the addresses and the keys of the WireGuard tunnel and the sync of the peers of `configuration/wireguard/wireguard.sh` with answers of the STF API and stubs | bash, openssl, Python 3 |
+| `make docker` | `tests/compose_test.sh`: the setup, the start and the endpoints of the services, `adb-relay`, then their shutdown; `tests/adb_relay_docker_test.sh`: the auto mode of `adb-relay` with a fake STF API and a stand-in node (the sessions, the reload, the errors); `tests/stf_proxy_docker_test.sh`: the configuration of `stf-proxy` with a fake `stf-api` and a fake node (the decision about the screens, the headers each side gets, the internal routes, the limits of the enrollment and of the record of a node); `tests/wireguard_docker_test.sh`: the service `wireguard` with a fake STF API and a stand-in node with its own interface (the peers, a handshake, a port on the WireGuard address of the server, a revocation; skipped without the `wireguard` module of the kernel of docker); `TAG_STF=<tag> TAG_SELENIUM_HUB=<tag> make docker` checks other images | Docker, no other MCloud on the machine |
 
 The tests write JUnit XML into `$JUNIT_DIR` when it is set. CI (`.github/workflows/ci.yml`) runs the jobs `lint`, `tests` (Linux and macOS) and `docker` on the pushes and pull requests; a pull request runs `tests` on macOS only when it changes a file of `make test` (`zebrunner.sh`, the `*.original` settings, `docker-compose.yml`, `backup/`, `configuration/`, `patch/`, `tests/*.sh`, `tests/fixtures/`, the `Makefile` or `ci.yml`, the list of the job `changes`).
 
@@ -531,7 +567,7 @@ The conventions of the style, the formatting and the tooling of this repository 
 - `zebrunner.sh` and `patch/*.sh` are [host scripts](CONVENTIONS.md#host-scripts): the interface of Zebrunner CE (`ZBR_INSTALLER`, the `ZBR_*` settings, `SHUTDOWN_CONFIRMED`, `.disabled`) and the commands stay compatible.
 - The static files of the Selenium grid console (`configuration/stf-proxy/grid/`) are kept byte for byte: `generated` of `tests/lint_project.sh` and unset formatting in `.editorconfig`.
 - A test of the services goes to `tests/compose_test.sh` (`DOCKER_TESTS`), a test of the commands of `zebrunner.sh` without docker to `tests/zebrunner_test.sh`.
-- `configuration/adb-relay/adb-relay.sh` runs in the nginx image (bash 5, mawk) and `make test` runs its functions on macOS too (bash 3.2, BSD awk): it stays compatible with both, `tests/adb_relay_docker_test.sh` runs its tests in the image.
+- `configuration/adb-relay/adb-relay.sh` runs in the nginx image (bash 5, mawk) and `make test` runs its functions on macOS too (bash 3.2, BSD awk): it stays compatible with both, `tests/adb_relay_docker_test.sh` runs its tests in the image. The same for `configuration/wireguard/wireguard.sh` in the alpine image (bash 5, busybox awk) and `tests/wireguard_docker_test.sh`; `configuration/wireguard/network.sh`, the addresses of the tunnel, is shared by it and `zebrunner.sh`.
 
 ## Support
 

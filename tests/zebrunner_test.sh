@@ -36,7 +36,9 @@ if [[ "$1 $2" == "compose run" ]]; then
 fi
 exit 0'
 # curl: the address of ifconfig.me; the STF API answers ${STUB_DIR}/answer with the status ${STUB_DIR}/status (of
-# ${STUB_DIR}/status.user for /api/v1/user when it exists), the configuration of stdin goes to ${STUB_DIR}/curl.stdin
+# ${STUB_DIR}/status.user for /api/v1/user when it exists; ${STUB_DIR}/answer.devices for /api/v1/devices and
+# ${STUB_DIR}/answer.nodes with 200 for GET /api/v1/nodes when they exist), the configuration of stdin goes to
+# ${STUB_DIR}/curl.stdin
 # shellcheck disable=SC2016
 stub curl '[[ "$*" == *ifconfig.me* ]] && echo 203.0.113.10 && exit 0
 (IFS="|"; echo "curl|$*") >> "${STUB_DIR}/calls.log"
@@ -44,6 +46,7 @@ cat > "${STUB_DIR}/curl.stdin"
 answer="${STUB_DIR}/answer"
 status="${STUB_DIR}/status"
 [[ "${*: -1}" == */api/v1/devices* && -f "${STUB_DIR}/answer.devices" ]] && answer="${STUB_DIR}/answer.devices"
+[[ "${*: -1}" == */api/v1/nodes && -f "${STUB_DIR}/answer.nodes" ]] && answer="${STUB_DIR}/answer.nodes" && status="${STUB_DIR}/status.nodes"
 [[ "${*: -1}" == */api/v1/user && -f "${STUB_DIR}/status.user" ]] && status="${STUB_DIR}/status.user"
 cat "$answer" 2> /dev/null
 printf "\n%s" "$(cat "$status" 2> /dev/null || echo 000)"'
@@ -985,22 +988,22 @@ check_contains "a failed migration: the services start" "compose|up|-d" "$(docke
 rm -f "${WORK}/new-token" "${WORK}/migrate-fails"
 
 section "stop, down, restart"
-# with the profile of adb-relay: it stops and goes also when ADB_RELAY was turned off after its start
+# with the profiles of adb-relay, the MDM and wireguard: they stop and go also when they were turned off after their start
 reset_calls
 zbr "" stop > /dev/null
-check "stop" "compose|--profile|adb-relay|--profile|mdm|stop" "$(docker_calls)"
+check "stop" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|stop" "$(docker_calls)"
 reset_calls
 zbr "" down > /dev/null
-check "down" "compose|--profile|adb-relay|--profile|mdm|down" "$(docker_calls)"
+check "down" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down" "$(docker_calls)"
 reset_calls
 zbr "" restart > /dev/null
-check "restart" "compose|--profile|adb-relay|--profile|mdm|down
+check "restart" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down
 network|inspect|infra
 compose|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=true/" "${MCLOUD}/.env"
 reset_calls
 zbr "" restart > /dev/null
-check "restart with adb-relay" "compose|--profile|adb-relay|--profile|mdm|down
+check "restart with adb-relay" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down
 network|inspect|infra
 compose|--profile|adb-relay|up|-d" "$(docker_calls)"
 sed -i.orig "s/^ADB_RELAY=.*/ADB_RELAY=false/" "${MCLOUD}/.env"
@@ -1044,10 +1047,10 @@ echo "changed" > "${MCLOUD}/variables.env"
 reset_calls
 zbr "" restore > /dev/null
 check "restore brings variables.env back" "same" "$(cmp -s "${MCLOUD}/variables.env" "${MCLOUD}/variables.env.bak" && echo same)"
-check_contains "restore stops the services first" "compose|--profile|adb-relay|--profile|mdm|stop" "$(docker_calls | head -1)"
+check_contains "restore stops the services first" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|stop" "$(docker_calls | head -1)"
 check_contains "restore extracts the database" "tar -xzvf /var/backup/rethinkdb.tar.gz" "$(calls docker)"
 check_contains "restore extracts with the image of RethinkDB" "rethinkdb:${tag}|bash" "$(calls docker)"
-check "restore removes the containers at the end" "compose|--profile|adb-relay|--profile|mdm|down" "$(calls docker | tail -1)"
+check "restore removes the containers at the end" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down" "$(calls docker | tail -1)"
 check "restore brings the checksum of nginx.conf back" "same" \
   "$(cmp -s "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256" "${MCLOUD}/configuration/stf-proxy/nginx.conf.sha256.bak" && echo same)"
 # a backup without the checksum (of an earlier MCloud): restore removes the one of the later setup
@@ -1319,6 +1322,233 @@ no_curl "the check without a label" nodes check
 no_curl "the check of an invalid label" nodes check ../x
 rm -f "${WORK}/answer.devices"
 
+section "the WireGuard tunnel of the nodes"
+# the nodes copy of https with STF_TOKEN; wg_setting <name> <value>: a setting of the tunnel in .env
+wg_setting() {
+  sed -i.orig "s|^$1=.*|$1=$2|" "${MCLOUD}/.env"
+}
+# wg_public: the public key of NODES_WG_PRIVATE_KEY of variables.env by patch/curve_keygen.py, base64
+wg_public() {
+  python3 -c 'import base64, subprocess, sys
+key = base64.b64decode(sys.argv[1]).hex()
+public = subprocess.run([sys.executable, sys.argv[2], "-"], input=key, capture_output=True, text=True).stdout.split()[0]
+print(base64.b64encode(bytes.fromhex(public.split("=")[1])).decode())' "$(value variables.env NODES_WG_PRIVATE_KEY)" "${REPO}/patch/curve_keygen.py"
+}
+# compose_json <python expression of the services s>: the expression of `docker compose config` of the copy
+compose_json() {
+  (cd "$MCLOUD" && docker compose "${@:2}" config --format json 2> /dev/null) | python3 -c "import json, sys
+s = json.load(sys.stdin)['services']
+print($1)"
+}
+wg_files="configuration/wireguard/private-key configuration/wireguard/stf-token"
+reset_calls
+zbr "" start > /dev/null
+check "the tunnel is off by default" "false:51820:10.234.0.0/24:5" \
+  "$(value .env NODES_WIREGUARD):$(value .env NODES_WG_PORT):$(value .env NODES_WG_NETWORK):$(value .env NODES_WG_SYNC_SECONDS)"
+check "no derived value without the tunnel" ":::" \
+  "$(value .env NODES_ADDRESS):$(value .env NODES_WG_ENDPOINT):$(value .env NODES_WG_PUBLIC_KEY):$(value .env NODES_WG_SERVER_ADDRESS)"
+check "no private key of the tunnel without it" "" "$(value variables.env NODES_WG_PRIVATE_KEY)"
+check "start without the tunnel starts no wireguard" "network|inspect|infra
+compose|up|-d" "$(docker_calls)"
+for file in $wg_files; do
+  check "${file} is empty without the tunnel" "" "$(cat "${MCLOUD}/${file}")"
+  check "${file} is readable for its owner only" "-rw-------" "$(mode "$file")"
+done
+check "stf-api gets no option of the tunnel without it" "" "$(grep -v '^#' "${MCLOUD}/configuration/wireguard/stf-api.env")"
+if docker compose version > /dev/null 2>&1; then
+  check "without the tunnel the ports of the nodes are on AGENTS_ADDRESS" "0.0.0.0 0.0.0.0 0.0.0.0" \
+    "$(compose_json '" ".join(p.get("host_ip", "") for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if p["target"] in (4446, 7250, 7270))')"
+  check "without the tunnel stf-api gets no STF_API_NODES_WG_*" "[]" \
+    "$(compose_json '[k for k in s["stf-api"]["environment"] if k.startswith("STF_API_NODES_WG")]')"
+  check "wireguard runs with its profile only" "wireguard" \
+    "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) <(docker compose --profile wireguard config --services | sort))"
+fi
+
+wg_setting NODES_WIREGUARD true
+reset_calls
+output="$(zbr "" start)"
+check "start with the tunnel" "0" "$?"
+wg_key="$(value variables.env NODES_WG_PRIVATE_KEY)"
+check "start makes the private key of the tunnel" "yes" "$([[ "$wg_key" =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$ ]] && echo yes)"
+check_contains "the new key is reported" "NODES_WG_PRIVATE_KEY of variables.env is a new private key of the WireGuard tunnel" "$output"
+check_not_contains "the private key is not shown" "$wg_key" "$output"
+check_not_contains "the private key is no argument of a command" "$wg_key" "$(cat "${WORK}/calls.log")"
+check "start starts the profile wireguard" "network|inspect|infra
+compose|--profile|wireguard|up|-d" "$(docker_calls)"
+check "the ports of the nodes on the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_ADDRESS)"
+check "the ZeroMQ endpoints of the nodes at the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_HOST)"
+check "the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_WG_SERVER_ADDRESS)"
+check "the UDP endpoint of the server: the host of STF_URL" "mcloud.example.com:51820" "$(value .env NODES_WG_ENDPOINT)"
+check "the public key of the server" "$(wg_public)" "$(value .env NODES_WG_PUBLIC_KEY)"
+check "the service wireguard gets the private key" "$wg_key" "$(cat "${MCLOUD}/configuration/wireguard/private-key")"
+check "the service wireguard gets STF_TOKEN" "$admin_token" "$(cat "${MCLOUD}/configuration/wireguard/stf-token")"
+for file in $wg_files; do
+  check "${file} is readable for its owner only with the tunnel" "-rw-------" "$(mode "$file")"
+done
+check "stf-api gets the options of the tunnel" "STF_API_NODES_WG_ENDPOINT=mcloud.example.com:51820
+STF_API_NODES_WG_PUBLIC_KEY=$(wg_public)
+STF_API_NODES_WG_SERVER_ADDRESS=10.234.0.1
+STF_API_NODES_WG_NETWORK=10.234.0.0/24" "$(grep -v '^#' "${MCLOUD}/configuration/wireguard/stf-api.env")"
+check_contains "start shows the endpoint of the tunnel" \
+  "WireGuard tunnel of the nodes: the nodes dial mcloud.example.com:51820 (UDP), the ports of the nodes listen on 10.234.0.1 only" "$output"
+check_not_contains "no warning about AGENTS_ADDRESS 0.0.0.0 with the tunnel" "AGENTS_ADDRESS of .env is 0.0.0.0" "$output"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=${admin_token}" "STF_TOKEN="
+output="$(zbr "" start)"
+replace "${MCLOUD}/variables.env" "STF_TOKEN=" "STF_TOKEN=${admin_token}"
+check_contains "the tunnel without STF_TOKEN is reported" \
+  "STF_TOKEN of variables.env is empty: the WireGuard tunnel (NODES_WIREGUARD=true) lets no node in." "$output"
+check "the tunnel without STF_TOKEN: an empty token file" "" "$(cat "${MCLOUD}/configuration/wireguard/stf-token")"
+zbr "" start > /dev/null
+key_inode="$(inode configuration/wireguard/private-key)"
+zbr "" start > /dev/null
+check "start keeps the private key" "$wg_key" "$(value variables.env NODES_WG_PRIVATE_KEY)"
+check "the key file is written in place" "$key_inode" "$(inode configuration/wireguard/private-key)"
+output="$(zbr "$(answers https mcloud.example.com 443 "" "")" setup)"
+check "the setup keeps the tunnel on" "true:10.234.0.0/24" "$(value .env NODES_WIREGUARD):$(value .env NODES_WG_NETWORK)"
+check "the setup keeps the private key" "$wg_key" "$(value variables.env NODES_WG_PRIVATE_KEY)"
+check "the setup writes the derived values" "10.234.0.1:10.234.0.1:$(wg_public)" \
+  "$(value .env NODES_ADDRESS):$(value .env NODES_HOST):$(value .env NODES_WG_PUBLIC_KEY)"
+check "the derived values are in .env once" "1" "$(grep -c '^NODES_WG_PUBLIC_KEY=' "${MCLOUD}/.env")"
+check_contains "the setup explains the invites of the tunnel" \
+  "./zebrunner.sh node-invite <label> prints the join string for ./zebrunner.sh join of mcloud-agent on the node, its WireGuard address is the next free one of NODES_WG_NETWORK" "$output"
+check_contains "the setup reminds of the UDP port" "The nodes dial the UDP port 51820 of this server: open it in the firewall." "$output"
+if docker compose version > /dev/null 2>&1; then
+  check "the ports of the nodes are published on the WireGuard address" "10.234.0.1 10.234.0.1 10.234.0.1" \
+    "$(compose_json '" ".join(p.get("host_ip", "") for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if p["target"] in (4446, 7250, 7270))')"
+  check "stf-proxy is published on every address as before" "" \
+    "$(compose_json '" ".join(p.get("host_ip", "") for p in s["stf-proxy"]["ports"] if p["target"] == 80)')"
+  check "stf-api gets the --nodes-wg-* options" "mcloud.example.com:51820 10.234.0.1 10.234.0.0/24 yes" \
+    "$(compose_json '" ".join(s["stf-api"]["environment"][k] for k in ("STF_API_NODES_WG_ENDPOINT", "STF_API_NODES_WG_SERVER_ADDRESS", "STF_API_NODES_WG_NETWORK")) + " " + ("yes" if s["stf-api"]["environment"]["STF_API_NODES_WG_PUBLIC_KEY"] else "no")')"
+  check "stf-api gives the nodes the ZeroMQ endpoints at the WireGuard address" "tcp://10.234.0.1:7250 tcp://10.234.0.1:7270" \
+    "$(compose_json '" ".join(s["stf-api"]["command"][s["stf-api"]["command"].index(o) + 1] for o in ("--nodes-connect-sub", "--nodes-connect-push"))')"
+  check "no STF unit gets the private key of the tunnel" "" \
+    "$(compose_json '" ".join(n for n, v in s.items() if (v.get("environment") or {}).get("NODES_WG_PRIVATE_KEY"))' --profile wireguard)"
+  check "the service wireguard: the network of the host, NET_ADMIN and the settings of the tunnel" \
+    "host ['NET_ADMIN'] true 51820 10.234.0.0/24 5" \
+    "$(compose_json 'w["network_mode"] + " " + str(w["cap_add"]) + " " + " ".join(w["environment"][k] for k in ("NODES_WIREGUARD", "NODES_WG_PORT", "NODES_WG_NETWORK", "NODES_WG_SYNC_SECONDS")) if (w := s["wireguard"]) else ""' --profile wireguard)"
+  check "the private key is no setting of the service wireguard" "no" \
+    "$(compose_json '"yes" if any("PRIVATE" in k for k in s["wireguard"]["environment"]) else "no"' --profile wireguard)"
+fi
+
+# the invites: lab-1 at 10.234.0.2 with a WireGuard key, lab-2 revoked at 10.234.0.3, legacy of an earlier invite
+wg_nodes="{\"nodes\":[{\"label\":\"lab-1\",\"address\":\"10.234.0.2\",\"publicKey\":\"${key}\",\"status\":\"active\",
+  \"wgPublicKey\":\"$(printf 'A%.0s' {1..43})=\",\"wireguard\":true,\"createdAt\":\"2026-11-09T17:00:00.000Z\",\"lastSeenAt\":null},
+  {\"label\":\"lab-2\",\"address\":\"10.234.0.3\",\"publicKey\":\"${key}\",\"status\":\"revoked\",\"wgPublicKey\":null,
+  \"wireguard\":false,\"createdAt\":\"2026-11-08T10:00:00.000Z\",\"lastSeenAt\":null},
+  {\"label\":\"legacy\",\"address\":\"192.168.1.5\",\"publicKey\":\"${key}\",\"status\":\"active\",\"wireguard\":false,
+  \"createdAt\":\"2026-11-07T10:00:00.000Z\",\"lastSeenAt\":null}]}"
+printf '%s' "$wg_nodes" > "${WORK}/answer.nodes"
+echo 200 > "${WORK}/status.nodes"
+api 201 "{\"invite\":\"${invite}\",\"expiresAt\":\"2026-11-09T18:30:00.000Z\"}"
+reset_calls
+output="$(zbr "" node-invite lab-9)"
+check "an invite with the tunnel needs no address" "0" "$?"
+check "the next free address of the network" "GET|https://127.0.0.1:443/api/v1/nodes
+POST|{\"label\":\"lab-9\",\"address\":\"10.234.0.4\"}" \
+  "$(calls curl | awk -F '|' '{ print $6 "|" ($(NF - 1) ~ /^\{/ ? $(NF - 1) : $NF) }')"
+check_contains "the join string: the host of STF_URL, the grid on the WireGuard address of the server" \
+  $'\n'"mcloud-join://mcloud.example.com:443?label=lab-9&grid=10.234.0.1:4446&pin=${pin_url}&token=${invite}"$'\n' "$output"
+check_contains "the WireGuard address of the node is shown" "The invite of the node lab-9 at 10.234.0.4 (its WireGuard address)" "$output"
+reset_calls
+zbr "" node-invite lab-1 > /dev/null
+check "a node keeps its address" "{\"label\":\"lab-1\",\"address\":\"10.234.0.2\"}" "$(calls curl | tail -1 | awk -F '|' '{print $(NF - 1)}')"
+reset_calls
+zbr "" node-invite lab-9 30 > /dev/null
+check "the validity without an address" "{\"label\":\"lab-9\",\"address\":\"10.234.0.4\",\"ttlMinutes\":30}" \
+  "$(calls curl | tail -1 | awk -F '|' '{print $(NF - 1)}')"
+reset_calls
+zbr "" node-invite lab-9 10.234.0.20 15 > /dev/null
+check "an address of the network and the validity" "1:{\"label\":\"lab-9\",\"address\":\"10.234.0.20\",\"ttlMinutes\":15}" \
+  "$(calls curl | wc -l | tr -d ' '):$(calls curl | tail -1 | awk -F '|' '{print $(NF - 1)}')"
+reset_calls
+zbr "" node-invite lab-9 10.234.0.21 > /dev/null
+check "an address of the network without the validity" "{\"label\":\"lab-9\",\"address\":\"10.234.0.21\"}" \
+  "$(calls curl | tail -1 | awk -F '|' '{print $(NF - 1)}')"
+for address in 10.0.0.5 10.234.0.1 10.234.0.0 10.234.0.255 node.lan; do
+  no_curl "the address ${address} out of the tunnel" node-invite lab-9 "$address"
+  check_contains "the address ${address} out of the tunnel is reported" "is not an address of a node in NODES_WG_NETWORK 10.234.0.0/24" "$output"
+done
+no_curl "the validity 0 with the tunnel" node-invite lab-9 0
+check_contains "the validity 0 with the tunnel is reported" "is not a number of minutes from 1 to 1440" "$output"
+no_curl "the usage of node-invite with the tunnel" node-invite
+check_contains "the usage with the tunnel" "Usage: ./zebrunner.sh node-invite <label> [<address>] [<minutes>]" "$output"
+wg_setting NODES_WG_NETWORK 10.234.0.0/30
+output="$(zbr "" node-invite lab-9)"
+check "a full network fails" "1" "$?"
+check_contains "a full network is reported" "NODES_WG_NETWORK 10.234.0.0/30 has no free address for the node lab-9" "$output"
+wg_setting NODES_WG_NETWORK 10.234.0.0/24
+echo 401 > "${WORK}/status.nodes"
+output="$(zbr "" node-invite lab-9)"
+check "a failed list of the nodes fails the invite" "1" "$?"
+echo 200 > "${WORK}/status.nodes"
+check_contains "a failed list of the nodes is explained" "The list of the nodes for the WireGuard address of the node lab-9 failed" "$output"
+output="$(zbr "" nodes)"
+check "the nodes with their tunnel" "LABEL ADDRESS STATUS LAST SEEN ENROLLED KEY WIREGUARD
+lab-1 10.234.0.2 active - 2026-11-09T17:00:00 abababababababab... yes
+lab-2 10.234.0.3 revoked - 2026-11-08T10:00:00 abababababababab... no
+legacy 192.168.1.5 active - 2026-11-07T10:00:00 abababababababab... no" "$(tr -s ' ' <<< "$output")"
+
+# the settings the service cannot take: nothing starts
+for setting in "NODES_WG_NETWORK 10.233.0.0/24" "NODES_WG_NETWORK 10.234.0.1/24" "NODES_WG_NETWORK 8.8.8.0/24" \
+  "NODES_WG_PORT 70000" "NODES_WG_PORT x"; do
+  current="$(value .env "${setting% *}")"
+  wg_setting "${setting% *}" "${setting#* }"
+  reset_calls
+  output="$(zbr "" start)"
+  check "${setting} fails start" "1" "$?"
+  check_contains "${setting} is explained" "The services are not started: ${setting% *} of .env '${setting#* }'" "$output"
+  check "${setting} starts nothing" "" "$(calls docker | grep '^compose|')"
+  wg_setting "${setting% *}" "$current"
+done
+wg_setting NODES_WG_SYNC_SECONDS 0
+check_contains "an invalid NODES_WG_SYNC_SECONDS is reported" \
+  "NODES_WG_SYNC_SECONDS of .env '0' is not a number of seconds: the tunnel reads the nodes every 5 seconds." "$(zbr "" start)"
+wg_setting NODES_WG_SYNC_SECONDS 5
+replace "${MCLOUD}/variables.env" "NODES_WG_PRIVATE_KEY=${wg_key}" "NODES_WG_PRIVATE_KEY=secret"
+reset_calls
+output="$(zbr "" start)"
+check "a private key that is not a key fails start" "1" "$?"
+check_contains "a private key that is not a key is explained" "NODES_WG_PRIVATE_KEY of variables.env is not a WireGuard key" "$output"
+replace "${MCLOUD}/variables.env" "NODES_WG_PRIVATE_KEY=secret" "NODES_WG_PRIVATE_KEY="
+stub openssl 'exit 1'
+zbr "" start > /dev/null
+rm -f "${WORK}/bin/openssl"
+check "python3 makes the key without openssl" "$(wg_public)" "$(value .env NODES_WG_PUBLIC_KEY)"
+wg_key="$(value variables.env NODES_WG_PRIVATE_KEY)"
+wg_setting NODES_WIREGUARD yes
+reset_calls
+output="$(zbr "" start)"
+check_contains "an invalid NODES_WIREGUARD is reported" "NODES_WIREGUARD of .env is 'yes', not true or false: the WireGuard tunnel of the nodes is off." "$output"
+check "an invalid NODES_WIREGUARD starts no wireguard" "network|inspect|infra
+compose|up|-d" "$(docker_calls)"
+
+# off again: as before the tunnel, the key is kept for the next time
+wg_setting NODES_WIREGUARD false
+reset_calls
+output="$(zbr "" start)"
+check "the tunnel off again starts no wireguard" "network|inspect|infra
+compose|up|-d" "$(docker_calls)"
+check "the tunnel off again: no derived value" "mcloud.example.com::::" \
+  "$(value .env NODES_HOST):$(value .env NODES_ADDRESS):$(value .env NODES_WG_ENDPOINT):$(value .env NODES_WG_PUBLIC_KEY):$(value .env NODES_WG_SERVER_ADDRESS)"
+check "the tunnel off again keeps the private key in variables.env" "$wg_key" "$(value variables.env NODES_WG_PRIVATE_KEY)"
+for file in $wg_files; do
+  check "${file} is empty again without the tunnel" "" "$(cat "${MCLOUD}/${file}")"
+done
+check "stf-api gets no option of the tunnel again" "" "$(grep -v '^#' "${MCLOUD}/configuration/wireguard/stf-api.env")"
+check_contains "the join string without the tunnel is the one before it" \
+  $'\n'"mcloud-join://mcloud.example.com:443?label=lab-9&grid=mcloud.example.com:4446&pin=${pin_url}&token=${invite}"$'\n' \
+  "$(zbr "" node-invite lab-9 10.0.0.9)"
+no_curl "an invite without the tunnel needs the address" node-invite lab-9
+check "the nodes without the tunnel as before" "LABEL ADDRESS STATUS LAST SEEN ENROLLED KEY" "$(zbr "" nodes | head -1 | tr -s ' ' | sed 's/ $//')"
+rm -f "${WORK}/answer.nodes" "${WORK}/status.nodes"
+sed -i.orig '/^NODES_WG_PRIVATE_KEY=/d' "${MCLOUD}/variables.env"
+wg_setting NODES_WIREGUARD true
+zbr "" start > /dev/null
+check "start adds the private key to a variables.env of an earlier MCloud" "yes" \
+  "$([[ "$(value variables.env NODES_WG_PRIVATE_KEY)" =~ ^[A-Za-z0-9+/]{43}=$ ]] && echo yes)"
+wg_setting NODES_WIREGUARD false
+zbr "" start > /dev/null
+
 section "stf-proxy"
 conf="$(cat "${MCLOUD}/configuration/stf-proxy/nginx.conf")"
 # block <start>: the lines of a block of the nginx configuration from its first line to its end
@@ -1403,7 +1633,7 @@ check "a declined shutdown keeps the settings" "yes:" "$([[ -f "${MCLOUD}/.env" 
 zbr_env=(SHUTDOWN_CONFIRMED=1)
 zbr "" shutdown > /dev/null
 zbr_env=()
-check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|--profile|mdm|down|-v" "$(docker_calls)"
+check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down|-v" "$(docker_calls)"
 for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
   configuration/stf-proxy/grid-auth.conf configuration/stf-proxy/nginx.conf.sha256; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
