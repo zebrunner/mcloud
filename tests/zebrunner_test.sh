@@ -1342,8 +1342,8 @@ check_contains "the node gets no internal token" 'proxy_set_header X-Stf-Interna
 check_contains "the node gets the screen ticket of stf-api" \
   "auth_request_set \$screen_ticket \$upstream_http_x_mcloud_screen_ticket;" "$screen"
 check_contains "the screen ticket goes to the node" "proxy_set_header X-MCloud-Screen-Ticket \$screen_ticket;" "$screen"
-check_contains "the internal routes of the registry and the decision about the grid are refused" "return 403;" \
-  "$(block "location ~* ^/api/v1/zebrunner/(nodes|hub-auth) {")"
+check_contains "the internal routes of the registry, the decisions about the grid and the screens are refused" \
+  "return 403;" "$(block "location ~* ^/api/v1/zebrunner/(nodes|hub-auth|screen-auth) {")"
 check "the node gets no X-Stf-* header" "" "$(grep -i 'proxy_set_header *X-Stf' <<< "$screen" | grep -v ' "";$')"
 hub="$(block 'location  ~ ^/mcloud/wd/(.*)$ {')"
 check_contains "the hub is for the users of an access token" "auth_request /_hub_auth/hub;" "$hub"
