@@ -304,7 +304,8 @@ doctor_tls() {
 }
 
 # doctor_services: every service of docker-compose.yml (with the profiles of ADB_RELAY and MDM_ENABLED) is created
-# and runs (healthy where it has a healthcheck, stf-migrate exited with 0) without restarting again and again
+# and runs (healthy where it has a healthcheck) without restarting again and again; the one-shot services (stf-migrate,
+# mcloud-mdm-hmdm-init of the MDM) run once at the start and exit with 0
 doctor_services() {
   local profiles=()
   local services ps service line state health code name restarts dir
@@ -338,12 +339,16 @@ doctor_services() {
       continue
     fi
     IFS='|' read -r _ state health code name <<< "$line"
-    if [[ "$service" == "stf-migrate" ]]; then
-      if [[ "$state" == "exited" && "$code" == "0" ]]; then
-        count=$((count + 1))
-      elif [[ "$state" == "exited" ]]; then
+    # the one-shot services: running is still at work, exited with 0 is done
+    if [[ "$service" == "stf-migrate" || "$service" == "mcloud-mdm-hmdm-init" ]]; then
+      if [[ "$state" == "exited" && "$code" != "0" ]]; then
         problems=$((problems + 1))
-        doctor_fail "stf-migrate, the migration of the database of STF, failed (exit ${code}): STF does not start." "docker logs ${name}"
+        if [[ "$service" == "stf-migrate" ]]; then
+          doctor_fail "stf-migrate, the migration of the database of STF, failed (exit ${code}): STF does not start." "docker logs ${name}"
+        else
+          doctor_fail "mcloud-mdm-hmdm-init, the setup of the admin of Headwind MDM, failed (exit ${code}): mcloud-mdm does not log in to Headwind MDM, the MDM of Android does not work." \
+            "docker logs ${name}; ./zebrunner.sh start (README.md#mdm)"
+        fi
       else
         count=$((count + 1))
       fi
