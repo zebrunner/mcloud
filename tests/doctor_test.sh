@@ -214,6 +214,19 @@ check_contains "a mock sign-in without a password of the admins fails" \
   "The mock sign-in has no password of the admins" "$OUT"
 check_not_contains "the secrets are not reported as set" "The secrets of variables.env are set" "$OUT"
 healthy
+zbr doctor
+check_contains "the mock sign-in at a public address is a warning" "The mock sign-in is on at a public address" "$OUT"
+for url in https://10.0.0.5 http://192.168.1.20:8082 https://172.20.1.1 https://farm.lan https://LOCALHOST:8443; do
+  healthy
+  set_value .env STF_URL "$url"
+  zbr doctor
+  check_not_contains "the mock sign-in at ${url} is no warning" "The mock sign-in is on at a public address" "$OUT"
+done
+healthy
+set_value .env AUTH_SYSTEM auth-oauth2
+zbr doctor
+check_not_contains "another sign-in at a public address is no warning" "The mock sign-in is on at a public address" "$OUT"
+healthy
 set_value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY "$(printf 'b%.0s' $(seq 64))"
 zbr doctor
 check_contains "a public CURVE key of another secret key fails" "STF_ZMQ_CURVE_SERVER_PUBLIC_KEY of variables.env is not the public key" "$OUT"
