@@ -213,6 +213,8 @@ for path in /mcloud /mcloud/ /mcloud/grid/api/hub /mcloud/grid/api/proxy /mcloud
 done
 check "the decision about the grid is not a route of the users" "403" "$(http_code /api/v1/zebrunner/hub-auth "${john[@]}")"
 check "another case of it neither" "403" "$(http_code /API/v1/Zebrunner/Hub-Auth "${john[@]}")"
+check "the screen tickets are not a route of the users" "403 403" \
+  "$(http_code /api/v1/zebrunner/screen-auth "${john[@]}") $(http_code /API/v1/Zebrunner/Screen-Auth/ "${john[@]}")"
 
 section "the grid of the nodes"
 # grid_code <method> <path>: the status of a request to the port of the nodes (4446)
@@ -238,7 +240,7 @@ for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Z
   //api//v1/zebrunner/nodes/keys /api/v1/zebrunner/%6Eodes/keys /api/v1/zebrunner/nodes; do
   check "${path} is refused" "403" "$(http_code "$path" -H "X-Stf-Internal-Token: guess")"
 done
-check "the screen decision of the API is not an internal route (401 of stf-api)" "401" \
+check "the screen decision of the API is for stf-proxy only, not even signed out" "403" \
   "$(http_code /api/v1/zebrunner/screen-auth)"
 
 section "the hub"
