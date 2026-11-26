@@ -225,11 +225,9 @@ services:
     healthcheck:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7160, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+    # not published: the nodes connect to the PUB (7250) and the PULL (7270) of stf-triproxy-dev only, the dealers are for
+    # the server units (STF refuses the keys of the nodes on them)
     command: stf triproxy app001 --bind-pub "tcp://*:7150" --bind-dealer "tcp://*:7160" --bind-pull "tcp://*:7170"
-    # the nodes connect to the dealer only; their ZeroMQ ports are on AGENTS_ADDRESS, the host of the join string of
-    # ./zebrunner.sh node-invite
-    ports:
-      - "${AGENTS_ADDRESS}:7160:7160"
   stf-triproxy-dev:
     <<: *stf
     container_name: stf-triproxy-dev
@@ -237,9 +235,10 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7260, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy dev001 --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
+    # the ZeroMQ ports of the nodes, on AGENTS_ADDRESS (the host of the join string of ./zebrunner.sh node-invite): the
+    # devices subscribe to the PUB and push to the PULL; the dealer is for the server units only
     ports:
       - "${AGENTS_ADDRESS}:7250:7250"
-      - "${AGENTS_ADDRESS}:7260:7260"
       - "${AGENTS_ADDRESS}:7270:7270"
   stf-websocket:
     <<: *stf

@@ -117,7 +117,7 @@ check "doctor of the started services passes" "0" "$?"
 output="$(unwrap < "${WORK}/doctor.txt")"
 check_contains "doctor sees the admin token" "STF_TOKEN is an access token of the admin" "$output"
 check_contains "doctor sees the grid" "The grid answers on 127.0.0.1:4446" "$output"
-check_contains "doctor sees the ports of the nodes" "The ports of the nodes listen on 127.0.0.1: 4446, 7160, 7250, 7260, 7270" "$output"
+check_contains "doctor sees the ports of the nodes" "The ports of the nodes listen on 127.0.0.1: 4446, 7250, 7270" "$output"
 check_contains "doctor finds no failure" "0 fail" "$output"
 
 section "STF"
@@ -217,8 +217,9 @@ check "the image is resized" "50x25" \
 section "authentication of the nodes"
 check "the password of RethinkDB is generated" "48" "$(sed -n 's/^RETHINKDB_ENV_AUTHKEY=//p' "${MCLOUD}/variables.env" | tr -d '\n' | wc -c | tr -d ' ')"
 check "RethinkDB is not published on the host" "" "$(docker port rethinkdb)"
-check "ZeroMQ of the STF units is published for the nodes only" "7160/tcp -> 0.0.0.0:7160" \
-  "$(docker port stf-triproxy-app | grep -v '::')"
+check "ZeroMQ of the STF units is not published" "" "$(docker port stf-triproxy-app)"
+check "the PUB and the PULL of the devices are published for the nodes, no dealer" \
+  "7250/tcp -> 0.0.0.0:7250 7270/tcp -> 0.0.0.0:7270" "$(docker port stf-triproxy-dev | grep -v '::' | sort | tr '\n' ' ' | sed 's/ $//')"
 stf_image="$(docker inspect --format '{{.Config.Image}}' stf-app)"
 run_check "RethinkDB refuses a connection without its password" docker run --rm --network infra "$stf_image" \
   node -e "require('rethinkdb').connect({host: 'rethinkdb'}).then(() => process.exit(1), () => process.exit(0))"
