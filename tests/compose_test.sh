@@ -171,6 +171,27 @@ if [[ "$screen_auth" != "404" ]]; then
 else
   skip_check "the screens allowed by stf-api" "the STF of TAG_STF has no /api/v1/zebrunner/screen-auth"
 fi
+# an admin of STF signs in with the password of the admins only (README.md#sign-in)
+admin_user="$(sed -n "s/^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME='\(.*\)'$/\1/p" "${MCLOUD}/variables.env")"
+admin_password="$(sed -n "s/^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD='\(.*\)'$/\1/p" "${MCLOUD}/variables.env")"
+admin_name="$(sed -n "s/^STF_ADMIN_NAME='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "${MCLOUD}/variables.env")"
+admin_email="$(sed -n "s/^STF_ADMIN_EMAIL='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "${MCLOUD}/variables.env")"
+# mock_sign_in <basic credentials> <name> <email>: the HTTP status of the mock sign-in
+mock_sign_in() {
+  local cookies="${WORK}/cookies-${RANDOM}" xsrf
+  curl -s -o /dev/null -c "$cookies" -u "$1" --max-time 10 "${URL}/auth/mock/"
+  xsrf="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$cookies")"
+  curl -s -o /dev/null -w '%{http_code}' -b "$cookies" -u "$1" --max-time 10 -H "Content-Type: application/json" \
+    -H "Accept: application/json" -H "X-XSRF-TOKEN: ${xsrf}" -d "{\"name\":\"$2\",\"email\":\"$3\"}" \
+    "${URL}/auth/api/v1/mock"
+}
+check "the password of the users signs in no admin" "400" "$(mock_sign_in "$sign_in" "$admin_name" "$admin_email")"
+check "the password of the admins signs the admin in" "200" \
+  "$(mock_sign_in "${admin_user}:${admin_password}" "$admin_name" "$admin_email")"
+check_contains "stf-auth gets the password of the admins" "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=${admin_password}" \
+  "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' stf-auth)"
+check "the other STF units get it empty" "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=" \
+  "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' stf-api | grep '^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=')"
 check "a port below 1024 is not proxied" "302" "$(http_code /d/stf-app/serial/80/)"
 check "/appium/ is not proxied" "302" "$(http_code /appium/mcloud-grid/4444/)"
 

@@ -108,6 +108,7 @@ healthy() {
   set_value variables.env GRID_AUTH_SECRET grid-secret
   set_value variables.env STF_TOKEN "$TOKEN"
   set_value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD "'sign-in-password'"
+  set_value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD "'admin-password'"
   secret="$(python3 "${REPO}/patch/curve_keygen.py" | sed -n 's/^secret=//p')"
   public="$(printf '%s' "$secret" | python3 "${REPO}/patch/curve_keygen.py" - | sed -n 's/^public=//p')"
   set_value variables.env STF_ZMQ_CURVE_SERVER_SECRET_KEY "$secret"
@@ -204,10 +205,13 @@ healthy
 set_value variables.env SECRET password
 set_value variables.env GRID_AUTH_SECRET ""
 set_value variables.env STF_AUTH_MOCK_BASIC_AUTH_PASSWORD "''"
+set_value variables.env STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD "''"
 zbr doctor
 check_contains "the default SECRET fails" "SECRET of variables.env is empty or the default one" "$OUT"
 check_contains "an empty secret fails" "Empty secrets of variables.env: GRID_AUTH_SECRET." "$OUT"
 check_contains "a mock sign-in without a password fails" "The mock sign-in has no password" "$OUT"
+check_contains "a mock sign-in without a password of the admins fails" \
+  "The mock sign-in has no password of the admins" "$OUT"
 check_not_contains "the secrets are not reported as set" "The secrets of variables.env are set" "$OUT"
 healthy
 set_value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY "$(printf 'b%.0s' $(seq 64))"

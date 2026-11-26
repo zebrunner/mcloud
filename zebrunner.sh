@@ -152,6 +152,10 @@ setup() {
   if [[ "$sign_in" == "mock" && -z "$STF_AUTH_MOCK_BASIC_AUTH_PASSWORD" ]]; then
     STF_AUTH_MOCK_BASIC_AUTH_PASSWORD="$(random_string 24)"
   fi
+  # the password of the admins: the shared one of the users signs in no admin (README.md#sign-in)
+  if [[ "$sign_in" == "mock" && -z "$STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD" ]]; then
+    STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD="$(random_string 24)"
+  fi
 
   # the placeholder of variables.env.original; a change of the secret would end the sessions and invalidate the access
   # tokens (STF_TOKEN) of the deployment, so the one of the previous setup is kept
@@ -228,6 +232,7 @@ setup() {
   fi
   if [[ "$sign_in" == "mock" ]]; then
     ui_callout note "The sign-in of STF asks the user '${STF_AUTH_MOCK_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_BASIC_AUTH_* of variables.env), then any name and email: share them with the users of STF only." "SIGN-IN"
+    admin_sign_in_note
   fi
 }
 
@@ -296,6 +301,7 @@ start() {
   if ! write_grid_env; then
     return 1
   fi
+  ensure_mock_admin_auth
   protect_files
   # nginx of stf-proxy does not start without the certificate of https; the containers of another folder are not
   # replaced
@@ -1350,6 +1356,32 @@ write_stf_token() {
   chmod 600 "$file"
 }
 
+# admin_sign_in_note: the user and the password of the admins of the mock sign-in (README.md#sign-in)
+admin_sign_in_note() {
+  ui_callout note "The admins of STF sign in with the user '${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME}' and the password '${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD}' (STF_AUTH_MOCK_ADMIN_BASIC_AUTH_* of variables.env), then their name and email: keep them for the admins, the password of the users signs in no admin." "SIGN-IN OF THE ADMINS"
+}
+
+# ensure_mock_admin_auth: the user and the password of the admins of the mock sign-in for a variables.env of an
+# earlier MCloud (README.md#sign-in): with them the shared password of the users signs in no admin of STF; shown once,
+# when they are made. Nothing for another sign-in
+ensure_mock_admin_auth() {
+  if [[ ! -f variables.env || "$(sed -n 's/^AUTH_SYSTEM=//p' .env 2> /dev/null)" != "auth-mock" ]]; then
+    return 0
+  fi
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD="$(sed -n "s/^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=//p" variables.env)"
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD="${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD//\'/}"
+  if [[ -n "$STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD" ]]; then
+    return 0
+  fi
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME="$(sed -n "s/^STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME=//p" variables.env)"
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME//\'/}"
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME:-mcloud-admin}"
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD="$(random_string 24)"
+  set_line variables.env "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME=${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME}"
+  set_line variables.env "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD}"
+  admin_sign_in_note
+}
+
 # write_grid_env: grid.env, the env file of mcloud-grid (docker-compose.yml): the lines of STF_TOKEN and
 # PLAYWRIGHT_ENABLED of variables.env, the only variables of it the grid reads, so the grid gets none of the other
 # secrets, and GRID_AUTH_SECRET (README.md#access-to-the-grid), which configuration/stf-proxy/grid-auth.conf gives
@@ -1432,6 +1464,7 @@ set_sign_in() {
   case "$ZBR_MCLOUD_SIGN_IN" in
   mock)
     STF_AUTH_MOCK_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_BASIC_AUTH_USERNAME:-mcloud}"
+    STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME="${STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME:-mcloud-admin}"
     ;;
   oauth2)
     ui_info "OAuth2 / OpenID Connect: the application of MCloud at the provider redirects to ${1}/auth/oauth/callback"
