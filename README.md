@@ -241,7 +241,7 @@ The ports of the host and who needs them; close the others:
 | Port | Service | Clients |
 | --- | --- | --- |
 | `STF_PORT` | `stf-proxy` | the users, the tests, the nodes (the enrollment, the storage, the diagnostics) |
-| `7160`, `7250`, `7260`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-app`, `stf-triproxy-dev`) | the nodes |
+| `7250`, `7270` (`AGENTS_ADDRESS`) | ZeroMQ of STF (`stf-triproxy-dev`: the devices subscribe to `7250` and push to `7270`; the dealers `7160`, `7260` are not published, STF refuses the keys of the nodes there) | the nodes |
 | `4446` (`AGENTS_ADDRESS`) | `stf-proxy` -> `mcloud-grid` | the nodes: the registration of Appium only (`/grid/register`, `GET /grid/api/proxy`), the other paths answer `403`; the tests use `/mcloud/wd/hub` of `STF_PORT` |
 | `MDM_MQTT_PORT` (`31443`) | `mcloud-mdm-mqtt` (optional) | the Android agents of `MDM_SITE_ADDRESSES`: MQTT over TLS of the MDM, see [MDM](#mdm) |
 | `ADB_RELAY_PORTS` | `adb-relay` (optional) | the users: `adb connect` of the remote debug of the devices of the nodes in a private network, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
@@ -313,7 +313,7 @@ mcloud-join://<host>:<port>?label=<label>&grid=<grid host>:<grid port>&pin=<pin>
 | `pin` | base64 of the SHA-256 of the public key (DER SubjectPublicKeyInfo) of `configuration/stf-proxy/ssl/ssl.crt`, as `curl --pinnedpubkey 'sha256//<pin>'` takes it, with `+`, `/` and `=` percent-encoded (`%2B`, `%2F`, `%3D`); `node-invite` also prints it as it is |
 | `token` | the invite, `mci1.<secret>` |
 
-The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`) and their host from the join string: the triproxies publish `7160`, `7250`, `7260` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
+The parameters are in this order and URL-safe. The node takes the ports of ZeroMQ from the answer of the enrollment (`stf-api` gives `tcp://<NODES_HOST>:<port>`) and their host from the join string: the triproxies publish `7250` and `7270` on `AGENTS_ADDRESS`, the same host, see [Firewall](#firewall) (the dealers `7160` and `7260` of the answer are not published: the nodes do not use them). The answer also has the public URL of MCloud for the node, `STF_URL` of `variables.env`. A new certificate of `stf-proxy` changes the pin of the next invites.
 
 ### Commands of the nodes
 
@@ -348,7 +348,7 @@ The server of MCloud may be a node too: mcloud-agent on the same machine, its de
 
 1. Set `AGENTS_ADDRESS` of `.env` to the LAN address of the machine (not `127.0.0.1`, not `0.0.0.0`) and run `./zebrunner.sh restart`: the ports of the nodes are published on it and the join string has it; the device containers reach `stf-proxy`, the grid and the triproxies there. With `0.0.0.0` the node gets the public name of `STF_URL`, which the machine often does not reach from inside (NAT hairpin): `start` warns about it.
 2. Invite the node with the same LAN address: `./zebrunner.sh node-invite <label> <LAN address>`; a loopback address, `localhost` or `0.0.0.0` is refused, the server connects to the screens and Appium of the node at that address.
-3. The ports of the devices in mcloud-agent (`appium_port`, `adb_port`, `min_port`-`max_port`, `connect_port`) must not be the ports of MCloud: `STF_PORT`, `4446`, `7160`, `7250`, `7260`, `7270` and the ports of `ADB_RELAY_PORTS` (with `ADB_RELAY=true`); `./zebrunner.sh doctor` of mcloud-agent checks the collisions.
+3. The ports of the devices in mcloud-agent (`appium_port`, `adb_port`, `min_port`-`max_port`, `connect_port`) must not be the ports of MCloud: `STF_PORT`, `4446`, `7250`, `7270` and the ports of `ADB_RELAY_PORTS` (with `ADB_RELAY=true`); `./zebrunner.sh doctor` of mcloud-agent checks the collisions.
 4. `./zebrunner.sh nodes check <label>` shows whether `stf-proxy` reaches the screens of the devices.
 
 ### Security
@@ -385,7 +385,7 @@ All the services but `adb-relay` (the network of the host) and the MDM are in th
 | `stf-migrate` | `public.ecr.aws/zebrunner/stf` | creates and updates the tables of the database (the registry of the nodes too), the other STF units start after it |
 | `stf-app`, `stf-auth`, `stf-api`, `stf-websocket` | `public.ecr.aws/zebrunner/stf` | the UI, the sign-in, the REST API (the registry of the nodes too) and the websocket of STF |
 | `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` | `public.ecr.aws/zebrunner/stf` | the device events (the binding of the devices to their nodes), the heartbeats and the groups of STF |
-| `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7160` and `7250`-`7270` of the host (`AGENTS_ADDRESS`) |
+| `stf-triproxy-app`, `stf-triproxy-dev` | `public.ecr.aws/zebrunner/stf` | the message brokers of the STF units and of the devices, the ports `7250` and `7270` of the host (`AGENTS_ADDRESS`) |
 | `stf-storage-temp`, `stf-storage-plugin-apk`, `stf-storage-plugin-image` | `public.ecr.aws/zebrunner/stf` | the storage of the apps and screenshots, the volume `stf-temp-volume`; for the STF units and the tokens of the nodes only |
 | `mcloud-mdm`, `mcloud-mdm-nanohub`, `mcloud-mdm-mysql`, `mcloud-mdm-hmdm`, `mcloud-mdm-postgres`, `mcloud-mdm-hmdm-init`, `mcloud-mdm-mqtt` | `public.ecr.aws/zebrunner/mcloud-mdm`, `ghcr.io/micromdm/nanohub`, `mysql`, `headwindmdm/hmdm`, `postgres`, `nginx` | optional, with `MDM_ENABLED=true` only: the MDM of the devices, see [MDM](#mdm) |
 | `adb-relay` | `nginx` | optional, with `ADB_RELAY=true` only: the TCP relay of the remote debug ports of the devices of the nodes in a private network, in the network of the host, see [Remote debug through the adb relay](#remote-debug-through-the-adb-relay) |
@@ -456,7 +456,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | TLS | for https: the certificate and its key, not the shared pair of Zebrunner CE, its expiry (`warn` within 30 days), its host (the host of `STF_URL`, with an openssl that has `-checkhost`), self-signed or not |
 | Services | the services of `docker-compose.yml` (with the profiles of `ADB_RELAY` and `MDM_ENABLED`) are created and run, healthy where they have a healthcheck, the one-shot services (`stf-migrate`, `mcloud-mdm-hmdm-init` of the MDM) exited with `0`, no service restarted more than 3 times, the project is not the one of another folder |
 | STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` |
-| Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7160`, `7250`, `7260`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS`; the firewall is not seen from the server, see [Firewall](#firewall) |
+| Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7250`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS`; the firewall is not seen from the server, see [Firewall](#firewall) |
 | Nodes | the enrolled nodes (`warn` without one), [`nodes check`](#diagnostics) of every active node |
 
 The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent).

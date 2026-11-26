@@ -9,7 +9,7 @@ DOCTOR_WARN=0
 DOCTOR_FAIL=0
 # the ports the nodes connect to on AGENTS_ADDRESS (docker-compose.yml, README.md#firewall): the grid (the
 # registration of Appium) and ZeroMQ of STF (stf-triproxy-app, stf-triproxy-dev)
-DOCTOR_NODE_PORTS="4446 7160 7250 7260 7270"
+DOCTOR_NODE_PORTS="4446 7250 7270"
 # the disk of docker: a warning and a failure from this usage, percent
 DOCTOR_DISK_WARN=85
 DOCTOR_DISK_FAIL=95

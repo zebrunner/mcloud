@@ -139,7 +139,7 @@ for line in "Docker 29.1.0" "docker compose 2.29.7" "The disk of docker (/var/li
   "The certificate is valid until" "The certificate is self-signed" "The 6 services run" \
   "STF_TOKEN is an access token of the admin admin@zebrunner.com" "The grid answers on 10.0.0.5:4446" \
   "STF_URL https://mcloud.example.com answers from this server (HTTP 302)" \
-  "The ports of the nodes listen on 10.0.0.5: 4446, 7160, 7250, 7260, 7270" \
+  "The ports of the nodes listen on 10.0.0.5: 4446, 7250, 7270" \
   "Node lab-1 (10.0.0.7, last seen 2026-11-24T10:00:00): ./zebrunner.sh nodes check lab-1 passes"; do
   check_contains "ok: ${line}" "$line" "$OUT"
 done
@@ -294,7 +294,7 @@ set_value .env ADB_RELAY true
 set_value .env MDM_ENABLED true
 zbr doctor
 check_contains "the profiles of ADB_RELAY and MDM_ENABLED" "compose|--profile|adb-relay|--profile|mdm|ps|-a" "$(calls docker)"
-check_contains "the MQTT port of the MDM is a port of the nodes" "4446, 7160, 7250, 7260, 7270, 31443" "$OUT"
+check_contains "the MQTT port of the MDM is a port of the nodes" "4446, 7250, 7270, 31443" "$OUT"
 
 section "the STF API and the grid"
 healthy
@@ -327,9 +327,9 @@ zbr doctor
 check_contains "STF_URL that does not answer from the server is a warning" "STF_URL https://mcloud.example.com does not answer from this server" "$OUT"
 check "STF_URL from the server does not fail" "0" "$STATUS"
 healthy
-printf '7160\n7270\n' > "${WORK}/closed-ports"
+printf '7250\n7270\n' > "${WORK}/closed-ports"
 zbr doctor
-check_contains "closed ports of the nodes fail" "Ports of the nodes do not listen on 10.0.0.5: 7160, 7270." "$OUT"
+check_contains "closed ports of the nodes fail" "Ports of the nodes do not listen on 10.0.0.5: 7250, 7270." "$OUT"
 
 section "the nodes"
 healthy
