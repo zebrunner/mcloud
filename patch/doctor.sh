@@ -28,6 +28,16 @@ doctor_warn() {
   ui_warn "$@"
 }
 
+# private_url_host <url>: whether the host of the URL is a loopback or private address, or a name of a local network
+# (localhost, *.local, *.lan, *.internal, *.home.arpa)
+private_url_host() {
+  local host="${1#*://}"
+  host="${host%%[/:]*}"
+  host="$(tr '[:upper:]' '[:lower:]' <<< "$host")"
+  [[ "$host" =~ ^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.) || "$host" == localhost ||
+    "$host" =~ \.(local|lan|internal|home\.arpa)$ ]]
+}
+
 # doctor_fail <message> [<fix>]: a check that breaks something
 doctor_fail() {
   DOCTOR_FAIL=$((DOCTOR_FAIL + 1))
@@ -224,6 +234,11 @@ doctor_settings() {
   fi
   if [[ "$secrets_ok" -eq 1 ]]; then
     doctor_ok "The secrets of variables.env are set"
+  fi
+  # the mock sign-in trusts every holder of the shared password of the users (README.md#sign-in)
+  if [[ "$(doctor_value .env AUTH_SYSTEM)" == "auth-mock" ]] && ! private_url_host "$(doctor_value .env STF_URL)"; then
+    doctor_warn "The mock sign-in is on at a public address: whoever has the password of the users signs in as any user who is not an admin, with the devices and the access tokens of that user." \
+      "the sign-in oauth2 or ldap of ./zebrunner.sh setup for a farm on the internet (README.md#sign-in)"
   fi
   private_files=""
   for file in variables.env grid.env backup/settings.env configuration/stf-proxy/ssl/ssl.key configuration/adb-relay/stf-token; do
