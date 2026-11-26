@@ -21,6 +21,10 @@ configuration/stf-proxy/nginx.conf
 configuration/stf-proxy/nginx.conf.previous
 configuration/stf-proxy/nginx.conf.sha256
 configuration/adb-relay/stf-token
+# the files of the WireGuard tunnel of the nodes (README.md#wireguard-tunnel-of-the-nodes)
+configuration/wireguard/private-key
+configuration/wireguard/stf-token
+configuration/wireguard/stf-api.env
 configuration/stf-proxy/grid-auth.conf
 # the secrets and the MQTT proxy of the MDM (README.md#mdm)
 mdm.env

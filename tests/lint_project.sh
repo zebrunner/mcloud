@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034
 # The settings and the checks of the project for tests/lint.sh (CONVENTIONS.md): mcloud.
 
-scripts=(zebrunner.sh patch/*.sh configuration/adb-relay/*.sh configuration/mdm/*.sh tests/*.sh tests/e2e/*.sh)
+scripts=(zebrunner.sh patch/*.sh configuration/adb-relay/*.sh configuration/mdm/*.sh configuration/wireguard/*.sh tests/*.sh tests/e2e/*.sh)
 # the static files of the Selenium grid console served by stf-proxy
 generated=(configuration/stf-proxy/grid)
 # no image
@@ -29,6 +29,7 @@ project_checks() {
     run_check "docker compose config with .env.original and variables.env.original" compose_config
     run_check "docker compose config with the profile adb-relay" compose_config --profile adb-relay
     run_check "docker compose config with the profile mdm" compose_config --profile mdm
+    run_check "docker compose config with the profile wireguard" compose_config --profile wireguard
     local networks
     networks="$(compose_networks)"
     check "the MDM services are not in infra, the network of the containers of the devices" "mcloud-mdm mdm

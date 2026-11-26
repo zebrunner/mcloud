@@ -12,7 +12,8 @@ copy_repo "$MCLOUD"
 
 # the stubs read their answers from ${STUB_DIR}: docker-down (no daemon), compose-version, disk (percent),
 # no-network, project-dir (the folder of the compose project), services (config --services), ps (compose ps lines),
-# restarts (the restart count of every container); curl: user.json and user.status (GET /api/v1/user), nodes.json and
+# restarts (the restart count of every container), handshakes (docker exec: wg show of the service wireguard); ip:
+# ip-wireguard (the interface of the tunnel); curl: user.json and user.status (GET /api/v1/user), nodes.json and
 # nodes.status, devices.json, grid.status (the grid on 4446), url.status (STF_URL), closed-ports (one per line)
 # shellcheck disable=SC2016 # the stub bodies are expanded when the stubs run
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
@@ -30,12 +31,15 @@ if [[ "$1" == compose ]]; then
   [[ "$*" == *" config --services"* ]] && cat "${STUB_DIR}/services"
   [[ "$*" == *" ps -a "* ]] && cat "${STUB_DIR}/ps"
 fi
+[[ "$1 $2" == "exec wireguard" ]] && cat "${STUB_DIR}/handshakes" 2> /dev/null
 exit 0'
 # shellcheck disable=SC2016
 stub df 'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
 echo "/dev/sda1 100 50 50 $(cat "${STUB_DIR}/disk")% /"'
+# shellcheck disable=SC2016
 stub ip 'echo "1: lo    inet 127.0.0.1/8 scope host lo"
-echo "2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0"'
+echo "2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0"
+cat "${STUB_DIR}/ip-wireguard" 2> /dev/null'
 # shellcheck disable=SC2016
 stub curl 'url="${*: -1}"
 cat > /dev/null
@@ -147,6 +151,7 @@ if openssl x509 -help 2>&1 | grep -q checkhost; then
   check_contains "the certificate is of the host of STF_URL" "The certificate is of mcloud.example.com" "$OUT"
 fi
 check "doctor changes nothing" "" "$(calls docker | grep -vE '^(version|compose|info|network\|inspect|ps|inspect)\|')"
+check_not_contains "nothing of the WireGuard tunnel without it" "WireGuard" "$OUT"
 
 section "the host"
 healthy
@@ -359,6 +364,81 @@ healthy
 echo 404 > "${WORK}/nodes.status"
 zbr doctor
 check_contains "an STF without the registry of the nodes" "The STF of TAG_STF has no registry of the nodes." "$OUT"
+
+section "the WireGuard tunnel"
+WG_PRIVATE="dwdtCnMYpX08FsFyUbJmRd9ML4frwJkqsXf7pR25LCo="
+WG_PUBLIC="hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo="
+NODE_KEY="$(printf 'A%.0s' {1..43})="
+# wireguard: a healthy server with the tunnel on: the service, its interface, a node with a recent handshake
+wireguard() {
+  healthy
+  set_value .env NODES_WIREGUARD true
+  set_value .env NODES_WG_ENDPOINT mcloud.example.com:51820
+  set_value .env NODES_WG_PUBLIC_KEY "$WG_PUBLIC"
+  set_value variables.env NODES_WG_PRIVATE_KEY "$WG_PRIVATE"
+  chmod 600 "${MCLOUD}/variables.env"
+  echo "wireguard" >> "${WORK}/services"
+  echo "wireguard|running|healthy|0|wireguard" >> "${WORK}/ps"
+  echo "5: mcloud    inet 10.234.0.1/24 scope global mcloud" > "${WORK}/ip-wireguard"
+  echo "{\"success\":true,\"nodes\":[{\"label\":\"lab-1\",\"address\":\"10.234.0.2\",\"status\":\"active\",\"lastSeenAt\":\"2026-11-24T10:00:00.000Z\",\"createdAt\":\"2026-11-20T10:00:00.000Z\",\"publicKey\":\"abcdef0123456789abcdef\",\"wgPublicKey\":\"${NODE_KEY}\",\"wireguard\":true}]}" > "${WORK}/nodes.json"
+  printf '%s\t%s\n' "$NODE_KEY" "$(($(date +%s) - 30))" > "${WORK}/handshakes"
+}
+wireguard
+zbr doctor
+check "a healthy server with the tunnel passes" "0" "$STATUS"
+for line in "NODES_WG_NETWORK 10.234.0.0/24, the server is 10.234.0.1, its UDP endpoint mcloud.example.com:51820" \
+  "The interface mcloud of the server has 10.234.0.1" "The 7 services run" "The grid answers on 10.234.0.1:4446" \
+  "The ports of the nodes listen on 10.234.0.1: 4446, 7250, 7270" "The secrets of variables.env are set" \
+  "Node lab-1 (10.234.0.2): the latest handshake of the tunnel"; do
+  check_contains "ok with the tunnel: ${line}" "   ok   ${line}" "$OUT"
+done
+check_contains "AGENTS_ADDRESS is not used with the tunnel" "AGENTS_ADDRESS is not used: the ports of the nodes are on the WireGuard address" "$OUT"
+check_contains "the firewall: the UDP port of the tunnel" "let the nodes in on the UDP port 51820 (WireGuard) and on STF_PORT" "$OUT"
+check_contains "the profile wireguard" "compose|--profile|wireguard|ps|-a" "$(calls docker)"
+check_contains "the handshakes are read from the service" "exec|wireguard|wg|show|mcloud|latest-handshakes" "$(calls docker)"
+check "doctor with the tunnel changes nothing" "" \
+  "$(calls docker | grep -vE '^(version|compose|info|network\|inspect|ps|inspect|exec\|wireguard\|wg\|show)\|')"
+check_not_contains "the private key of the tunnel is not shown" "$WG_PRIVATE" "$OUT"
+printf '%s\t%s\n' "$NODE_KEY" "$(($(date +%s) - 600))" > "${WORK}/handshakes"
+zbr doctor
+check_contains "an old handshake is a warning" "Node lab-1 (10.234.0.2): the latest handshake of the tunnel was" "$OUT"
+check "an old handshake does not fail" "0" "$STATUS"
+printf '%s\t0\n' "$NODE_KEY" > "${WORK}/handshakes"
+zbr doctor
+check_contains "no handshake is a warning" "Node lab-1 (10.234.0.2): no handshake of the tunnel yet." "$OUT"
+: > "${WORK}/handshakes"
+zbr doctor
+check_contains "a node that is no peer fails" "Node lab-1 (10.234.0.2) is no peer of the tunnel." "$OUT"
+check "a node that is no peer: the status" "1" "$STATUS"
+wireguard
+sed -i.bak 's/,"wgPublicKey":"[^"]*"//' "${WORK}/nodes.json"
+zbr doctor
+check_contains "a node without a WireGuard key is a warning" "Node lab-1 (10.234.0.2) enrolled without a WireGuard key" "$OUT"
+check_contains "the fix of a node without a key is a new invite" "./zebrunner.sh node-invite lab-1" "$OUT"
+wireguard
+rm -f "${WORK}/ip-wireguard"
+zbr doctor
+check_contains "no interface of the tunnel fails" "10.234.0.1 is not an address of this server: the service wireguard does not run" "$OUT"
+wireguard
+set_value .env NODES_WG_NETWORK 10.233.0.0/24
+zbr doctor
+check_contains "an invalid network fails" "NODES_WG_NETWORK of .env '10.233.0.0/24' is not a private network" "$OUT"
+wireguard
+set_value variables.env NODES_WG_PRIVATE_KEY secret
+zbr doctor
+check_contains "a private key that is not a key fails" "NODES_WG_PRIVATE_KEY of variables.env is not a WireGuard key" "$OUT"
+wireguard
+set_value .env NODES_WG_PUBLIC_KEY "$NODE_KEY"
+zbr doctor
+check_contains "a public key of another private key fails" "NODES_WG_PUBLIC_KEY of .env is not the public key of NODES_WG_PRIVATE_KEY" "$OUT"
+wireguard
+chmod 644 "${MCLOUD}/configuration/wireguard/private-key" 2> /dev/null || {
+  echo "$WG_PRIVATE" > "${MCLOUD}/configuration/wireguard/private-key"
+  chmod 644 "${MCLOUD}/configuration/wireguard/private-key"
+}
+zbr doctor
+check_contains "a key file of the tunnel readable by others is a warning" "configuration/wireguard/private-key (644)" "$OUT"
+rm -f "${MCLOUD}/configuration/wireguard/private-key" "${WORK}/ip-wireguard" "${WORK}/handshakes"
 
 section "before the setup"
 rm -f "${MCLOUD}/.env"

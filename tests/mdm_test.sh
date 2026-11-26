@@ -214,10 +214,10 @@ setting ADB_RELAY false
 section "stop, down, the MDM off, shutdown"
 reset_calls
 zbr "" stop > /dev/null
-check "stop stops the MDM too" "compose|--profile|adb-relay|--profile|mdm|stop" "$(compose_calls)"
+check "stop stops the MDM too" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|stop" "$(compose_calls)"
 reset_calls
 zbr "" down > /dev/null
-check "down removes the MDM too" "compose|--profile|adb-relay|--profile|mdm|down" "$(compose_calls)"
+check "down removes the MDM too" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down" "$(compose_calls)"
 setting MDM_ENABLED false
 reset_calls
 zbr "" start > /dev/null
@@ -229,7 +229,7 @@ check "backup copies mdm.env" "$token" "$(value mdm.env.bak MDM_ENROLL_TOKEN)"
 reset_calls
 printf 'y\n' | env -i HOME="${WORK}" PATH="${WORK}/bin:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb COLUMNS=80 STUB_DIR="$WORK" \
   /bin/bash "${MCLOUD}/zebrunner.sh" shutdown > /dev/null 2>&1
-check "shutdown removes the MDM with its volumes" "compose|--profile|adb-relay|--profile|mdm|down|-v" "$(compose_calls | tail -n 1)"
+check "shutdown removes the MDM with its volumes" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down|-v" "$(compose_calls | tail -n 1)"
 check "shutdown removes mdm.env and its backup" "no:no" "$(exists mdm.env):$(exists mdm.env.bak)"
 check "shutdown keeps the agent APK" "yes" "$(exists configuration/mdm/android/mcloud-mdm-agent.apk)"
 
