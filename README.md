@@ -111,6 +111,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `MDM_ADMIN_PORT` | `9101` | the admin UI of `mcloud-mdm` on `127.0.0.1` of the server, an ssh tunnel; the value of the previous setup is kept |
 | `MDM_ADMIN_PUBLIC` | `false` | `true`: the admin UI is also `/mcloud/mdm/` for the admins of STF; the value of the previous setup is kept |
 | `TRUSTED_PROXY_ADDRESSES` | | the proxies in front of `stf-proxy`, comma separated addresses or networks (`10.0.0.5,172.18.0.0/16`): the only clients whose `X-Forwarded-For` and `X-Forwarded-Proto` it takes, see [A proxy in front of stf-proxy](#a-proxy-in-front-of-stf-proxy); empty: none; an invalid address is reported and skipped; the value of the previous setup is kept |
+| `MDM_ENFORCE_NODE_BINDING` | `false` | `true`: a node acts on the MDM of the devices STF binds to it only, see [Node binding of the MDM](#node-binding-of-the-mdm); the value of the previous setup is kept |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `50m`, `5` | the rotation of the logs of every service (the json-file driver of docker): the size of a file and the number of the files; the values of the previous setup are kept |
 | `TAG_NGINX` | `1.31.7` | the tag of `nginx` |
 | `TAG_ALPINE` | `3.24.4` | the tag of `alpine` (the service `wireguard`) |
@@ -255,19 +256,37 @@ The MDM of the devices, [mcloud-mdm](https://github.com/zebrunner/mcloud-mdm): i
 2. Put the agent of mcloud-mdm (`make agent` of mcloud-mdm, signed with the key of the farms) into `configuration/mdm/android/mcloud-mdm-agent.apk`.
 3. Run `./zebrunner.sh start`: it generates `mdm.env`, the secrets of the MDM (the enrollment token of the nodes, the admin token of `mcloud-mdm` `MDM_ADMIN_TOKEN`, the API key of NanoHUB, the passwords of the databases and of Headwind MDM, the shared secret of the agents; with `STF_TOKEN` of `variables.env` also the API of STF for the names, nodes, locations and users of the devices in the admin UI, written again at every start), and the locations of `stf-proxy` (`configuration/stf-proxy/mdm`), then starts the profile `mdm`. A `configuration/stf-proxy/nginx.conf` of a setup before the MDM gets the includes of its locations (one changed by hand: a warning, add them or run `./zebrunner.sh setup`). Open `MDM_MQTT_PORT` for `MDM_SITE_ADDRESSES`, see [Firewall](#firewall).
 4. Open the admin UI: `ssh -L 9101:127.0.0.1:9101 <server>`, then `http://127.0.0.1:9101` (`MDM_ADMIN_PORT`); the browser asks for a password: `MDM_ADMIN_TOKEN` of `mdm.env` (any user). `MDM_ADMIN_PUBLIC=true`: also `/mcloud/mdm/` for the admins of STF, `stf-proxy` sends the admin token itself. Every request of the admin listener needs the token, NanoHUB sends it with its webhook (`NANOHUB_WEBHOOK_URL` of `mdm.env`). Upload the APNs push certificate of iOS there.
-5. The nodes enroll their devices with `./zebrunner.sh mdm enroll <device>` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent): they reach the MDM with their node token, `stf-proxy` checks it (`GET /api/v1/nodes/self` of `stf-api`) and calls `mcloud-mdm` with `MDM_ENROLL_TOKEN` of `mdm.env`; the nodes need no setting of their own.
+5. The nodes enroll their devices with `./zebrunner.sh mdm enroll <device>` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent): they reach the MDM with their node token, `stf-proxy` checks it (`GET /api/v1/nodes/self` of `stf-api`) and calls `mcloud-mdm` with `MDM_ENROLL_TOKEN` of `mdm.env` and the label of the node in `X-MCloud-Node`; the nodes need no setting of their own.
+6. Set `MDM_ENFORCE_NODE_BINDING=true`, see [Node binding of the MDM](#node-binding-of-the-mdm).
 
-`stf-proxy` publishes for `MDM_SITE_ADDRESSES` only (`403` for any other address):
+`stf-proxy` publishes for `MDM_SITE_ADDRESSES` only (`403` for any other address), the address of the client as in [A proxy in front of stf-proxy](#a-proxy-in-front-of-stf-proxy); the MDM services get the scheme and the address of the client from `stf-proxy` (`X-Forwarded-Proto`, `X-Forwarded-For`, `X-Real-IP`), never the ones of a client:
 
 | Path | Service | Clients |
 | --- | --- | --- |
 | `/mdm`, `/checkin` | `mcloud-mdm-nanohub` | the iOS devices (the MDM protocol, signed with their device identities) |
 | `/scep`, `/android/agent.apk` | `mcloud-mdm` | the iOS devices (SCEP with one-time challenges), the nodes |
-| `/mdm/enroll`, `/mdm/status`, `/mdm/release`, `/android/enroll`, `/android/status`, `/android/release` | `mcloud-mdm` | the nodes, with their node token (`401` without it) |
+| `/mdm/enroll`, `/mdm/status`, `/mdm/release`, `/android/enroll`, `/android/status`, `/android/release` | `mcloud-mdm` | the nodes, with their node token (`401` without it); with `MDM_ENFORCE_NODE_BINDING=true` for their own devices only (`403` otherwise) |
 | `/hmdm/...` | `mcloud-mdm-hmdm` | the Android agents: their paths only, the web panel and the API of Headwind MDM are not published (`404`) |
 | `MDM_MQTT_PORT` (TLS, the certificate of `stf-proxy`) | `mcloud-mdm-mqtt` -> `mcloud-mdm-hmdm` | the Android agents (the push of the commands) |
 
 `mdm.env` is readable for its owner only and kept from setup to setup (`backup` copies it); no container gets it: `start` writes the env file of every MDM service (`configuration/mdm/env/<service>.env`, `600`) with the secrets of that service only (MySQL and PostgreSQL their passwords, NanoHUB its API key, its database and its webhook, Headwind MDM its database and the secret of the agents, `mcloud-mdm` its tokens and `STF_TOKEN`); keep a copy in the store of the secrets: without `HMDM_SHARED_SECRET` and the server only a factory reset removes the device owner of the Android agents. The databases of the MDM are the volumes `mcloud-mdm-*`: `mcloud-mdm-data` has the SCEP CA, without it every iOS device enrolls again. `MDM_ENABLED=false` and `./zebrunner.sh restart` remove the services of the MDM, their volumes stay; `shutdown` removes them.
+
+#### Node binding of the MDM
+
+Every node reaches the MDM with the same enrollment token behind `stf-proxy`: by default (`MDM_ENFORCE_NODE_BINDING=false`, as before) a node can ask the MDM about any device of the farm, release it, enroll it, and gets the setup and the release commands of the Android agents with the shared secret of the farm (`HMDM_SHARED_SECRET`). `MDM_ENFORCE_NODE_BINDING=true` limits every node to the devices STF binds to it (the `node` of the device, the node it registered from):
+
+- `stf-api` answers the label of the node of the token in `X-MCloud-Node` (`GET /api/v1/nodes/self`), `stf-proxy` passes it to `mcloud-mdm` (the header of the client is overwritten, an empty one is not sent);
+- `mcloud-mdm` reads the node of the udid or the serial of the call from STF (`STF_TOKEN`, written into the env of `mcloud-mdm` by `start`) and refuses another node, a device STF does not know (deploy a new device first: it registers with its containers) and a call without the header with `403`, logged with the node and the device (`docker logs mcloud-mdm`); it answers `503` when STF does not answer; the SCEP challenge of an iOS profile signs the identity of its udid only;
+- fail closed: an STF without `X-MCloud-Node` makes `mcloud-mdm` refuse every MDM call of the nodes (logged: update stf and mcloud); a `mcloud-mdm` before the setting ignores it (`./zebrunner.sh doctor` warns).
+
+Rollout on an existing farm, in this order (each step alone changes nothing for the nodes):
+
+1. Update STF (`TAG_STF` with `X-MCloud-Node`) and `mcloud-mdm` (`TAG_MDM` with `MDM_ENFORCE_NODE_BINDING`), i.e. this MCloud release: `./zebrunner.sh start` writes the header into the locations of `stf-proxy` and adds `MDM_ENFORCE_NODE_BINDING=false` to `.env`.
+2. Update mcloud-agent on the nodes: it names the serial in `GET /android/release` (an older one is refused with the setting on).
+3. Check that every device to manage is in STF and bound to its node: `./zebrunner.sh nodes check <label>` (`bound`).
+4. Set `MDM_ENFORCE_NODE_BINDING=true` of `.env`, `./zebrunner.sh restart`, then `./zebrunner.sh doctor` (the group MDM) and a `./zebrunner.sh mdm status` of mcloud-agent on a node.
+
+Back: `MDM_ENFORCE_NODE_BINDING=false` and `./zebrunner.sh restart`. Not covered (follow-ups): the shared secret of the Android agents is one for the farm and stays in their setup and release commands (their protocol needs it), now only for the node of the device.
 
 ### Firewall
 
@@ -495,6 +514,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` (the WireGuard address of the server with the tunnel) |
 | Ports | `STF_URL` answers from the server (`warn` otherwise: NAT hairpin, DNS), the ports of the nodes (`4446`, `7250`, `7270`, `MDM_MQTT_PORT` of the MDM) listen on `AGENTS_ADDRESS` (the WireGuard address of the server with the tunnel); the firewall is not seen from the server, see [Firewall](#firewall) |
 | WireGuard | with `NODES_WIREGUARD=true` only: `NODES_WG_NETWORK`, the interface `mcloud` has the address of the server, every active node is a peer with a WireGuard key and its latest handshake (`warn` when it is older than 3 minutes or none, `warn` for a node enrolled without a WireGuard key), see [WireGuard tunnel of the nodes](#wireguard-tunnel-of-the-nodes) |
+| MDM | with `MDM_ENABLED=true` and `MDM_ENFORCE_NODE_BINDING=true` only: `STF_TOKEN`, the header `X-MCloud-Node` in the locations of `stf-proxy`, `mcloud-mdm` confirmed the setting at its start (`warn` otherwise: an older `TAG_MDM`) and refused no call for a missing header in the last hour (an older `TAG_STF`), see [Node binding of the MDM](#node-binding-of-the-mdm) |
 | Nodes | the enrolled nodes (`warn` without one), [`nodes check`](#diagnostics) of every active node |
 
 The host of a node has its own `./zebrunner.sh doctor` of [mcloud-agent](https://github.com/zebrunner/mcloud-agent).

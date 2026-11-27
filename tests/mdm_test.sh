@@ -67,6 +67,10 @@ SETUP_ANSWERS="https\nmcloud.example.com\n443\ny\n\n\ny\n\nn\n"
 section "the MDM is off by default"
 zbr "$SETUP_ANSWERS" setup > /dev/null
 check "MDM_ENABLED is false in .env.original" "false" "$(sed -n 's/^MDM_ENABLED=//p' "${REPO}/.env.original")"
+check "MDM_ENFORCE_NODE_BINDING is false in .env.original" "false" \
+  "$(sed -n 's/^MDM_ENFORCE_NODE_BINDING=//p' "${REPO}/.env.original")"
+check_contains "mcloud-mdm gets MDM_ENFORCE_NODE_BINDING, false by default" \
+  "- MDM_ENFORCE_NODE_BINDING=\${MDM_ENFORCE_NODE_BINDING:-false}" "$(cat "${REPO}/docker-compose.yml")"
 check "the setup writes no mdm.env" "no" "$(exists mdm.env)"
 check "the setup writes no location of the MDM" "" "$(ls "${MCLOUD}/${PROXY}"/*.conf 2> /dev/null)"
 reset_calls
@@ -134,6 +138,17 @@ check "the locations of stf-proxy are readable for their owner only" "-rw-------
 locations="$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
 check_contains "stf-proxy calls mcloud-mdm with the enrollment token" "proxy_set_header Authorization \"Bearer ${token}\";" "$locations"
 check_contains "stf-proxy checks the node token" "proxy_pass http://\$upstream_node_auth/api/v1/nodes/self;" "$locations"
+check_contains "stf-proxy takes the node of the token from stf-api" \
+  "auth_request_set \$mdm_node \$upstream_http_x_mcloud_node;" "$locations"
+check_contains "stf-proxy passes the node of the token to mcloud-mdm" "proxy_set_header X-MCloud-Node \$mdm_node;" "$locations"
+# forwarded <text>: how many locations send the scheme, X-Forwarded-For and X-Real-IP of stf-proxy, <n>:<n>:<n>
+forwarded() {
+  printf '%s:%s:%s' "$(grep -cF "X-Forwarded-Proto \$forwarded_proto;" <<< "$1")" \
+    "$(grep -cF "X-Forwarded-For \$remote_addr;" <<< "$1")" "$(grep -cF "X-Real-IP \$remote_addr;" <<< "$1")"
+}
+check "every location of the MDM sends the scheme and the address of stf-proxy" "5:5:5" "$(forwarded "$locations")"
+check_not_contains "no forwarding header of a client reaches the MDM" "\$http_x_" "$locations"
+check_not_contains "no forwarding header of a client is added to" "proxy_add_x_forwarded_for" "$locations"
 check_not_contains "the admin UI is not published by default" "/mcloud/mdm/" "$locations"
 check_not_contains "the admin token is not in the locations by default" "$admin_token" "$locations"
 check "the MQTT proxy allows the valid addresses only" "    allow 203.0.113.10;
@@ -144,8 +159,17 @@ check_contains "a running stf-proxy reads the new locations" "exec|stf-proxy|ngi
 
 section "the access token of STF"
 check "no STF_TOKEN: no API of STF" "" "$(value mdm.env MDM_STF_URL)"
+check_not_contains "the node binding is off by default" "MDM_ENFORCE_NODE_BINDING" "$output"
+setting MDM_ENFORCE_NODE_BINDING true
+check_contains "MDM_ENFORCE_NODE_BINDING=true without STF_TOKEN is reported" \
+  "MDM_ENFORCE_NODE_BINDING=true needs STF_TOKEN of variables.env" "$(zbr "" start)"
+setting MDM_ENFORCE_NODE_BINDING yes
+check_contains "an invalid MDM_ENFORCE_NODE_BINDING is reported" \
+  "MDM_ENFORCE_NODE_BINDING of .env is 'yes', not true or false: mcloud-mdm does not start" "$(zbr "" start)"
+setting MDM_ENFORCE_NODE_BINDING true
 set_line "${MCLOUD}/variables.env" "STF_TOKEN=stf-token-123"
-zbr "" start > /dev/null
+check_not_contains "MDM_ENFORCE_NODE_BINDING=true with STF_TOKEN is no problem" "MDM_ENFORCE_NODE_BINDING" "$(zbr "" start)"
+setting MDM_ENFORCE_NODE_BINDING false
 check "STF_TOKEN of variables.env goes to mcloud-mdm" "http://stf-api:3000|stf-token-123" "$(value mdm.env MDM_STF_URL)|$(value mdm.env MDM_STF_TOKEN)"
 check "the token of STF goes to mcloud-mdm only" "configuration/mdm/env/mcloud-mdm.env" \
   "$(cd "$MCLOUD" && grep -l stf-token-123 configuration/mdm/env/*.env)"
@@ -175,6 +199,8 @@ zbr "" start > /dev/null
 check "start adds the tags of the images of the MDM to the .env of an earlier MCloud" "0.1-develop-latest:0.2.0:9101" \
   "$(value .env TAG_MDM):$(value .env TAG_NANOHUB):$(value .env MDM_ADMIN_PORT)"
 check "start keeps the settings of .env" "true:203.0.113.10" "$(value .env MDM_ENABLED):$(value .env MDM_SITE_ADDRESSES)"
+check "start adds MDM_ENFORCE_NODE_BINDING=false to the .env of an earlier MCloud" "false" \
+  "$(value .env MDM_ENFORCE_NODE_BINDING)"
 check "every setting once" "1" "$(grep -c '^MDM_ENABLED=' "${MCLOUD}/.env")"
 cp "${WORK}/env.current" "${MCLOUD}/.env"
 conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
@@ -202,6 +228,8 @@ check_contains "MDM_ADMIN_PUBLIC=true publishes the admin UI for the admins of S
   "$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
 check_contains "stf-proxy calls the admin UI with the admin token" \
   "proxy_set_header Authorization \"Bearer ${admin_token}\";" "$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")"
+check "the admin UI gets the scheme and the address of stf-proxy too" "6:6:6" \
+  "$(forwarded "$(cat "${MCLOUD}/${PROXY}/server-mdm.conf")")"
 setting MDM_SITE_ADDRESSES ""
 check_contains "no address is reported" "MDM_SITE_ADDRESSES of .env has no address" "$(zbr "" start)"
 check "no address: nobody reaches the MDM" "" "$(grep ' 1;$' "${MCLOUD}/${PROXY}/http-mdm.conf")"
