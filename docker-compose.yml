@@ -188,7 +188,9 @@ services:
       # the details of the grid in its JSON logs
       # - MCLOUD_LOG_LEVEL=FINE
     # not published: the users reach it through /mcloud of stf-proxy, the nodes register through its port 4446
-    # the healthcheck is the one of the image (/grid/api/proxy, it does not ask the nodes)
+    # the healthcheck is the one of the image (/grid/api/health of the hub, it does not ask the nodes): unhealthy while the
+    # hub does not answer in time or a registration of a node hangs; docker does not restart it, ./zebrunner.sh doctor
+    # reports it
     logging: *logging
     restart: always
   rethinkdb:

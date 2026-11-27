@@ -291,6 +291,13 @@ check_contains "a missing service fails" "mcloud-grid is not created." "$OUT"
 check_contains "a restarting service fails" "stf-proxy is restarting." "$OUT"
 check_not_contains "broken services: not all run" "services run" "$OUT"
 healthy
+sed -i.bak 's/^mcloud-grid|running||0/mcloud-grid|running|unhealthy|0/' "${WORK}/ps"
+zbr doctor
+check "an unhealthy grid fails" "1" "$STATUS"
+check_contains "an unhealthy grid tells why and how to restart it" \
+  "mcloud-grid is unhealthy: the hub does not answer in time or does not register the nodes." "$OUT"
+check_contains "docker does not restart the unhealthy grid" "then docker restart mcloud-grid" "$OUT"
+healthy
 echo "mcloud-mdm-hmdm-init" >> "${WORK}/services"
 echo "mcloud-mdm-hmdm-init|exited||0|mcloud-mdm-hmdm-init" >> "${WORK}/ps"
 zbr doctor
