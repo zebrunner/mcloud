@@ -432,7 +432,18 @@ The risks that stay:
 
 ## Services
 
-All the services but `adb-relay` and `wireguard` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` without its secrets of other services: `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay`, `wireguard` and the MDM), `GRID_AUTH_SECRET` and `NODES_WG_PRIVATE_KEY` (the private key of the WireGuard tunnel) are empty in every STF unit, the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD`) reach `stf-auth` only.
+All the services but `adb-relay` and `wireguard` (the network of the host) and the MDM are in the external docker network `infra`, which `./zebrunner.sh start` creates. The MDM services are in the networks `mcloud-mdm` (with `stf-proxy` and `stf-api`, the only services of MCloud they talk to) and `mcloud-mdm-db` (internal: MySQL and PostgreSQL, no other container and no internet), never in `infra`, where the containers of the devices of a node on the server are. The STF units read `variables.env` (also the variables added there by hand) with the secrets they use only, the others are empty in their environment (`docker-compose.yml`, checked by `tests/compose_env_test.sh`): `STF_TOKEN` (the access token of the admin, for the grid, `adb-relay`, `wireguard` and the MDM), `GRID_AUTH_SECRET` and `NODES_WG_PRIVATE_KEY` (the private key of the WireGuard tunnel) reach no STF unit, and:
+
+| Secret of `variables.env` | STF units that get it |
+| --- | --- |
+| `SECRET` (the session cookies, the sign-in tokens) | `stf-app`, `stf-auth`, `stf-api`, `stf-websocket`, `stf-storage-temp`, `stf-migrate` (`stf token-add`) |
+| `RETHINKDB_ENV_AUTHKEY` (the password of RethinkDB) | `stf-migrate`, `stf-app`, `stf-auth`, `stf-api`, `stf-websocket`, `stf-processor001`, `stf-reaper`, `stf-api-groups-engine` |
+| `STF_STORAGE_TOKEN` (the token of the server units) | `stf-storage-temp`, `stf-api` (its internal routes), `stf-triproxy-app`, `stf-triproxy-dev` (the keys of the nodes) |
+| `STF_ZMQ_CURVE_SERVER_SECRET_KEY` (the CURVE key of the server) | `stf-triproxy-app`, `stf-triproxy-dev` |
+| `STF_ZMQ_CURVE_SECRET_KEY` (the CURVE key of the server units) | the units with ZeroMQ: `stf-api`, `stf-websocket`, `stf-processor001`, `stf-reaper`, `stf-api-groups-engine`, the triproxies |
+| the passwords of the sign-ins (`LDAP_BIND_CREDENTIALS`, `OAUTH_CLIENT_SECRET`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD`) | `stf-auth` |
+
+The storage plugins (`stf-storage-plugin-apk`, `stf-storage-plugin-image`, which parse the uploaded files) get none.
 
 | Service | Image | What it does |
 | --- | --- | --- |

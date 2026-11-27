@@ -23,23 +23,53 @@ x-logging: &logging
     max-size: "${LOG_MAX_SIZE:-50m}"
     max-file: "${LOG_MAX_FILE:-5}"
 
+# The secrets of variables.env (README.md#files-and-secrets): every STF unit reads variables.env, and its environment
+# empties the secrets it does not use (tests/compose_env_test.sh lists them per service). production: the errors answer
+# no stack trace; the access token of the admin (STF_TOKEN: the grid, adb-relay, wireguard, the MDM), the secret of the
+# grid and the private key of the WireGuard tunnel are of no STF unit
+x-stf-environment: &stf-environment
+  NODE_ENV: production
+  STF_TOKEN: ""
+  GRID_AUTH_SECRET: ""
+  NODES_WG_PRIVATE_KEY: ""
+# the passwords of the sign-ins: stf-auth only
+x-no-sign-in-secrets: &no-sign-in-secrets
+  LDAP_BIND_CREDENTIALS: ""
+  OAUTH_CLIENT_SECRET: ""
+  STF_AUTH_MOCK_BASIC_AUTH_PASSWORD: ""
+  STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD: ""
+# the key of the session cookies and of the sign-in tokens: the units of the users (app, auth, api, websocket, the
+# storage) and stf token-add of stf-migrate
+x-no-session-secret: &no-session-secret
+  SECRET: ""
+# the token of the server units: the storage, the internal routes of stf-api, the keys of the nodes the triproxies read
+x-no-storage-token: &no-storage-token
+  STF_STORAGE_TOKEN: ""
+# the password of RethinkDB: the units with the database (not the storage, not the triproxies)
+x-no-database-password: &no-database-password
+  RETHINKDB_ENV_AUTHKEY: ""
+# the secret CURVE key of the server: the triproxies only (it would let a unit pose as them to the nodes)
+x-no-curve-server: &no-curve-server
+  STF_ZMQ_CURVE_SERVER_SECRET_KEY: ""
+# the CURVE key of the server units: the units with ZeroMQ (the public key of the server goes with it)
+x-no-curve-client: &no-curve-client
+  STF_ZMQ_CURVE_SECRET_KEY: ""
+  STF_ZMQ_CURVE_SERVER_PUBLIC_KEY: ""
+
 # the STF units: one image, the settings of variables.env, started after the database migration
 x-stf: &stf
   image: "public.ecr.aws/zebrunner/stf:${TAG_STF}"
   env_file:
     - variables.env
-  # production: the errors answer no stack trace. variables.env has the secrets of other services too: the access token
-  # of the admin (STF_TOKEN: the grid, adb-relay, wireguard, the MDM), the secret of the grid, the private key of the
-  # WireGuard tunnel and the secrets of the sign-ins (stf-auth only); no STF unit reads them, they are empty here
-  environment: &stf-environment
-    - NODE_ENV=production
-    - STF_TOKEN=
-    - GRID_AUTH_SECRET=
-    - NODES_WG_PRIVATE_KEY=
-    - LDAP_BIND_CREDENTIALS=
-    - OAUTH_CLIENT_SECRET=
-    - STF_AUTH_MOCK_BASIC_AUTH_PASSWORD=
-    - STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=
+  environment:
+    <<:
+      - *stf-environment
+      - *no-sign-in-secrets
+      - *no-session-secret
+      - *no-storage-token
+      - *no-database-password
+      - *no-curve-server
+      - *no-curve-client
   depends_on:
     stf-migrate:
       condition: service_completed_successfully
@@ -215,7 +245,9 @@ services:
     container_name: stf-migrate
     env_file:
       - variables.env
-    environment: *stf-environment
+    # the database; SECRET for stf token-add of ./zebrunner.sh start (an STF before the hashed access tokens signs them)
+    environment:
+      <<: [*stf-environment, *no-sign-in-secrets, *no-storage-token, *no-curve-server, *no-curve-client]
     command: stf migrate
     depends_on:
       rethinkdb:
@@ -224,23 +256,27 @@ services:
   stf-app:
     <<: *stf
     container_name: stf-app
+    # the session cookies, the database
+    environment:
+      <<: [*stf-environment, *no-sign-in-secrets, *no-storage-token, *no-curve-server, *no-curve-client]
     healthcheck: *http-healthcheck
     command: stf app --port 3000 --auth-url ${STF_URL}/${AUTH_URL} --websocket-url ${STF_URL}/
   stf-auth:
     <<: *stf
     container_name: stf-auth
-    # the sign-in: the secrets of the sign-ins of variables.env (LDAP, OAuth2, the mock sign-in), not the token of the admin
+    # the sign-in: the secrets of the sign-ins of variables.env (LDAP, OAuth2, the mock sign-in), the session cookies, the
+    # database
     environment:
-      - NODE_ENV=production
-      - STF_TOKEN=
-      - GRID_AUTH_SECRET=
-      - NODES_WG_PRIVATE_KEY=
+      <<: [*stf-environment, *no-storage-token, *no-curve-server, *no-curve-client]
     healthcheck: *http-healthcheck
     # ${STF_URL}/stf/ with slash at the end produce invalid redirect! /stf/?jwt=e...
     command: stf ${AUTH_SYSTEM} --port 3000 --app-url ${STF_URL}/stf
   stf-processor001:
     <<: *stf
     container_name: stf-processor001
+    # ZeroMQ, the database
+    environment: &stf-zeromq-database
+      <<: [*stf-environment, *no-sign-in-secrets, *no-session-secret, *no-storage-token, *no-curve-server]
     healthcheck:
       <<: *connections-healthcheck
       test: ["CMD", "node", "-e", *connections-script, "7160", "7260", "28015"]
@@ -248,6 +284,7 @@ services:
   stf-reaper:
     <<: *stf
     container_name: stf-reaper
+    environment: *stf-zeromq-database
     healthcheck:
       <<: *connections-healthcheck
       test: ["CMD", "node", "-e", *connections-script, "7150", "7270", "28015"]
@@ -262,17 +299,24 @@ services:
     container_name: stf-storage-plugin-image
     healthcheck: *http-healthcheck
     command: stf storage-plugin-image --port 3000 --storage-url ${STF_URL}/
-  # SECRET and STF_STORAGE_TOKEN of variables.env protect the storage routes
+  # SECRET and STF_STORAGE_TOKEN of variables.env protect the storage routes (the tokens of the nodes are checked with
+  # stf-api), no database
   stf-storage-temp:
     <<: *stf
     container_name: stf-storage-temp
+    environment:
+      <<: [*stf-environment, *no-sign-in-secrets, *no-database-password, *no-curve-server, *no-curve-client]
     healthcheck: *http-healthcheck
     volumes:
       - "stf-temp-volume:/data"
     command: stf storage-temp --port 3000 --save-dir /data
+  # the CURVE servers: the secret key of the server, the key of the server units and STF_STORAGE_TOKEN to read the keys of
+  # the nodes from stf-api; no database
   stf-triproxy-app:
     <<: *stf
     container_name: stf-triproxy-app
+    environment: &stf-triproxy-environment
+      <<: [*stf-environment, *no-sign-in-secrets, *no-session-secret, *no-database-password]
     healthcheck:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7160, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
@@ -282,6 +326,7 @@ services:
   stf-triproxy-dev:
     <<: *stf
     container_name: stf-triproxy-dev
+    environment: *stf-triproxy-environment
     healthcheck:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7260, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
@@ -295,6 +340,9 @@ services:
   stf-websocket:
     <<: *stf
     container_name: stf-websocket
+    # the session cookies, ZeroMQ, the database
+    environment:
+      <<: [*stf-environment, *no-sign-in-secrets, *no-storage-token, *no-curve-server]
     healthcheck: *http-healthcheck
     command: >-
       stf websocket --port 3000 --storage-url ${STF_URL}/
@@ -302,6 +350,9 @@ services:
   stf-api:
     <<: *stf
     container_name: stf-api
+    # the session cookies, ZeroMQ, the database, STF_STORAGE_TOKEN of its internal routes
+    environment:
+      <<: [*stf-environment, *no-sign-in-secrets, *no-curve-server]
     healthcheck: *http-healthcheck
     # mcloud-mdm reads the devices of STF (MDM_STF_URL)
     networks: [default, mdm]
@@ -323,6 +374,7 @@ services:
   stf-api-groups-engine:
     <<: *stf
     container_name: stf-api-groups-engine
+    environment: *stf-zeromq-database
     healthcheck:
       <<: *connections-healthcheck
       test: ["CMD", "node", "-e", *connections-script, "7150", "7170", "7250", "7270", "28015"]
