@@ -105,7 +105,7 @@ check "the admin token is generated" "48" "${#admin_token}"
 check "NanoHUB posts its webhook with the admin token" "http://admin:${admin_token}@mcloud-mdm:8081/webhook" \
   "$(value mdm.env NANOHUB_WEBHOOK_URL)"
 check_not_contains "the admin token is not in the compose file" "NANOHUB_WEBHOOK_URL" "$(cat "${MCLOUD}/docker-compose.yml")"
-for name in NANOHUB_API_KEY MYSQL_PASSWORD HMDM_PASSWORD HMDM_SHARED_SECRET SQL_PASS; do
+for name in NANOHUB_API_KEY MYSQL_PASSWORD HMDM_PASSWORD HMDM_SHARED_SECRET SQL_PASS HMDM_MQTT_ADMIN_PASSWORD; do
   check "${name} is generated" "yes" "$([[ -n "$(value mdm.env "$name")" ]] && echo yes)"
 done
 check "NanoHUB gets the password of MySQL" "nanohub:$(value mdm.env MYSQL_PASSWORD)@tcp(mcloud-mdm-mysql:3306)/nanohub?parseTime=true" \
@@ -122,7 +122,12 @@ check "mcloud-mdm gets its tokens" "MDM_ENROLL_TOKEN NANOHUB_API_KEY MDM_ADMIN_T
 check "NanoHUB gets its API key, its database and its webhook" "NANOHUB_API_KEY NANOHUB_STORAGE_DSN NANOHUB_WEBHOOK_URL " \
   "$(names mcloud-mdm-nanohub)"
 check "MySQL gets its password only" "MYSQL_PASSWORD " "$(names mcloud-mdm-mysql)"
-check "Headwind MDM gets its database and the secret of the agents" "SQL_PASS SHARED_SECRET " "$(names mcloud-mdm-hmdm)"
+check "Headwind MDM gets its database, the secret of the agents and the admin password of its MQTT broker" \
+  "SQL_PASS SHARED_SECRET HMDM_MQTT_ADMIN_PASSWORD " "$(names mcloud-mdm-hmdm)"
+mqtt_admin_password="$(value mdm.env HMDM_MQTT_ADMIN_PASSWORD)"
+check "the admin password of the MQTT broker: 32 letters and digits" "32" "$(tr -dc 'A-Za-z0-9' <<< "$mqtt_admin_password" | wc -c | tr -d ' ')"
+check "the admin password of the MQTT broker goes to Headwind MDM only" "configuration/mdm/env/mcloud-mdm-hmdm.env" \
+  "$(cd "$MCLOUD" && grep -l "$mqtt_admin_password" configuration/mdm/env/*.env)"
 check "PostgreSQL gets its password only" "POSTGRES_PASSWORD " "$(names mcloud-mdm-postgres)"
 check "the init of Headwind MDM gets its database and the password of the admin" "PGPASSWORD HMDM_PASSWORD " \
   "$(names mcloud-mdm-hmdm-init)"
@@ -183,6 +188,13 @@ reset_calls
 output="$(zbr "" start)"
 check "the enrollment token is kept" "$token" "$(value mdm.env MDM_ENROLL_TOKEN)"
 check "the admin token is kept" "$admin_token" "$(value mdm.env MDM_ADMIN_TOKEN)"
+check "the admin password of the MQTT broker is kept" "$mqtt_admin_password" "$(value mdm.env HMDM_MQTT_ADMIN_PASSWORD)"
+grep -v '^HMDM_MQTT_ADMIN_PASSWORD=' "${MCLOUD}/mdm.env" > "${WORK}/mdm.env.old" && cp "${WORK}/mdm.env.old" "${MCLOUD}/mdm.env"
+zbr "" start > /dev/null
+check "the mdm.env of an earlier MCloud gets an admin password of the MQTT broker, the other secrets are kept" "32:${token}" \
+  "$(value mdm.env HMDM_MQTT_ADMIN_PASSWORD | tr -d '\n' | wc -c | tr -d ' '):$(value mdm.env MDM_ENROLL_TOKEN)"
+check "Headwind MDM gets the new one" "$(value mdm.env HMDM_MQTT_ADMIN_PASSWORD)" \
+  "$(value configuration/mdm/env/mcloud-mdm-hmdm.env HMDM_MQTT_ADMIN_PASSWORD)"
 check_not_contains "unchanged locations are not read again" "exec|stf-proxy|nginx|-s|reload" "$(calls docker)"
 zbr "$SETUP_ANSWERS" setup > /dev/null
 check "the setup keeps the enrollment token" "$token" "$(value mdm.env MDM_ENROLL_TOKEN)"

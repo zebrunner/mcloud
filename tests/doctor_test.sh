@@ -304,6 +304,15 @@ zbr doctor
 check_contains "a failed setup of Headwind MDM fails" \
   "mcloud-mdm-hmdm-init, the setup of the admin of Headwind MDM, failed (exit 1)" "$OUT"
 healthy
+echo "mcloud-mdm-ca" >> "${WORK}/services"
+echo "mcloud-mdm-ca|exited||0|mcloud-mdm-ca" >> "${WORK}/ps"
+zbr doctor
+check_not_contains "the copy of the CA certificate done is no failure" "mcloud-mdm-ca" "$OUT"
+sed -i.bak 's/^mcloud-mdm-ca|exited||0/mcloud-mdm-ca|exited||1/' "${WORK}/ps"
+zbr doctor
+check_contains "a failed copy of the CA certificate fails" \
+  "mcloud-mdm-ca, the copy of the certificate of the SCEP CA for NanoHUB, failed (exit 1)" "$OUT"
+healthy
 echo 7 > "${WORK}/restarts"
 zbr doctor
 check_contains "restarts are a warning" "stf-app restarted 7 times." "$OUT"
