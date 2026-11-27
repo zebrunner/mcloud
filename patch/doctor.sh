@@ -157,7 +157,8 @@ doctor_host() {
   return 0
 }
 
-# doctor_settings: STF_URL and AGENTS_ADDRESS of .env, the secrets of variables.env and the files of the secrets
+# doctor_settings: STF_URL, AGENTS_ADDRESS and ADB_RELAY_PORTS of .env, the secrets of variables.env and the files of the
+# secrets
 doctor_settings() {
   local url host agents name value missing public private_files file mode
   local secrets_ok=1
@@ -201,6 +202,16 @@ doctor_settings() {
     esac
     ;;
   esac
+  # adb-relay relays the ports of ADB_RELAY_PORTS only: the nodes choose the remote debug ports of their devices
+  if [[ "$(doctor_value .env ADB_RELAY)" == "true" ]]; then
+    value="$(doctor_value .env ADB_RELAY_PORTS)"
+    if ! valid_port_range "$value"; then
+      doctor_fail "ADB_RELAY=true without a valid ADB_RELAY_PORTS ('${value}'): adb-relay relays no device." \
+        "set ADB_RELAY_PORTS of .env to the range of the remote debug ports opened in the firewall (e.g. 7400-7999), then ./zebrunner.sh restart (README.md#remote-debug-through-the-adb-relay)"
+    else
+      doctor_ok "adb-relay relays the remote debug ports ${value} (the ports of MCloud excluded)"
+    fi
+  fi
   value="$(doctor_value variables.env SECRET)"
   if [[ -z "$value" || "$value" == "password" ]]; then
     secrets_ok=0

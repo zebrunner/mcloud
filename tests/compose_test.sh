@@ -371,7 +371,7 @@ run_check "STF answers after the backup" wait_for 120 curl -sf --max-time 5 -u "
 section "adb relay"
 # the auto mode with the access token of variables.env: adb-relay runs and reads the devices of the nodes with the
 # token start made, or reports the empty token (an STF of TAG_STF without stf token-add)
-sed -i.orig "s|^ADB_RELAY=.*|ADB_RELAY=true|" "${MCLOUD}/.env"
+sed -i.orig -e "s|^ADB_RELAY=.*|ADB_RELAY=true|" -e "s|^ADB_RELAY_PORTS=.*|ADB_RELAY_PORTS=17400-17499|" "${MCLOUD}/.env"
 run_check "start with ADB_RELAY=true" zbr "" start
 # shellcheck disable=SC2329 # called through wait_for
 healthy_relay() {

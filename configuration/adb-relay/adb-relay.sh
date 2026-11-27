@@ -15,6 +15,11 @@ TOKEN_FILE="${TOKEN_FILE:-/opt/adb-relay/stf-token}"
 AWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the Android devices bound to an active node with the address of the node (README.md#nodes)
 RELAY_PATH="/api/v1/nodes/relay"
+# the sockets of the server (the network of the host) and the descriptors of nginx: the ports other programs listen on
+# and the ones nginx took after a reload
+PROC="${PROC:-/proc}"
+# a reload is checked so many times, half a second apart, before it counts as failed
+RELOAD_CHECKS="${RELOAD_CHECKS:-10}"
 
 #### Helpers
 
@@ -43,13 +48,78 @@ devices_of_json() {
   awk -f "${AWK_DIR}/devices.awk"
 }
 
-# relay_devices <first port> <last port> <ports not to relay>: the device lines of devices_of_json (stdin) with what the
-# relay does with them, a line per Android device, present or not: `relay|<port>|<address>|<serial>|<label>` or
-# `skip|<port>|<address>|<serial>|<label>|<reason>`. The port is connectPort, the address the one of the node; an empty
-# first port takes any port; the ports not to relay (of MCloud) are separated by spaces, a range as
-# <first>-<last>; a port of two devices is not relayed
+# relay_devices <first port> <last port> <ports not to relay> [<ports in use>] [<relayed devices>]: the device lines of
+# devices_of_json (stdin) with what the relay does with them, a line per Android device, present or not:
+# `relay|<port>|<address>|<serial>|<label>` or `skip|<port>|<address>|<serial>|<label>|<reason>`. The port is
+# connectPort, the address the one of the node; an empty first port relays no port (ADB_RELAY_PORTS is mandatory); the
+# ports not to relay (of MCloud) are separated by spaces, a range as <first>-<last>; the ports in use are the ones other
+# programs of the server listen on; a port of two devices is relayed for one of them: the one of the relayed devices
+# (`<port>/<serial>/<label>`, separated by spaces), else the first by the label of its node and its serial
 relay_devices() {
-  awk -v first="$1" -v last="$2" -v reserved="$3" -f "${AWK_DIR}/relay.awk"
+  awk -v first="$1" -v last="$2" -v reserved="$3" -v busy="${4:-}" -v current="${5:-}" -f "${AWK_DIR}/relay.awk"
+}
+
+# relayed_of <servers>: the relayed devices of the servers of servers_of (stdin), `<port>/<serial>/<label>` separated by
+# spaces
+relayed_of() {
+  awk '
+    $1 == "#" && $3 == "of" { serial = $2; label = $4 }
+    $1 == "listen" { port = $2; printf "%s%s/%s/%s", sep, port, serial, label; sep = " " }
+  '
+}
+
+# listening_sockets: the TCP sockets of the server that listen, a line per socket: `<port> <inode>`; nothing without
+# ${PROC}/net/tcp (not Linux)
+listening_sockets() {
+  cat "${PROC}/net/tcp" "${PROC}/net/tcp6" 2> /dev/null | awk -f "${AWK_DIR}/sockets.awk"
+}
+
+# nginx_inodes: the inodes of the sockets of nginx (its master process holds the listening ones)
+nginx_inodes() {
+  local fd target
+  for fd in "${PROC}/${nginx_pid}/fd/"*; do
+    target="$(readlink "$fd" 2> /dev/null)"
+    if [[ "$target" =~ ^socket:\[([0-9]+)\]$ ]]; then
+      echo "${BASH_REMATCH[1]}"
+    fi
+  done
+}
+
+# ports_of <owner>: the listening ports of nginx (owner nginx) or of the other programs of the server (owner other),
+# separated by spaces; without the descriptors of nginx every port is one of nginx (no port is taken for one of
+# another program, a reload is checked by the ports only)
+ports_of() {
+  local inodes
+  inodes="$(nginx_inodes | tr '\n' ' ')"
+  listening_sockets | awk -v owner="$1" -v inodes=" ${inodes}" '
+    { mine = inodes == " " || index(inodes, " " $2 " ") > 0 }
+    (owner == "nginx" && mine) || (owner == "other" && !mine) { if (!seen[$1]++) { printf "%s%s", sep, $1; sep = " " } }
+  '
+}
+
+# missing_ports <servers>: the ports of the servers of servers_of (stdin) nginx does not listen on, separated by spaces;
+# nothing when the sockets of the server can't be read
+missing_ports() {
+  local listening
+  [[ -r "${PROC}/net/tcp" ]] || return 0
+  listening=" $(ports_of nginx) "
+  awk '$1 == "listen" { print $2 }' | while read -r port; do
+    [[ "$listening" == *" ${port} "* ]] || printf '%s ' "$port"
+  done
+}
+
+# reload_nginx <servers>: reloads nginx with the servers of AUTO_CONF and waits until it listens on every port of them;
+# fails with the ports it does not listen on (e.g. a port another program took: nginx keeps its servers then)
+reload_nginx() {
+  local missing check
+  kill -HUP "$nginx_pid"
+  for ((check = 1; check <= RELOAD_CHECKS; check++)); do
+    missing="$(missing_ports <<< "$1")"
+    [[ -z "$missing" ]] && return 0
+    ((check < RELOAD_CHECKS)) && sleep 0.5
+  done
+  echo "${missing% }"
+  return 1
 }
 
 # servers_of <resolvers>: the servers of nginx of the relay lines of relay_devices (stdin), the resolvers (of
@@ -68,6 +138,14 @@ servers_of() {
   '
 }
 
+# reserved_of: the ports of MCloud on the server, never relayed (also before their service listens): stf-proxy
+# (STF_PORT, the grid of the nodes 4446 and its listener 4447), the ZeroMQ ports of the triproxies, MQTT and the admin UI
+# of the MDM (MDM_MQTT_PORT, MDM_ADMIN_PORT), the WireGuard tunnel (NODES_WG_PORT)
+reserved_of() {
+  echo "${STF_PORT:-80} 4446 4447 ${NODES_GRID_PORT:-4446} 7150 7160 7170 7250 7260 7270 ${MDM_MQTT_PORT:-31443}" \
+    "${MDM_ADMIN_PORT:-9101} ${NODES_WG_PORT:-51820}"
+}
+
 # stf_token: the access token of STF of the file of ./zebrunner.sh, STF_TOKEN of variables.env
 stf_token() {
   head -1 "$TOKEN_FILE" 2> /dev/null | tr -d ' \r'
@@ -78,7 +156,7 @@ stf_token() {
 # sync_devices: the devices of the STF API to the servers of AUTO_CONF; nginx reloads when they change; a failure keeps
 # the servers the relay has
 sync_devices() {
-  local token answer devices report conf previous
+  local token answer devices report conf previous missing
   token="$(stf_token)"
   if [[ -z "$token" ]]; then
     report_error "The access token of STF (STF_TOKEN of variables.env) is empty: no device is relayed, set it and run ./zebrunner.sh start (README.md#remote-debug-through-the-adb-relay)."
@@ -98,16 +176,24 @@ sync_devices() {
     log "INFO" "The STF API ${stf_api} answers with the devices again."
   fi
   last_error=""
-  report="$(relay_devices "$relay_first" "$relay_last" "$reserved_ports" <<< "$devices")"
-  conf="$(servers_of "$resolvers" <<< "$report")"
   previous="$(cat "$AUTO_CONF" 2> /dev/null)"
+  # AUTO_CONF has the servers nginx runs: its devices keep their ports, the ports of other programs are not taken
+  report="$(relay_devices "$relay_first" "$relay_last" "$reserved_ports" "$(ports_of other 2> /dev/null)" \
+    "$(relayed_of <<< "$previous")" <<< "$devices")"
+  conf="$(servers_of "$resolvers" <<< "$report")"
   if [[ "$conf" != "$previous" ]]; then
     printf '%s\n' "$conf" > "$AUTO_CONF"
-    if nginx -t -q 2> /dev/null; then
-      kill -HUP "$nginx_pid"
-    else
+    if ! nginx -t -q 2> /dev/null; then
       log "ERROR" "nginx refuses the servers of the devices, the relay keeps its devices: $(nginx -t 2>&1 | tr '\n' ' ')"
       printf '%s\n' "$previous" > "$AUTO_CONF"
+      return
+    fi
+    # nginx -t does not bind the ports: a reload that fails keeps the servers nginx has, AUTO_CONF gets them back, so the
+    # next sync tries again
+    if ! missing="$(reload_nginx "$conf")"; then
+      report_error "nginx did not take the servers of the devices (it does not listen on ${missing}; docker logs adb-relay shows why), the relay keeps its devices and tries again on the next sync."
+      printf '%s\n' "$previous" > "$AUTO_CONF"
+      kill -HUP "$nginx_pid"
       return
     fi
   fi
@@ -153,21 +239,18 @@ main() {
     log "WARN" "ADB_RELAY_SYNC_SECONDS '${interval}' is not a number of seconds, the devices are read every 300 seconds."
     interval=300
   fi
+  # the range of the relayed ports is mandatory: a node chooses the connect port of its devices
   relay_first=""
   relay_last=""
-  if [[ -n "$ADB_RELAY_PORTS" ]]; then
-    if range="$(port_range "$ADB_RELAY_PORTS")"; then
-      relay_first="${range% *}"
-      relay_last="${range#* }"
-    else
-      log "ERROR" "ADB_RELAY_PORTS '${ADB_RELAY_PORTS}' is not <first>-<last> of the ports 1024-65535: no device of STF is relayed."
-      relay_first=1
-      relay_last=0
-    fi
+  if range="$(port_range "$ADB_RELAY_PORTS")"; then
+    relay_first="${range% *}"
+    relay_last="${range#* }"
+  else
+    log "ERROR" "ADB_RELAY_PORTS '${ADB_RELAY_PORTS}' is not <first>-<last> of the ports 1024-65535 (e.g. 7400-7999, the range opened in the firewall): no device of STF is relayed (README.md#remote-debug-through-the-adb-relay)."
   fi
   # stf-proxy on the published port of the host: the scheme of STF_URL is the one of stf-proxy (README.md#https)
   stf_api="${STF_URL%%://*}://127.0.0.1:${STF_PORT}"
-  reserved_ports="${STF_PORT} 4446 7160 7250 7260 7270"
+  reserved_ports="$(reserved_of)"
   resolvers="$(awk '$1 == "nameserver" { printf "%s%s", sep, ($2 ~ /:/ ? "[" $2 "]" : $2); sep = " " }' /etc/resolv.conf)"
   last_error=""
   last_report="none"

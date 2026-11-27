@@ -119,6 +119,11 @@ services:
       - ADB_RELAY_SYNC_SECONDS=${ADB_RELAY_SYNC_SECONDS:-300}
       - STF_URL=${STF_URL}
       - STF_PORT=${STF_PORT}
+      # the other ports of MCloud on the server, never relayed
+      - NODES_GRID_PORT=${NODES_GRID_PORT:-4446}
+      - MDM_MQTT_PORT=${MDM_MQTT_PORT:-31443}
+      - MDM_ADMIN_PORT=${MDM_ADMIN_PORT:-9101}
+      - NODES_WG_PORT=${NODES_WG_PORT:-51820}
     volumes:
       - ./configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro
       # adb-relay.sh, its awk programs and stf-token (STF_TOKEN of variables.env only, written by ./zebrunner.sh)

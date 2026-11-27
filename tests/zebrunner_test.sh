@@ -633,6 +633,9 @@ zbr "" start > /dev/null
 check "start without ADB_RELAY starts no adb-relay" "network|inspect|infra
 compose|up|-d" "$(docker_calls)"
 relay_setting ADB_RELAY true
+check_contains "ADB_RELAY=true without ADB_RELAY_PORTS is reported" \
+  "ADB_RELAY_PORTS of .env is empty: adb-relay relays no device of STF." "$(zbr "" start)"
+relay_setting ADB_RELAY_PORTS 7400-7499
 reset_calls
 output="$(zbr "" start)"
 check "ADB_RELAY=true starts adb-relay" "network|inspect|infra

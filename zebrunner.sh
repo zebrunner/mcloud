@@ -1435,7 +1435,9 @@ check_adb_relay_auto() {
   esac
   adb_relay=1
   ports="$(sed -n 's/^ADB_RELAY_PORTS=//p' .env)"
-  if [[ -n "$ports" ]] && ! valid_port_range "$ports"; then
+  if [[ -z "$ports" ]]; then
+    echo_warning "ADB_RELAY_PORTS of .env is empty: adb-relay relays no device of STF. Set the range of the remote debug ports opened in the firewall (e.g. ADB_RELAY_PORTS=7400-7999) and run ./zebrunner.sh restart (README.md#remote-debug-through-the-adb-relay)."
+  elif ! valid_port_range "$ports"; then
     echo_warning "ADB_RELAY_PORTS of .env '${ports}' is not <first>-<last> of the ports 1024-65535: adb-relay relays no device of STF."
   fi
   seconds="$(sed -n 's/^ADB_RELAY_SYNC_SECONDS=//p' .env)"
