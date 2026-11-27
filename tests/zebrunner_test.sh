@@ -719,6 +719,14 @@ output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" "" "" "" "" "" n)" se
 check "the OAuth2 sign-in is the default of the next setup" "auth-oauth2" "$(value .env AUTH_SYSTEM)"
 check "the client secret is kept by the next setup" "'a\$b&c d'" "$(value variables.env OAUTH_CLIENT_SECRET)"
 check "the domain is kept by the next setup" "'example.com'" "$(value variables.env OAUTH_DOMAIN)"
+check_not_contains "a domain of the users is no warning" "No email domain of the users" "$output"
+check "a profile without email_verified is refused by default" "false" \
+  "$(value variables.env OAUTH_ALLOW_MISSING_EMAIL_VERIFIED)"
+sed -i.orig "s|^OAUTH_DOMAIN=.*|OAUTH_DOMAIN=''|" "${MCLOUD}/variables.env"
+output="$(zbr "$(printf '%s\n' "" "" "" y "" "" y "" "" "" "" "" "" "" "" n)" setup)"
+check_contains "an empty domain of the users is a warning" \
+  "No email domain of the users: every account of the provider with a verified email signs in" "$output"
+sed -i.orig "s|^OAUTH_DOMAIN=.*|OAUTH_DOMAIN='example.com'|" "${MCLOUD}/variables.env"
 if docker compose version > /dev/null 2>&1; then
   # shellcheck disable=SC2016
   check_contains "docker compose reads the quoted values" 'OAUTH_CLIENT_SECRET: a$$b&c d' \

@@ -1658,6 +1658,9 @@ set_sign_in() {
     OAUTH_SCOPE="${OAUTH_SCOPE:-openid email}"
     ask OAUTH_SCOPE "Scope"
     ask OAUTH_DOMAIN "Email domain of the users, empty for any" optional
+    if [[ -z "$OAUTH_DOMAIN" ]]; then
+      ui_warn "No email domain of the users: every account of the provider with a verified email signs in to STF (with a public provider such as Google: anyone). Set it unless the provider has your users only (README.md#sign-in)."
+    fi
     ;;
   ldap)
     ask LDAP_URL "LDAP URL (ldap://host:389)"
