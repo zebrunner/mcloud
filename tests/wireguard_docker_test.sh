@@ -261,7 +261,7 @@ check_contains "the peer is logged" "The node lab-1 at 10.239.0.2 is a peer" "$l
 check_contains "a node without a key is logged" "The node legacy is no peer: enrolled without a WireGuard key" "$log"
 check_not_contains "the private key is not logged" "$server_private" "$log"
 check_contains "the relay is logged" \
-  "The ports of the nodes on 10.239.0.1 are relayed to the ones of stf-proxy and stf-triproxy-dev on 127.0.0.1: 4446, 7250, 7270." "$log"
+  "The ports of the nodes on 10.239.0.1 are relayed to the ones of stf-proxy and stf-triproxy-dev on 127.0.0.1: 4446, 7250, 7270 (the PROXY protocol to 4446)." "$log"
 check "the relay listens on the WireGuard address of the server" "10.239.0.1:4446
 10.239.0.1:7250
 10.239.0.1:7270" "$(listeners 10.239.0.1)"
