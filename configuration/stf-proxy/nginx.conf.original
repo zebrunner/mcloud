@@ -19,11 +19,20 @@ http {
   # ./zebrunner.sh setup and start write it
   include /etc/nginx/grid-auth.conf;
 
-  # the scheme of the client for STF (a Secure session cookie behind https): the one of a proxy in front
-  # of this one (e.g. the nginx of Zebrunner CE), otherwise the one of this server
-  map $http_x_forwarded_proto $forwarded_proto {
-    default $http_x_forwarded_proto;
-    "" $scheme;
+  # the proxies in front of this one (TRUSTED_PROXY_ADDRESSES of .env, README.md#a-proxy-in-front-of-stf-proxy), none by
+  # default: written by ./zebrunner.sh setup and start, $trusted_proxy is 1 for a request of one of them and their
+  # X-Forwarded-For gives the address of the client ($remote_addr: the last address of it that is not one of them)
+  include /etc/nginx/trusted-proxies.conf;
+  real_ip_header X-Forwarded-For;
+  real_ip_recursive on;
+
+  # the scheme of the client for STF and HSTS: the one of this server, or X-Forwarded-Proto of a trusted proxy in front of
+  # it; the header of any other client is ignored, as are its X-Forwarded-For and X-Real-IP: every location gives the
+  # units the address of the client as $remote_addr
+  map "$trusted_proxy:$http_x_forwarded_proto" $forwarded_proto {
+    ~*^1:https$ https;
+    ~*^1:http$ http;
+    default $scheme;
   }
 
   # HSTS over https only: the browsers keep to https for a year; not includeSubDomains, the other sites of the domain
@@ -116,7 +125,7 @@ http {
       proxy_set_header        Connection "";
       proxy_set_header        Host $host;
       proxy_set_header        X-Real-IP $remote_addr;
-      proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header        X-Forwarded-For $remote_addr;
       proxy_set_header        Authorization "";
       proxy_set_header        Cookie "";
       proxy_set_header        X-MCloud-Auth $grid_auth_secret;
@@ -160,7 +169,7 @@ http {
       proxy_set_header Connection upgrade;
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-For $remote_addr;
       proxy_set_header Authorization "";
       proxy_set_header Cookie "";
       proxy_set_header X-MCloud-Auth $grid_auth_secret;
@@ -186,6 +195,8 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Authorization "";
       proxy_set_header Cookie "";
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-MCloud-Auth $grid_auth_secret;
       proxy_set_header X-MCloud-User $hub_user;
       proxy_set_header X-MCloud-Admin $hub_admin;
@@ -208,6 +219,8 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Authorization "";
       proxy_set_header Cookie "";
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-MCloud-Auth $grid_auth_secret;
       proxy_set_header X-MCloud-User $hub_user;
       proxy_set_header X-MCloud-Admin $hub_admin;
@@ -230,6 +243,8 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Authorization "";
       proxy_set_header Cookie "";
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-MCloud-Auth $grid_auth_secret;
       proxy_set_header X-MCloud-User $hub_user;
       proxy_set_header X-MCloud-Admin $hub_admin;
@@ -252,6 +267,8 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Authorization "";
       proxy_set_header Cookie "";
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-MCloud-Auth $grid_auth_secret;
       proxy_set_header X-MCloud-User $hub_user;
       proxy_set_header X-MCloud-Admin $hub_admin;
@@ -356,6 +373,8 @@ http {
       limit_req_status 429;
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_node_self stf-api:3000;
       proxy_pass http://$upstream_node_self;
     }
@@ -367,6 +386,8 @@ http {
       limit_req_status 429;
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_enroll stf-api:3000;
       proxy_pass http://$upstream_enroll;
     }
@@ -374,6 +395,8 @@ http {
     location /auth/ {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_auth stf-auth:3000;
       proxy_pass http://$upstream_auth;
     }
@@ -381,6 +404,8 @@ http {
     location /api/ {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_api stf-api:3000;
       proxy_pass http://$upstream_api;
     }
@@ -388,6 +413,8 @@ http {
     location /s/image/ {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_storage_plugin_image stf-storage-plugin-image:3000;
       proxy_pass http://$upstream_storage_plugin_image;
     }
@@ -395,6 +422,8 @@ http {
     location /s/apk/ {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_storage_plugin_apk stf-storage-plugin-apk:3000;
       proxy_pass http://$upstream_storage_plugin_apk;
     }
@@ -402,6 +431,8 @@ http {
     location /s/ {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       client_max_body_size 2048m;
       client_body_buffer_size 128k;
 
@@ -440,8 +471,8 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection upgrade;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Real-IP $http_x_real_ip;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
     }
 
     location /stf {
@@ -458,6 +489,8 @@ http {
     location / {
       proxy_set_header Host stf-proxy;
       proxy_set_header X-Forwarded-Proto $forwarded_proto;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $remote_addr;
       set $upstream_app stf-app:3000;
       proxy_pass http://$upstream_app;
     }
@@ -476,7 +509,7 @@ http {
       set $upstream_grid mcloud-grid:4444;
       proxy_pass http://$upstream_grid;
       proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-For $remote_addr;
     }
 
     # the check of a registered node: GET /grid/api/proxy?id=<node url>
@@ -487,7 +520,7 @@ http {
       set $upstream_grid mcloud-grid:4444;
       proxy_pass http://$upstream_grid;
       proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-For $remote_addr;
     }
 
     location / {

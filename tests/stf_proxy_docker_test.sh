@@ -2,8 +2,9 @@
 # Tests of the nginx configuration of stf-proxy in docker, the one ./zebrunner.sh setup writes, with a fake stf-api, a
 # fake node and a fake grid (nginx too): the screens of the devices allowed by stf-api (/api/v1/zebrunner/screen-auth) with
 # the headers each side gets, the access to the grid (/api/v1/zebrunner/hub-auth) with the headers the grid gets, the
-# internal routes, and the limits of the enrollment and of the record of a node. The containers have fixed names and use
-# the port 18083 of the host.
+# internal routes, the limits of the enrollment and of the record of a node, and the X-Forwarded-* headers STF gets from
+# a client and from a trusted proxy in front (the fake, 172.31.250.10 of TRUSTED_PROXY_ADDRESSES). The containers have
+# fixed names and use the ports 18083, 18084 and 18446 of the host and the network 172.31.250.0/24.
 source "$(dirname "$0")/lib.sh"
 
 require_cmd docker
@@ -60,6 +61,9 @@ section "the configuration"
 if ! docker image inspect "$NGINX" > /dev/null 2>&1; then
   run_check "pull ${NGINX}" docker pull --quiet "$NGINX"
 fi
+# the proxy in front of stf-proxy: the fake stf-api, at its fixed address
+FRONT="172.31.250.10"
+sed -i.orig "s|^TRUSTED_PROXY_ADDRESSES=.*|TRUSTED_PROXY_ADDRESSES=${FRONT},not-an-address|" "${MCLOUD}/.env.original"
 # the answers: protocol, host, port, the admin, the sign-in, no start
 printf 'http\nlocalhost\n18083\ny\n\n\ny\n\nn\n' | /bin/bash "${MCLOUD}/zebrunner.sh" setup > /dev/null 2>&1
 check "the setup writes the configuration of stf-proxy" "yes" \
@@ -71,8 +75,15 @@ GRID_SECRET="$(sed -n 's/^GRID_AUTH_SECRET=//p' "${MCLOUD}/variables.env")"
 check "the secret of the grid is generated" "48" "${#GRID_SECRET}"
 check_contains "stf-proxy gets the secret of variables.env" "default \"${GRID_SECRET}\";" \
   "$(cat "${MCLOUD}/configuration/stf-proxy/grid-auth.conf")"
+# shellcheck disable=SC2016 # the variables of nginx
+check "the setup writes the trusted proxies of .env, the invalid addresses are skipped" "set_real_ip_from ${FRONT};
+geo \$realip_remote_addr \$trusted_proxy {
+  default 0;
+  ${FRONT} 1;
+}" "$(grep -v '^#' "${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf")"
 proxy_volumes=(-v "${MCLOUD}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro"
-  -v "${MCLOUD}/configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro")
+  -v "${MCLOUD}/configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro"
+  -v "${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf:/etc/nginx/trusted-proxies.conf:ro")
 run_check "nginx -t of the configuration of http" docker run --rm "${proxy_volumes[@]}" "$NGINX" nginx -t
 
 section "the stand-ins"
@@ -110,7 +121,20 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '      add_header X-MCloud-Token $token;' \
   '      return 204;' \
   '    }' \
+  '    location ~ /echo-headers$ {' \
+  '      default_type text/plain;' \
+  '      return 200 "proto=[$http_x_forwarded_proto] for=[$http_x_forwarded_for] real=[$http_x_real_ip]\n";' \
+  '    }' \
   '    location / { default_type text/plain; return 200 "upstream $request_method $request_uri\n"; }' \
+  '  }' '  server {' '    listen 8443;' \
+  '    resolver 127.0.0.11 valid=10s;' \
+  '    location / {' \
+  '      set $proxy stf-proxy-test:80;' \
+  '      proxy_pass http://$proxy;' \
+  '      proxy_set_header Host $http_host;' \
+  '      proxy_set_header X-Forwarded-Proto https;' \
+  '      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
+  '    }' \
   '  }' '  server {' '    listen 7400;' \
   '    location / {' \
   '      default_type text/plain;' \
@@ -120,8 +144,9 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '      default_type text/plain;' \
   '      return 200 "grid $request_method $request_uri upgrade=[$http_upgrade] connection=[$http_connection] agent=[$http_user_agent] auth=[$http_x_mcloud_auth] user=[$http_x_mcloud_user] admin=[$http_x_mcloud_admin] token=[$http_x_mcloud_token] authorization=[$http_authorization] cookie=[$http_cookie]\n";' \
   '    }' '  }' '}' > "${FAKE}/nginx.conf"
-docker network create stf-proxy-test > /dev/null
+docker network create --subnet 172.31.250.0/24 stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
+  --ip "$FRONT" -p 127.0.0.1:18084:8443 \
   --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid --network-alias stf-websocket -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 -p 127.0.0.1:18446:4446 \
   "${proxy_volumes[@]}" "$NGINX"
@@ -152,10 +177,29 @@ check "a page of another site does not (cross-site WebSocket hijacking)" "403" \
   "$(http_code '/socket.io/?EIO=4' -H "Origin: https://evil.example.com" -H "Cookie: ssid=good")"
 check "another scheme is another site" "403" "$(http_code '/socket.io/?EIO=4' -H "Origin: https://127.0.0.1:18083")"
 
+section "the scheme and the address of the client"
+FRONT_URL="http://127.0.0.1:18084"
+spoofed=(-H "X-Forwarded-Proto: https" -H "X-Forwarded-For: 203.0.113.9" -H "X-Real-IP: 203.0.113.9")
+# the address of the host as stf-proxy sees it (the gateway of the network of the test)
+peer="$(body /echo-headers | sed -n 's/.* for=\[\([^]]*\)\].*/\1/p')"
+check "the address of the client is one address" "yes" "$([[ "$peer" =~ ^[0-9a-fA-F.:]+$ ]] && echo yes)"
+for path in /echo-headers /auth/echo-headers /api/echo-headers /s/echo-headers /s/image/echo-headers \
+  /s/apk/echo-headers /socket.io/echo-headers; do
+  check "${path}: STF gets the scheme and the address of stf-proxy, not the X-Forwarded-* of the client" \
+    "proto=[http] for=[${peer}] real=[${peer}]" "$(body "$path" "${spoofed[@]}")"
+  check "${path}: the trusted proxy in front gives the scheme, its X-Forwarded-For the address of its client" \
+    "proto=[https] for=[${peer}] real=[${peer}]" \
+    "$(curl -s --max-time 10 "${spoofed[@]}" "${FRONT_URL}${path}")"
+done
+check "the pages behind the trusted proxy open the WebSocket (https)" "upstream GET /socket.io/?EIO=4" \
+  "$(curl -s --max-time 10 -H "Origin: https://127.0.0.1:18084" "${FRONT_URL}/socket.io/?EIO=4")"
+
 section "HSTS"
 check "no HSTS over http" "" "$(curl -s -o /dev/null -D - --max-time 10 "${URL}/" | grep -i '^strict-transport-security')"
-check "HSTS over https" "Strict-Transport-Security: max-age=31536000" \
-  "$(curl -s -o /dev/null -D - --max-time 10 -H "X-Forwarded-Proto: https" "${URL}/" | grep -i '^strict-transport-security' | tr -d '\r')"
+check "no HSTS for the X-Forwarded-Proto of a client" "" \
+  "$(curl -s -o /dev/null -D - --max-time 10 -H "X-Forwarded-Proto: https" "${URL}/" | grep -i '^strict-transport-security')"
+check "HSTS behind the trusted proxy of https" "Strict-Transport-Security: max-age=31536000" \
+  "$(curl -s -o /dev/null -D - --max-time 10 "${FRONT_URL}/" | grep -i '^strict-transport-security' | tr -d '\r')"
 
 section "the access to the grid"
 john=(-u "john@example.com:john-token")

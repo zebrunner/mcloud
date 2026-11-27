@@ -26,6 +26,7 @@ configuration/wireguard/private-key
 configuration/wireguard/stf-token
 configuration/wireguard/stf-api.env
 configuration/stf-proxy/grid-auth.conf
+configuration/stf-proxy/trusted-proxies.conf
 # the secrets and the MQTT proxy of the MDM (README.md#mdm)
 mdm.env
 configuration/mdm/env/
