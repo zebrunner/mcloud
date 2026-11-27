@@ -35,6 +35,14 @@ http {
     default $scheme;
   }
 
+  # the address of a node on the grid of the nodes: the one the relay of the WireGuard tunnel of the nodes gives by the
+  # PROXY protocol on the port 4447 (README.md#wireguard-tunnel-of-the-nodes), the address of the connection otherwise;
+  # never a header of the node
+  map $proxy_protocol_addr $node_addr {
+    "" $remote_addr;
+    default $proxy_protocol_addr;
+  }
+
   # HSTS over https only: the browsers keep to https for a year; not includeSubDomains, the other sites of the domain
   # are not MCloud. Every add_header of the security headers below sends it, nginx skips an empty value
   map $forwarded_proto $hsts {
@@ -500,6 +508,9 @@ http {
   # grid checks the node token of it. The hub and the console are /mcloud of the server above, for the users of STF
   server {
     listen 4446;
+    # with the WireGuard tunnel of the nodes: the relay of the service wireguard, through the loopback address of the
+    # server only (NODES_GRID_PORT of docker-compose.yml), with the address of the node by the PROXY protocol
+    listen 4447 proxy_protocol;
     server_name stf-proxy-grid;
 
     resolver 127.0.0.11 valid=30s;
@@ -508,8 +519,8 @@ http {
     location = /grid/register {
       set $upstream_grid mcloud-grid:4444;
       proxy_pass http://$upstream_grid;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $node_addr;
+      proxy_set_header X-Forwarded-For $node_addr;
     }
 
     # the check of a registered node: GET /grid/api/proxy?id=<node url>
@@ -519,8 +530,8 @@ http {
       }
       set $upstream_grid mcloud-grid:4444;
       proxy_pass http://$upstream_grid;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Real-IP $node_addr;
+      proxy_set_header X-Forwarded-For $node_addr;
     }
 
     location / {

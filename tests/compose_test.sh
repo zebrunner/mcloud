@@ -220,6 +220,11 @@ check "RethinkDB is not published on the host" "" "$(docker port rethinkdb)"
 check "ZeroMQ of the STF units is not published" "" "$(docker port stf-triproxy-app)"
 check "the PUB and the PULL of the devices are published for the nodes, no dealer" \
   "7250/tcp -> 0.0.0.0:7250 7270/tcp -> 0.0.0.0:7270" "$(docker port stf-triproxy-dev | grep -v '::' | sort | tr '\n' ' ' | sed 's/ $//')"
+# without the WireGuard tunnel (the default) the ports of the nodes are on AGENTS_ADDRESS, no relay of wireguard
+check "the grid of the nodes is published on AGENTS_ADDRESS without the tunnel" "0.0.0.0:4446" \
+  "$(docker port stf-proxy 4446/tcp | grep -v '::')"
+check "no NODES_ADDRESS and no service wireguard without the tunnel" ":" \
+  "$(sed -n 's/^NODES_ADDRESS=//p' "${MCLOUD}/.env"):$(docker ps -aq --filter name='^/wireguard$')"
 stf_image="$(docker inspect --format '{{.Config.Image}}' stf-app)"
 run_check "RethinkDB refuses a connection without its password" docker run --rm --network infra "$stf_image" \
   node -e "require('rethinkdb').connect({host: 'rethinkdb'}).then(() => process.exit(1), () => process.exit(0))"

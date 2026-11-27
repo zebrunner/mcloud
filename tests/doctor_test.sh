@@ -15,7 +15,8 @@ copy_repo "$MCLOUD"
 # restarts (the restart count of every container), handshakes (docker exec: wg show of the service wireguard),
 # mdm-logs and mdm-logs-recent (docker logs of mcloud-mdm, with --since); ip:
 # ip-wireguard (the interface of the tunnel); curl: user.json and user.status (GET /api/v1/user), nodes.json and
-# nodes.status, devices.json, grid.status (the grid on 4446), url.status (STF_URL), closed-ports (one per line)
+# nodes.status, devices.json, grid.status (the grid on 4446), url.status (STF_URL), closed-ports (one per line: a port
+# closed on every address or <address>:<port>)
 # shellcheck disable=SC2016 # the stub bodies are expanded when the stubs run
 stub docker '(IFS="|"; echo "docker|$*") >> "${STUB_DIR}/calls.log"
 [[ -f "${STUB_DIR}/docker-down" ]] && exit 1
@@ -54,7 +55,7 @@ case "$url" in
   *:4446/grid/api/proxy*) cat "${STUB_DIR}/grid.status" ;;
   telnet://*)
     port="${url##*:}"
-    if grep -qx "$port" "${STUB_DIR}/closed-ports" 2> /dev/null; then echo 0.000000; else echo 0.000120; fi ;;
+    if grep -qx -e "$port" -e "${url#telnet://}" "${STUB_DIR}/closed-ports" 2> /dev/null; then echo 0.000000; else echo 0.000120; fi ;;
   *) cat "${STUB_DIR}/url.status" ;;
 esac'
 
@@ -433,7 +434,8 @@ zbr doctor
 check "a healthy server with the tunnel passes" "0" "$STATUS"
 for line in "NODES_WG_NETWORK 10.234.0.0/24, the server is 10.234.0.1, its UDP endpoint mcloud.example.com:51820" \
   "The interface mcloud of the server has 10.234.0.1" "The 7 services run" "The grid answers on 10.234.0.1:4446" \
-  "The ports of the nodes listen on 10.234.0.1: 4446, 7250, 7270" "The secrets of variables.env are set" \
+  "The ports of the nodes listen on 10.234.0.1: 4446, 7250, 7270" "The ports of the nodes are published on 127.0.0.1: 4446, 7250, 7270" \
+  "The secrets of variables.env are set" \
   "Node lab-1 (10.234.0.2): the latest handshake of the tunnel"; do
   check_contains "ok with the tunnel: ${line}" "   ok   ${line}" "$OUT"
 done
@@ -455,6 +457,21 @@ check_contains "no handshake is a warning" "Node lab-1 (10.234.0.2): no handshak
 zbr doctor
 check_contains "a node that is no peer fails" "Node lab-1 (10.234.0.2) is no peer of the tunnel." "$OUT"
 check "a node that is no peer: the status" "1" "$STATUS"
+wireguard
+printf '%s\n' 10.234.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/closed-ports"
+zbr doctor
+check_contains "no relay on the WireGuard address fails" \
+  "Ports of the nodes do not listen on 10.234.0.1: 4446, 7250, 7270; the relay of the service wireguard listens there." "$OUT"
+check_contains "the fix of no relay: its log" "docker logs wireguard; ./zebrunner.sh start" "$OUT"
+check_contains "the published ports are still seen" "   ok   The ports of the nodes are published on 127.0.0.1: 4446, 7250, 7270" "$OUT"
+check "no relay: the status" "1" "$STATUS"
+echo 127.0.0.1:7250 > "${WORK}/closed-ports"
+zbr doctor
+check_contains "a port of the nodes not published on the loopback address fails" \
+  "Ports of the nodes are not published on 127.0.0.1 (stf-proxy 4446, stf-triproxy-dev 7250 and 7270): 7250." "$OUT"
+check_contains "the relay is still seen" "   ok   The ports of the nodes listen on 10.234.0.1: 4446, 7250, 7270" "$OUT"
+check "a port not published: the status" "1" "$STATUS"
+rm -f "${WORK}/closed-ports"
 wireguard
 sed -i.bak 's/,"wgPublicKey":"[^"]*"//' "${WORK}/nodes.json"
 zbr doctor

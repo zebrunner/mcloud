@@ -465,10 +465,23 @@ doctor_api() {
   fi
 }
 
-# doctor_ports: STF_URL answers from this server, the ports of the nodes listen on AGENTS_ADDRESS (the firewall of the
-# server is not seen from here)
+# closed_ports <host> <ports>: the ports of the list that do not accept a connection on the host, comma separated
+closed_ports() {
+  local port
+  local closed=""
+  for port in $2; do
+    if ! port_open "$1" "$port"; then
+      closed="${closed:+${closed}, }${port}"
+    fi
+  done
+  echo "$closed"
+}
+
+# doctor_ports: STF_URL answers from this server, the ports of the nodes listen on AGENTS_ADDRESS; with the WireGuard
+# tunnel docker publishes them on the loopback address and the relay of wireguard listens on the WireGuard address of
+# the server for them (the firewall of the server is not seen from here)
 doctor_ports() {
-  local url code port closed ports
+  local url code closed ports
   ui_section "Ports" "" "README.md#firewall"
   url="$(doctor_value .env STF_URL)"
   code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${url}/" 2> /dev/null)"
@@ -482,13 +495,20 @@ doctor_ports() {
   if [[ "$(doctor_value .env MDM_ENABLED)" == "true" ]]; then
     ports="${ports} $(doctor_value .env MDM_MQTT_PORT)"
   fi
-  closed=""
-  for port in $ports; do
-    if ! port_open "$(agents_ip)" "$port"; then
-      closed="${closed:+${closed}, }${port}"
+  if wg_on; then
+    closed="$(closed_ports 127.0.0.1 "$DOCTOR_NODE_PORTS")"
+    if [[ -n "$closed" ]]; then
+      doctor_fail "Ports of the nodes are not published on 127.0.0.1 (stf-proxy 4446, stf-triproxy-dev 7250 and 7270): ${closed}." \
+        "./zebrunner.sh start; docker ps (README.md#wireguard-tunnel-of-the-nodes)"
+    else
+      doctor_ok "The ports of the nodes are published on 127.0.0.1: ${DOCTOR_NODE_PORTS// /, }"
     fi
-  done
-  if [[ -n "$closed" ]]; then
+  fi
+  closed="$(closed_ports "$(agents_ip)" "$ports")"
+  if [[ -n "$closed" ]] && wg_on; then
+    doctor_fail "Ports of the nodes do not listen on $(agents_ip): ${closed}; the relay of the service wireguard listens there." \
+      "docker logs wireguard; ./zebrunner.sh start (README.md#wireguard-tunnel-of-the-nodes)"
+  elif [[ -n "$closed" ]]; then
     doctor_fail "Ports of the nodes do not listen on $(agents_ip): ${closed}." "./zebrunner.sh start; docker ps (README.md#firewall)"
   else
     doctor_ok "The ports of the nodes listen on $(agents_ip): ${ports// /, }"

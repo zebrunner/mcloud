@@ -1387,8 +1387,8 @@ reset_calls
 zbr "" start > /dev/null
 check "the tunnel is off by default" "false:51820:10.234.0.0/24:5" \
   "$(value .env NODES_WIREGUARD):$(value .env NODES_WG_PORT):$(value .env NODES_WG_NETWORK):$(value .env NODES_WG_SYNC_SECONDS)"
-check "no derived value without the tunnel" ":::" \
-  "$(value .env NODES_ADDRESS):$(value .env NODES_WG_ENDPOINT):$(value .env NODES_WG_PUBLIC_KEY):$(value .env NODES_WG_SERVER_ADDRESS)"
+check "no derived value without the tunnel" "::::" \
+  "$(value .env NODES_ADDRESS):$(value .env NODES_GRID_PORT):$(value .env NODES_WG_ENDPOINT):$(value .env NODES_WG_PUBLIC_KEY):$(value .env NODES_WG_SERVER_ADDRESS)"
 check "no private key of the tunnel without it" "" "$(value variables.env NODES_WG_PRIVATE_KEY)"
 check "start without the tunnel starts no wireguard" "network|inspect|infra
 compose|up|-d" "$(docker_calls)"
@@ -1398,26 +1398,48 @@ for file in $wg_files; do
 done
 check "stf-api gets no option of the tunnel without it" "" "$(grep -v '^#' "${MCLOUD}/configuration/wireguard/stf-api.env")"
 if docker compose version > /dev/null 2>&1; then
-  check "without the tunnel the ports of the nodes are on AGENTS_ADDRESS" "0.0.0.0 0.0.0.0 0.0.0.0" \
-    "$(compose_json '" ".join(p.get("host_ip", "") for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if p["target"] in (4446, 7250, 7270))')"
+  check "without the tunnel the ports of the nodes are on AGENTS_ADDRESS" "0.0.0.0:4446:4446 0.0.0.0:7250:7250 0.0.0.0:7270:7270" \
+    "$(compose_json '" ".join(p.get("host_ip", "") + ":" + str(p["published"]) + ":" + str(p["target"]) for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if str(p["published"]) in ("4446", "7250", "7270"))')"
   check "without the tunnel stf-api gets no STF_API_NODES_WG_*" "[]" \
     "$(compose_json '[k for k in s["stf-api"]["environment"] if k.startswith("STF_API_NODES_WG")]')"
   check "wireguard runs with its profile only" "wireguard" \
     "$(cd "$MCLOUD" && comm -13 <(docker compose config --services | sort) <(docker compose --profile wireguard config --services | sort))"
 fi
 
+# the listener of the relay of the tunnel (4447) is in a new configuration of stf-proxy; one of an earlier MCloud without
+# it is written again with the tunnel only
+conf="${MCLOUD}/configuration/stf-proxy/nginx.conf"
+check_contains "stf-proxy takes the PROXY protocol of the relay of the tunnel on 4447" "listen 4447 proxy_protocol;" "$(cat "$conf")"
+cp "$conf" "${WORK}/nginx.conf.relay"
+grep -v 'listen 4447 proxy_protocol;' "${WORK}/nginx.conf.relay" > "$conf"
+sha256_of "$conf" > "${conf}.sha256"
+zbr "" start > /dev/null
+check "without the tunnel start keeps a configuration without the listener of the relay" "" \
+  "$(grep 'listen 4447' "$conf")"
+
 wg_setting NODES_WIREGUARD true
 reset_calls
 output="$(zbr "" start)"
+check "with the tunnel start writes the configuration with the listener of the relay again" \
+  "$(cat "${WORK}/nginx.conf.relay")" "$(cat "$conf")"
 check "start with the tunnel" "0" "$?"
 wg_key="$(value variables.env NODES_WG_PRIVATE_KEY)"
 check "start makes the private key of the tunnel" "yes" "$([[ "$wg_key" =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$ ]] && echo yes)"
 check_contains "the new key is reported" "NODES_WG_PRIVATE_KEY of variables.env is a new private key of the WireGuard tunnel" "$output"
 check_not_contains "the private key is not shown" "$wg_key" "$output"
 check_not_contains "the private key is no argument of a command" "$wg_key" "$(cat "${WORK}/calls.log")"
-check "start starts the profile wireguard" "network|inspect|infra
-compose|--profile|wireguard|up|-d" "$(docker_calls)"
-check "the ports of the nodes on the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_ADDRESS)"
+check "start starts the profile wireguard (stf-proxy reads its new configuration)" "network|inspect|infra
+compose|--profile|wireguard|up|-d
+exec|stf-proxy|nginx|-s|reload" "$(docker_calls)"
+check "the ports of the nodes on the loopback address, the relay of wireguard on the WireGuard address" "127.0.0.1" "$(value .env NODES_ADDRESS)"
+check "the grid of the nodes leads to the listener of the PROXY protocol of the relay" "4447" "$(value .env NODES_GRID_PORT)"
+grep -v 'listen 4447 proxy_protocol;' "${WORK}/nginx.conf.relay" > "$conf"
+echo "# a change by hand" >> "$conf"
+check_contains "a configuration changed by hand without the listener of the relay is reported" \
+  "has no listener of the relay of the WireGuard tunnel: the nodes do not reach the grid" "$(zbr "" start)"
+check_contains "a configuration changed by hand is kept with the tunnel" "# a change by hand" "$(cat "$conf")"
+cp "${WORK}/nginx.conf.relay" "$conf"
+sha256_of "$conf" > "${conf}.sha256"
 check "the ZeroMQ endpoints of the nodes at the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_HOST)"
 check "the WireGuard address of the server" "10.234.0.1" "$(value .env NODES_WG_SERVER_ADDRESS)"
 check "the UDP endpoint of the server: the host of STF_URL" "mcloud.example.com:51820" "$(value .env NODES_WG_ENDPOINT)"
@@ -1448,15 +1470,22 @@ check "the key file is written in place" "$key_inode" "$(inode configuration/wir
 output="$(zbr "$(answers https mcloud.example.com 443 "" "")" setup)"
 check "the setup keeps the tunnel on" "true:10.234.0.0/24" "$(value .env NODES_WIREGUARD):$(value .env NODES_WG_NETWORK)"
 check "the setup keeps the private key" "$wg_key" "$(value variables.env NODES_WG_PRIVATE_KEY)"
-check "the setup writes the derived values" "10.234.0.1:10.234.0.1:$(wg_public)" \
+check "the setup writes the derived values" "127.0.0.1:10.234.0.1:$(wg_public)" \
   "$(value .env NODES_ADDRESS):$(value .env NODES_HOST):$(value .env NODES_WG_PUBLIC_KEY)"
 check "the derived values are in .env once" "1" "$(grep -c '^NODES_WG_PUBLIC_KEY=' "${MCLOUD}/.env")"
 check_contains "the setup explains the invites of the tunnel" \
   "./zebrunner.sh node-invite <label> prints the join string for ./zebrunner.sh join of mcloud-agent on the node, its WireGuard address is the next free one of NODES_WG_NETWORK" "$output"
 check_contains "the setup reminds of the UDP port" "The nodes dial the UDP port 51820 of this server: open it in the firewall." "$output"
 if docker compose version > /dev/null 2>&1; then
-  check "the ports of the nodes are published on the WireGuard address" "10.234.0.1 10.234.0.1 10.234.0.1" \
-    "$(compose_json '" ".join(p.get("host_ip", "") for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if p["target"] in (4446, 7250, 7270))')"
+  check "the ports of the nodes are published on the loopback address, which exists at the boot already" \
+    "127.0.0.1:4446:4447 127.0.0.1:7250:7250 127.0.0.1:7270:7270" \
+    "$(compose_json '" ".join(p.get("host_ip", "") + ":" + str(p["published"]) + ":" + str(p["target"]) for n in ("stf-proxy", "stf-triproxy-dev") for p in s[n]["ports"] if str(p["published"]) in ("4446", "7250", "7270"))')"
+  check "stf-proxy and stf-triproxy-dev do not wait for wireguard" "[] []" \
+    "$(compose_json '" ".join(str([d for d in s[n].get("depends_on", {}) if d == "wireguard"]) for n in ("stf-proxy", "stf-triproxy-dev"))' --profile wireguard)"
+  check "the healthcheck of wireguard: the interface and the relay" "CMD bash /opt/wireguard/wireguard.sh healthy" \
+    "$(compose_json '" ".join(s["wireguard"]["healthcheck"]["test"])' --profile wireguard)"
+  check_contains "wireguard has the stream module of nginx for the relay" "apk add --no-cache --quiet bash curl iproute2 nginx nginx-mod-stream wireguard-tools-wg" \
+    "$(compose_json '" ".join(s["wireguard"]["entrypoint"])' --profile wireguard)"
   check "stf-proxy is published on every address as before" "" \
     "$(compose_json '" ".join(p.get("host_ip", "") for p in s["stf-proxy"]["ports"] if p["target"] == 80)')"
   check "stf-api gets the --nodes-wg-* options" "mcloud.example.com:51820 10.234.0.1 10.234.0.0/24 yes" \

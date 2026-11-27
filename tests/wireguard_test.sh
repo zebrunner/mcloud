@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests of the WireGuard tunnel of the nodes without docker: the addresses of configuration/wireguard/network.sh, the
 # keys of patch/wireguard.sh and the sync of the peers of configuration/wireguard/wireguard.sh (the nodes of answers of
-# the STF API, the peers they make and the changes of the interface); wg and curl are stubs (the service itself is
-# checked by tests/wireguard_docker_test.sh).
+# the STF API, the peers they make and the changes of the interface) and its relay of the ports of the nodes; wg, curl,
+# nginx, ss and ip are stubs (the service itself is checked by tests/wireguard_docker_test.sh).
 source "$(dirname "$0")/lib.sh"
 cd "$REPO" || exit 1
 # shellcheck source=../configuration/wireguard/wireguard.sh
@@ -207,5 +207,110 @@ reset_calls
 output="$(sync_peers)"
 check "no request without STF_TOKEN" "" "$(calls curl)$(calls wg)"
 check_contains "an empty STF_TOKEN is logged" "STF_TOKEN of variables.env) is empty" "$output"
+
+section "the relay of the ports of the nodes"
+# poll <command...>: runs the command every 0.1 seconds until it succeeds, fails after 5 seconds
+poll() {
+  local _
+  for _ in $(seq 50); do
+    "$@" && return 0
+    sleep 0.1
+  done
+  return 1
+}
+# relay_stopped: the relay of relay_pid does not run
+# shellcheck disable=SC2329 # called through poll
+relay_stopped() {
+  ! kill -0 "$relay_pid" 2> /dev/null
+}
+# nginx_calls <count>: nginx was called so often
+# shellcheck disable=SC2329 # called through poll
+nginx_calls() {
+  [[ "$(calls nginx | grep -c .)" -eq "$1" ]]
+}
+check "the ports of stf-proxy and stf-triproxy-dev" "4446 7250 7270" "$RELAY_PORTS"
+config="$(relay_config 10.234.0.1)"
+check "the relay listens on the WireGuard address of the server only, to the loopback address" \
+  "listen 10.234.0.1:4446 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:4446;|proxy_protocol on;|listen 10.234.0.1:7250 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:7250;|listen 10.234.0.1:7270 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:7270;" \
+  "$(grep -E '^ +(listen|proxy_pass|proxy_protocol) ' <<< "$config" | sed 's/^ *//' | paste -sd '|' -)"
+check "the PROXY protocol to the grid of the nodes only" "1" "$(grep -c 'proxy_protocol on;' <<< "$config")"
+for line in "load_module /usr/lib/nginx/modules/ngx_stream_module.so;" "daemon off;" "error_log stderr crit;" \
+  "proxy_timeout 7d;" "proxy_socket_keepalive on;" "proxy_half_close on;" "events { worker_connections 4096; }"; do
+  check_contains "the relay: ${line}" "$line" "$config"
+done
+output="$(printf '%s\n' "nginx: [emerg] bind() to 10.234.0.1:7250 failed (98: Address in use)" \
+  "2026/11/27 10:00:00 [crit] 12#12: *5 accept4() failed (24: Too many open files)" \
+  "2026/11/27 10:00:01 [crit] 12#12: *9 accept4() failed (24: Too many open files)" \
+  "2026/11/27 10:00:01 [warn] 12#12: a warning" "a line of another form" | relay_log)"
+check "a message of nginx is logged once a minute, with its level" "[ERROR] The relay: bind() to 10.234.0.1:7250 failed (98: Address in use)
+[ERROR] The relay: accept4() failed (24: Too many open files)
+[WARN] The relay: a warning
+[INFO] The relay: a line of another form" "$(sed 's/^\[[^]]*\] //' <<< "$output")"
+# nginx: the arguments in calls.log, the configuration of -c in nginx.conf; it runs until ${WORK}/nginx-stops exists,
+# then it ends as with a taken port
+# shellcheck disable=SC2016
+stub nginx '(IFS="|"; echo "nginx|$*") >> "'"${WORK}"'/calls.log"
+cp "$4" "'"${WORK}"'/nginx.conf"
+until [[ -f "'"${WORK}"'/nginx-stops" ]]; do sleep 0.1; done
+echo "nginx: [emerg] bind() to 10.234.0.1:4446 failed (98: Address in use)" >&2
+exit 1'
+reset_calls
+relay_pid=""
+relay_started=0
+RELAY_RETRY_SECONDS=30
+RELAY_CONF="${WORK}/relay.conf"
+# the relay runs in the background, its log goes to relay.log
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+poll nginx_calls 1
+check "the relay: nginx of its configuration, its log on stderr" "-e|stderr|-c|${WORK}/relay.conf" "$(calls nginx)"
+check "the relay: its configuration" "$config" "$(cat "${WORK}/nginx.conf")"
+reset_calls
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+check "a running relay is not started again" "" "$(calls nginx)"
+touch "${WORK}/nginx-stops"
+run_check "the relay stops" poll relay_stopped
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+check "a stopped relay is not started again before RELAY_RETRY_SECONDS" "" "$(calls nginx)"
+RELAY_RETRY_SECONDS=0
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+poll nginx_calls 1
+check "a stopped relay is started again after RELAY_RETRY_SECONDS" "1" "$(calls nginx | grep -c .)"
+poll relay_stopped
+check_contains "the stop is logged" "[WARN] The relay of the ports of the nodes on 10.234.0.1 stopped (its messages are above), it is started again." \
+  "$(cat "${WORK}/relay.log")"
+check_contains "the message of nginx is logged" "[ERROR] The relay: bind() to 10.234.0.1:4446 failed (98: Address in use)" \
+  "$(cat "${WORK}/relay.log")"
+wait
+# ss: the listening sockets of ${WORK}/listening for the address and port of `src <address>:<port>`
+# shellcheck disable=SC2016
+stub ss 'grep -F " $3 " "'"${WORK}"'/listening" 2> /dev/null; exit 0'
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 127.0.0.1:4446 10.234.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "the relay listens on every port" "0" "$(
+  relays_listen 10.234.0.1
+  echo "$?"
+)"
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 127.0.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "a port published on the loopback address is no relay" "1" "$(
+  relays_listen 10.234.0.1
+  echo "$?"
+)"
+# ip: the interface of ${WORK}/interface
+# shellcheck disable=SC2016
+stub ip 'cat "'"${WORK}"'/interface" 2> /dev/null; exit 0'
+echo "5: mcloud    inet 10.234.0.1/24 scope global mcloud" > "${WORK}/interface"
+check "not healthy without the relay of a port" "1" "$(
+  healthy
+  echo "$?"
+)"
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 10.234.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "healthy: the interface with the address of the server and the relay" "0" "$(
+  healthy
+  echo "$?"
+)"
+rm -f "${WORK}/interface"
+check "not healthy without the interface" "1" "$(
+  healthy
+  echo "$?"
+)"
 
 finish

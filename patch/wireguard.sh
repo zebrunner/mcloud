@@ -164,19 +164,26 @@ ensure_wg_key() {
 }
 
 # set_wg_settings: the values of .env derived from the settings of the tunnel (docker-compose.yml): NODES_ADDRESS (the
-# ports of the nodes are published there), NODES_WG_ENDPOINT, NODES_WG_PUBLIC_KEY, NODES_WG_SERVER_ADDRESS; empty
-# without the tunnel. The lines are added to the .env of an earlier MCloud
+# ports of the nodes are published there: the loopback address, the relay of the service wireguard listens on the
+# WireGuard address for them), NODES_GRID_PORT (the listener of stf-proxy with the PROXY protocol of the relay),
+# NODES_WG_ENDPOINT, NODES_WG_PUBLIC_KEY, NODES_WG_SERVER_ADDRESS; empty without the tunnel. The lines are added to the
+# .env of an earlier MCloud
 set_wg_settings() {
   local server=""
+  local published=""
+  local grid_port=""
   local endpoint=""
   local public=""
   if wg_on && server="$(wg_server)"; then
+    published="127.0.0.1"
+    grid_port=4447
     endpoint="$(wg_url_host):$(env_setting NODES_WG_PORT)"
     public="$(wg_secret | wg_public_key)"
   else
     server=""
   fi
-  set_env_line NODES_ADDRESS "$server"
+  set_env_line NODES_ADDRESS "$published"
+  set_env_line NODES_GRID_PORT "$grid_port"
   set_env_line NODES_WG_ENDPOINT "$endpoint"
   set_env_line NODES_WG_PUBLIC_KEY "$public"
   set_env_line NODES_WG_SERVER_ADDRESS "$server"
