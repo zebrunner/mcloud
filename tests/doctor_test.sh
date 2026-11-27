@@ -245,6 +245,17 @@ set_value variables.env STF_ZMQ_CURVE_SECRET_KEY short
 zbr doctor
 check_contains "a CURVE key that is not 64 hex characters fails" "are not 64 hex characters: STF_ZMQ_CURVE_SECRET_KEY" "$OUT"
 healthy
+set_value .env ADB_RELAY true
+zbr doctor
+check_contains "adb-relay without ADB_RELAY_PORTS fails" "ADB_RELAY=true without a valid ADB_RELAY_PORTS ('')" "$OUT"
+set_value .env ADB_RELAY_PORTS 7400-70000
+zbr doctor
+check_contains "adb-relay with an invalid ADB_RELAY_PORTS fails" "without a valid ADB_RELAY_PORTS ('7400-70000')" "$OUT"
+set_value .env ADB_RELAY_PORTS 7400-7999
+zbr doctor
+check_contains "adb-relay with ADB_RELAY_PORTS" "adb-relay relays the remote debug ports 7400-7999" "$OUT"
+check_not_contains "adb-relay with ADB_RELAY_PORTS passes" "without a valid ADB_RELAY_PORTS" "$OUT"
+healthy
 chmod 644 "${MCLOUD}/variables.env"
 zbr doctor
 check_contains "a secret file readable by others is a warning" "readable by other users of this server: variables.env (644)" "$OUT"

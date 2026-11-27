@@ -63,16 +63,16 @@ check "a separator in the address is escaped" "x|n|10.0.0.1%7C7400|7401" \
 
 section "what the relay does"
 check "the registered address of the node and connectPort" "relay|7405|192.168.30.2|emulator-5554|lab-1
-relay|7461|agent1.lan|R58M_x|lab_2" "$(devices_of_json <<< "$PRETTY" | relay_devices "" "" "")"
+relay|7461|agent1.lan|R58M_x|lab_2" "$(devices_of_json <<< "$PRETTY" | relay_devices 1024 65535 "")"
 check "a device without connectPort is skipped" "relay|7420|192.168.30.2|a|lab-1
-skip||192.168.30.3|b|lab-3|no remote debug port in STF" "$(devices_of_json <<< "$COMPACT" | relay_devices "" "" "")"
+skip||192.168.30.3|b|lab-3|no remote debug port in STF" "$(devices_of_json <<< "$COMPACT" | relay_devices 1024 65535 "")"
 for address in 127.0.0.1 0.0.0.0 169.254.169.254 224.0.0.1 255.255.255.255 localhost a.localhost 10.0.0.256 1.2.3 \
   "a b" -x.lan 10.0.0.1%7C7400; do
   check "the address '${address}' is not relayed to" \
     "skip|7401|${address}|x|n|the address ${address} of its node is not one to relay to" \
-    "$(device x n "$address" 7401 | relay_devices "" "" "")"
+    "$(device x n "$address" 7401 | relay_devices 1024 65535 "")"
 done
-check "a host name of the node" "relay|7401|node-1.lan|x|n" "$(device x n node-1.lan 7401 | relay_devices "" "" "")"
+check "a host name of the node" "relay|7401|node-1.lan|x|n" "$(device x n node-1.lan 7401 | relay_devices 1024 65535 "")"
 check "the ports of ADB_RELAY_PORTS only" "relay|7400|192.168.30.2|first|n
 relay|7499|192.168.30.2|last|n
 skip|7500|192.168.30.2|out|n|the port is not in ADB_RELAY_PORTS 7400-7499
@@ -94,21 +94,39 @@ relay|7471|192.168.30.3|free|n" "$(
       device single n 192.168.30.2 7404
       device range n 192.168.30.3 7465
       device free n 192.168.30.3 7471
-    } | relay_devices "" "" "8082 4446 7404 7460-7469"
+    } | relay_devices 1024 65535 "8082 4446 7404 7460-7469"
   )"
-conflict="the port is the one of the devices a, c of STF, none of them is relayed: change connect_port of mcloud-agent of\
+conflict="the port is the one of the device a of the node n1, relayed instead: change connect_port of mcloud-agent of\
  one of them"
-check "a port of two devices is skipped for both" "skip|7405|192.168.30.2|a|n1|${conflict}
+check "a port of two devices: the first by the node and the serial is relayed" "relay|7405|192.168.30.2|a|n1
 relay|7411|192.168.30.2|b|n1
 skip|7405|192.168.30.3|c|n2|${conflict}" "$(
   {
-    device a n1 192.168.30.2 7405
-    device b n1 192.168.30.2 7411
     device c n2 192.168.30.3 7405
-  } | relay_devices "" "" ""
+    device b n1 192.168.30.2 7411
+    device a n1 192.168.30.2 7405
+  } | relay_devices 1024 65535 "" | sort -t '|' -k4
 )"
+check "a port of two devices: the relayed one keeps it" "skip|7405|192.168.30.2|a|n1|the port is the one of the device c of\
+ the node n2, relayed instead: change connect_port of mcloud-agent of one of them
+relay|7405|192.168.30.3|c|n2" "$(
+  {
+    device a n1 192.168.30.2 7405
+    device c n2 192.168.30.3 7405
+  } | relay_devices 1024 65535 "" "" "7405/c/n2 7411/b/n1"
+)"
+check "no port without ADB_RELAY_PORTS" "skip|7405|192.168.30.2|a|n1|ADB_RELAY_PORTS is not set: no port is relayed" \
+  "$(device a n1 192.168.30.2 7405 | relay_devices "" "" "")"
+check "a port another program listens on is skipped, not one of a relayed device" \
+  "skip|7405|192.168.30.2|a|n1|the port is in use by another program of this server
+relay|7406|192.168.30.2|b|n1" "$(
+    {
+      device a n1 192.168.30.2 7405
+      device b n1 192.168.30.2 7406
+    } | relay_devices 1024 65535 "" "7405 7406" "7406/x/n9"
+  )"
 check "a port below 1024 is skipped" "skip|81|192.168.30.2|low|n|the port is not 1024-65535" \
-  "$(device low n 192.168.30.2 81 | relay_devices "" "" "")"
+  "$(device low n 192.168.30.2 81 | relay_devices 1024 65535 "")"
 
 section "servers of nginx"
 # shellcheck disable=SC2016 # $server_port of nginx
@@ -122,9 +140,66 @@ server {
   listen 7461 so_keepalive=on;
   resolver 10.0.0.53 [fd00::53] valid=30s ipv6=off;
   proxy_pass agent1.lan:$server_port;
-}' "$(devices_of_json <<< "$PRETTY" | relay_devices "" "" "" | servers_of "10.0.0.53 [fd00::53]")"
+}' "$(devices_of_json <<< "$PRETTY" | relay_devices 1024 65535 "" | servers_of "10.0.0.53 [fd00::53]")"
 check "no server of a skipped device" "" \
-  "$(device x n 127.0.0.1 7500 | relay_devices "" "" "" | servers_of "")"
+  "$(device x n 127.0.0.1 7500 | relay_devices 1024 65535 "" | servers_of "")"
+
+section "the ports of the server"
+# shellcheck disable=SC2016 # $server_port of nginx
+servers='# a of n1
+server {
+  listen 7405 so_keepalive=on;
+  proxy_pass 192.168.30.2:$server_port;
+}
+# b of n2
+server {
+  listen 7406 so_keepalive=on;
+  proxy_pass 192.168.30.3:$server_port;
+}'
+check "the relayed devices of the servers" "7405/a/n1 7406/b/n2" "$(relayed_of <<< "$servers")"
+check "no server, no relayed device" "" "$(relayed_of <<< "")"
+PROC="${WORK}/proc"
+nginx_pid=4242
+mkdir -p "${PROC}/net" "${PROC}/4242/fd"
+# proc_sockets <port:inode>...: the listening sockets of ${PROC}/net/tcp (and a connected one), nginx has the inodes of
+# ${PROC}/4242/fd
+proc_sockets() {
+  local entry
+  {
+    echo "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+    for entry in "$@"; do
+      printf '   0: 00000000:%04X 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 %s 1\n' \
+        "${entry%%:*}" "${entry#*:}"
+    done
+    echo "   9: 0100007F:1F90 0100007F:D431 01 00000000:00000000 00:00000000 00000000     0        0 999 1"
+  } > "${PROC}/net/tcp"
+}
+proc_sockets 8082:100 7405:200 7406:300
+ln -sf "socket:[200]" "${PROC}/4242/fd/6"
+ln -sf "pipe:[201]" "${PROC}/4242/fd/7"
+check "the listening sockets of the server" "8082 100
+7405 200
+7406 300" "$(listening_sockets)"
+check "the ports of nginx" "7405" "$(ports_of nginx)"
+check "the ports of other programs" "8082 7406" "$(ports_of other)"
+check "the ports nginx does not listen on" "7406 " "$(missing_ports <<< "$servers")"
+rm -f "${PROC}/4242/fd/6" "${PROC}/4242/fd/7"
+check "without the descriptors of nginx every port is one of nginx" "8082 7405 7406:" "$(ports_of nginx):$(ports_of other)"
+ln -sf "socket:[200]" "${PROC}/4242/fd/6"
+mv "${PROC}/net" "${PROC}/net.saved"
+check "without the sockets of the server nothing is missing" "" "$(missing_ports <<< "$servers")"
+mv "${PROC}/net.saved" "${PROC}/net"
+
+section "the ports of MCloud"
+check "the published ports of the server and of the MDM" "443 4446 4447 4447 7150 7160 7170 7250 7260 7270 31443 9101 51820" \
+  "$(STF_PORT=443 NODES_GRID_PORT=4447 MDM_MQTT_PORT=31443 MDM_ADMIN_PORT=9101 NODES_WG_PORT=51820 reserved_of)"
+check "the defaults" "80 4446 4447 4446 7150 7160 7170 7250 7260 7270 31443 9101 51820" \
+  "$(
+    unset STF_PORT NODES_GRID_PORT MDM_MQTT_PORT MDM_ADMIN_PORT NODES_WG_PORT
+    reserved_of
+  )"
+check "an MQTT port of the MDM is not relayed" "skip|31443|192.168.30.2|a|n1|the port is one of MCloud" \
+  "$(device a n1 192.168.30.2 31443 | relay_devices 1024 65535 "$(MDM_MQTT_PORT=31443 reserved_of)")"
 
 section "settings"
 check "a port range" "7400 7499" "$(port_range 7400-7499)"
@@ -145,8 +220,10 @@ check "no token file" "" "$(stf_token)"
 section "sync"
 PATH="${WORK}/bin:${PATH}"
 AUTO_CONF="${WORK}/auto.conf"
-relay_first=""
-relay_last=""
+relay_first=1024
+relay_last=65535
+# no sockets of the server: the reload is not checked
+PROC="${WORK}/no-proc"
 reserved_ports="8082"
 resolvers="10.0.0.53"
 stf_api="https://127.0.0.1:8082"
@@ -228,6 +305,47 @@ last_error="The access token of STF (STF_TOKEN of variables.env) is empty: no de
 check "an error is logged once" "" "$(sync_devices)"
 printf 'token1\n' > "$TOKEN_FILE"
 check_contains "the end of an error is logged" "The STF API https://127.0.0.1:8082 answers with the devices again." "$(sync_devices)"
+
+section "a reload nginx does not take"
+PROC="${WORK}/proc"
+RELOAD_CHECKS=2
+echo "$PRETTY" > "${WORK}/answer.json"
+: > "$AUTO_CONF"
+# nginx has no port yet (a socket of its own that does not listen), 8082 is of another program
+proc_sockets 8082:100
+rm -f "${PROC}/4242/fd/"*
+ln -sf "socket:[500]" "${PROC}/4242/fd/6"
+reset_calls
+output="$(sync_devices)"
+check_contains "a reload without the new ports is logged" \
+  "nginx did not take the servers of the devices (it does not listen on 7405 7461" "$output"
+check "a reload without the new ports keeps the servers nginx has" "" "$(cat "$AUTO_CONF")"
+check "nginx gets its servers back" "-HUP|4242
+-HUP|4242" "$(calls kill)"
+# kill: the reload of nginx opens the ports of AUTO_CONF
+# shellcheck disable=SC2317,SC2329 # called by sync_devices
+kill() {
+  (
+    IFS='|'
+    echo "kill|$*"
+  ) >> "${WORK}/calls.log"
+  local port inode=600 entries=(8082:100)
+  rm -f "${PROC}/4242/fd/"*
+  while read -r port; do
+    entries+=("${port}:${inode}")
+    ln -sf "socket:[${inode}]" "${PROC}/4242/fd/${inode}"
+    inode=$((inode + 1))
+  done < <(awk '$1 == "listen" { print $2 }' "$AUTO_CONF")
+  proc_sockets "${entries[@]}"
+}
+reset_calls
+last_error=""
+output="$(sync_devices)"
+check "the next sync tries again" "-HUP|4242" "$(calls kill)"
+check_contains "and nginx takes the servers" "listen 7461 so_keepalive=on;" "$(cat "$AUTO_CONF")"
+check_not_contains "a reload nginx takes is no error" "did not take" "$output"
+reset_calls
+check "the ports nginx listens on are not ones of other programs" "" "$(sync_devices)$(calls kill)"
 unset -f kill
 
 finish
