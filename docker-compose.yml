@@ -77,6 +77,8 @@ services:
       - ./configuration/stf-proxy/ssl:/etc/nginx/ssl:ro
       # the secret of the grid (README.md#access-to-the-grid), written by ./zebrunner.sh setup and start
       - ./configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro
+      # the proxies in front of stf-proxy (README.md#a-proxy-in-front-of-stf-proxy), written by ./zebrunner.sh setup and start
+      - ./configuration/stf-proxy/trusted-proxies.conf:/etc/nginx/trusted-proxies.conf:ro
       - ./configuration/stf-proxy/grid:/usr/share/nginx/html/grid:ro
       # the locations of the MDM (README.md#mdm), written by ./zebrunner.sh with MDM_ENABLED=true
       - ./configuration/stf-proxy/mdm:/etc/nginx/mdm:ro

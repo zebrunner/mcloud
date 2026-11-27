@@ -398,6 +398,7 @@ printf 'https\nlocalhost\n443\ny\n\n\ny\n\nn\n' | /bin/bash "${HTTPS}/zebrunner.
 run_check "the https configuration of nginx with the certificate of the user" \
   docker run --rm -v "${HTTPS}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro" \
+  -v "${HTTPS}/configuration/stf-proxy/trusted-proxies.conf:/etc/nginx/trusted-proxies.conf:ro" \
   -v "${HTTPS}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro" "nginx:$(sed -n 's/^TAG_NGINX=//p' "${HTTPS}/.env")" nginx -t
 run_check "the configuration of adb-relay" \
   docker run --rm -e NGINX_ENTRYPOINT_QUIET_LOGS=1 -v "${HTTPS}/configuration/adb-relay/nginx.conf:/etc/nginx/nginx.conf:ro" \

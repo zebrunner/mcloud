@@ -229,6 +229,7 @@ setup() {
   write_stf_token
   write_wireguard_files
   write_grid_env
+  write_trusted_proxies
   protect_files
 
   ui_section "Next steps" "3/3"
@@ -282,7 +283,7 @@ shutdown() {
   rm -f configuration/stf-proxy/nginx.conf configuration/stf-proxy/nginx.conf.previous configuration/stf-proxy/nginx.conf.sha256
   rm -f configuration/adb-relay/stf-token
   rm -f "$WG_KEY_FILE" "$WG_TOKEN_FILE" "$WG_STF_API_ENV"
-  rm -f grid.env configuration/stf-proxy/grid-auth.conf
+  rm -f grid.env configuration/stf-proxy/grid-auth.conf "$TRUSTED_PROXIES_CONF"
   # the secrets of the MDM go with its volumes; the agent APK of configuration/mdm/android is kept
   rm -f "$MDM_ENV" "${MDM_ENV}.bak" "${MDM_PROXY_DIR}"/*.conf "$MDM_MQTT_CONF"
   rm -rf "$MDM_ENV_DIR"
@@ -331,9 +332,16 @@ start() {
   fi
   # AGENTS_ADDRESS, the settings of the WireGuard tunnel and of adb-relay of .env may have changed since the setup
   set_nodes_host
-  # GRID_AUTH_SECRET of variables.env may have changed since the setup: a running stf-proxy reads it again
+  # GRID_AUTH_SECRET of variables.env and TRUSTED_PROXY_ADDRESSES of .env may have changed since the setup: a running
+  # stf-proxy reads them again
   local reload_proxy=""
   if [[ "$grid_auth" != "$(cat configuration/stf-proxy/grid-auth.conf 2> /dev/null)" ]]; then
+    reload_proxy=1
+  fi
+  local trusted_proxies
+  trusted_proxies="$(cat "$TRUSTED_PROXIES_CONF" 2> /dev/null)"
+  write_trusted_proxies || return 1
+  if [[ "$trusted_proxies" != "$(cat "$TRUSTED_PROXIES_CONF" 2> /dev/null)" ]]; then
     reload_proxy=1
   fi
   check_htpasswd
@@ -348,8 +356,19 @@ start() {
   if [[ -n "$MDM_PROXY_CHANGED" ]]; then
     reload_proxy=1
   fi
-  # the configuration of stf-proxy of a setup before the MDM has no includes of its locations
+  # the configuration of stf-proxy of an earlier setup has no includes of the locations of the MDM (needed with the MDM)
+  # or of the trusted proxies (its X-Forwarded-* headers are the ones of the client): the one the setup wrote is written
+  # again
+  local no_mdm=""
+  local no_trust=""
   if [[ -n "$MDM_ON" ]] && ! grep -q 'include /etc/nginx/mdm/' configuration/stf-proxy/nginx.conf 2> /dev/null; then
+    no_mdm=1
+  fi
+  if [[ -f configuration/stf-proxy/nginx.conf ]] &&
+    ! grep -q 'include /etc/nginx/trusted-proxies.conf' configuration/stf-proxy/nginx.conf; then
+    no_trust=1
+  fi
+  if [[ -n "${no_mdm}${no_trust}" ]]; then
     if nginx_conf_generated; then
       local protocol=http
       if grep -q '^STF_URL=https://' .env; then
@@ -359,7 +378,12 @@ start() {
       file_sha256 configuration/stf-proxy/nginx.conf > configuration/stf-proxy/nginx.conf.sha256
       reload_proxy=1
     else
-      echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and has no includes of the MDM: no device reaches it. Add the include lines of /etc/nginx/mdm of configuration/stf-proxy/nginx.conf.original to it or run ./zebrunner.sh setup (README.md#mdm)."
+      if [[ -n "$no_mdm" ]]; then
+        echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and has no includes of the MDM: no device reaches it. Add the include lines of /etc/nginx/mdm of configuration/stf-proxy/nginx.conf.original to it or run ./zebrunner.sh setup (README.md#mdm)."
+      fi
+      if [[ -n "$no_trust" ]]; then
+        echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and is the one of an earlier MCloud: it passes the X-Forwarded-For and X-Forwarded-Proto of the clients on to STF. Run ./zebrunner.sh setup, it writes the new one and keeps this one as nginx.conf.previous (README.md#a-proxy-in-front-of-stf-proxy)."
+      fi
     fi
   fi
   protect_files
@@ -1528,6 +1552,51 @@ write_grid_env() {
   chmod 600 "$conf"
 }
 
+# trusted_proxy_addresses: the valid addresses of TRUSTED_PROXY_ADDRESSES of .env (IPv4 or IPv6, with or without a prefix
+# length), one per line; the invalid ones are reported and skipped
+trusted_proxy_addresses() {
+  local value
+  local address
+  value="$(sed -n 's/^TRUSTED_PROXY_ADDRESSES=//p' .env 2> /dev/null | tail -n 1)"
+  value="${value//\'/}"
+  value="${value//\"/}"
+  for address in ${value//,/ }; do
+    if [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ || "$address" =~ ^[0-9A-Fa-f:]*:[0-9A-Fa-f:]*(/[0-9]{1,3})?$ ]]; then
+      echo "$address"
+    else
+      echo_warning "'${address}' of TRUSTED_PROXY_ADDRESSES of .env is not an address (10.0.0.5 or 172.18.0.0/16): skipped." >&2
+    fi
+  done
+}
+
+# write_trusted_proxies: configuration/stf-proxy/trusted-proxies.conf of stf-proxy from TRUSTED_PROXY_ADDRESSES of .env
+# (README.md#a-proxy-in-front-of-stf-proxy): the proxies in front of stf-proxy, the only clients whose X-Forwarded-For
+# (the address of the client) and X-Forwarded-Proto (the scheme) it takes; none by default. Fails when it cannot be
+# written
+write_trusted_proxies() {
+  local addresses
+  local address
+  addresses="$(trusted_proxy_addresses)"
+  if ! {
+    echo "# written by ./zebrunner.sh setup and start from TRUSTED_PROXY_ADDRESSES of .env: the proxies in front of stf-proxy,"
+    echo "# the only clients whose X-Forwarded-For and X-Forwarded-Proto are taken (README.md#a-proxy-in-front-of-stf-proxy)"
+    for address in $addresses; do
+      echo "set_real_ip_from ${address};"
+    done
+    # the variable of nginx
+    # shellcheck disable=SC2016
+    echo 'geo $realip_remote_addr $trusted_proxy {'
+    echo "  default 0;"
+    for address in $addresses; do
+      echo "  ${address} 1;"
+    done
+    echo "}"
+  } 2> /dev/null > "$TRUSTED_PROXIES_CONF"; then
+    ui_callout error "${TRUSTED_PROXIES_CONF} is not writable for $(id -un): remove it (rm -f ${TRUSTED_PROXIES_CONF}) and run ./zebrunner.sh start (README.md#troubleshooting)."
+    return 1
+  fi
+}
+
 # valid_port_range <first>-<last>: succeeds for a range of the ports 1024-65535
 valid_port_range() {
   local first
@@ -1957,6 +2026,9 @@ print_completion() {
 
 BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASEDIR" || exit
+
+# the proxies in front of stf-proxy (README.md#a-proxy-in-front-of-stf-proxy), written by setup and start
+TRUSTED_PROXIES_CONF="configuration/stf-proxy/trusted-proxies.conf"
 
 # shellcheck source=patch/utility.sh
 source patch/utility.sh

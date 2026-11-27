@@ -411,6 +411,48 @@ check_contains "start shows the new password of the admins" "'${made_password}'"
 check_not_contains "start shows the password of the admins once" "SIGN-IN OF THE ADMINS" "$(zbr "" start)"
 check "variables.env stays readable for its owner only" "-rw-------" "$(mode variables.env)"
 set_line "${MCLOUD}/variables.env" "STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD=${admin_password}"
+# the proxies in front of stf-proxy (README.md#a-proxy-in-front-of-stf-proxy): none by default
+trusted="${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf"
+# shellcheck disable=SC2016 # the variables of nginx
+check "stf-proxy trusts no proxy by default" 'geo $realip_remote_addr $trusted_proxy {
+  default 0;
+}' "$(grep -v '^#' "$trusted")"
+check_contains "stf-proxy includes the trusted proxies" "include /etc/nginx/trusted-proxies.conf;" "$(cat "$conf")"
+set_line "${MCLOUD}/.env" "TRUSTED_PROXY_ADDRESSES=10.0.0.5,172.18.0.0/16,fd00::/8,bad"
+reset_calls
+output="$(zbr "" start)"
+# shellcheck disable=SC2016 # the variables of nginx
+check "start writes the trusted proxies of .env" 'set_real_ip_from 10.0.0.5;
+set_real_ip_from 172.18.0.0/16;
+set_real_ip_from fd00::/8;
+geo $realip_remote_addr $trusted_proxy {
+  default 0;
+  10.0.0.5 1;
+  172.18.0.0/16 1;
+  fd00::/8 1;
+}' "$(grep -v '^#' "$trusted")"
+check_contains "start reports an address that is not one" "'bad' of TRUSTED_PROXY_ADDRESSES of .env is not an address" "$output"
+check "start reloads stf-proxy for the changed proxies" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+set_line "${MCLOUD}/.env" "TRUSTED_PROXY_ADDRESSES="
+zbr "" start > /dev/null
+check_not_contains "start trusts no proxy without them" "set_real_ip_from" "$(cat "$trusted")"
+# a generated configuration of an earlier MCloud passes the X-Forwarded-* headers of the clients on: start writes the new
+# one; one changed by hand is reported
+cp "$conf" "${WORK}/nginx.conf.trust"
+grep -v 'include /etc/nginx/trusted-proxies.conf' "${WORK}/nginx.conf.trust" > "$conf"
+sha256_of "$conf" > "${conf}.sha256"
+reset_calls
+zbr "" start > /dev/null
+check "start writes the configuration with the trusted proxies again" "$(cat "${WORK}/nginx.conf.trust")" "$(cat "$conf")"
+check "a running stf-proxy reads it again" "exec|stf-proxy|nginx|-s|reload" "$(calls docker | grep '^exec|stf-proxy')"
+grep -v 'include /etc/nginx/trusted-proxies.conf' "${WORK}/nginx.conf.trust" > "$conf"
+echo "# a change by hand" >> "$conf"
+output="$(zbr "" start)"
+check_contains "a configuration changed by hand without the trusted proxies is reported" \
+  "passes the X-Forwarded-For and X-Forwarded-Proto of the clients on to STF" "$output"
+check_contains "a configuration changed by hand is kept" "# a change by hand" "$(cat "$conf")"
+cp "${WORK}/nginx.conf.trust" "$conf"
+sha256_of "$conf" > "${conf}.sha256"
 # a nginx.conf of an earlier MCloud does not send the users to the grid: nothing starts until the setup
 cp "$conf" "${WORK}/nginx.conf.new"
 grep -v '_hub_auth' "${WORK}/nginx.conf.new" > "$conf"
@@ -1598,6 +1640,29 @@ enroll="$(block "location ~* ^/api/v1/nodes/enroll")"
 check_contains "the enrollment goes to stf-api" "set \$upstream_enroll stf-api:3000;" "$enroll"
 check_contains "the burst of the enrollment" "limit_req zone=node_enroll burst=3 nodelay;" "$enroll"
 check_contains "too many enrollments are 429" "limit_req_status 429;" "$enroll"
+check "STF never gets the X-Forwarded-For or X-Real-IP of a client" "" \
+  "$(grep -E 'proxy_add_x_forwarded_for|http_x_real_ip|http_x_forwarded_for' <<< "$conf")"
+# the variables of nginx
+# shellcheck disable=SC2016
+check_contains "the scheme of STF is the one of a trusted proxy or of stf-proxy" 'map "$trusted_proxy:$http_x_forwarded_proto" $forwarded_proto {
+    ~*^1:https$ https;
+    ~*^1:http$ http;
+    default $scheme;
+  }' "$conf"
+for location in 'location ~* ^/api/v1/nodes/self' 'location ~* ^/api/v1/nodes/enroll' 'location /auth/' 'location /api/' \
+  'location /s/image/' 'location /s/apk/' 'location /s/ {' 'location /socket.io/' '    location / {'; do
+  # the variables of nginx
+  # shellcheck disable=SC2016
+  check "${location}: X-Forwarded-Proto, X-Forwarded-For and X-Real-IP of stf-proxy" "3" \
+    "$(block "$location" | grep -cE 'proxy_set_header +(X-Forwarded-Proto \$forwarded_proto|X-Forwarded-For \$remote_addr|X-Real-IP \$remote_addr);')"
+done
+for location in 'location  ~ ^/mcloud/wd/' 'location ~ ^/mcloud/playwright/' 'location ~ ^/mcloud/grid/admin/TerminateSessionServlet' \
+  'location ~ ^/mcloud/grid/console' 'location ~ ^/mcloud/grid/admin/(?<grid_servlet>' 'location ~ ^/mcloud/grid/admin/MetricsServlet'; do
+  # the variables of nginx
+  # shellcheck disable=SC2016
+  check "${location}: the grid gets the X-Forwarded-For and X-Real-IP of stf-proxy" "2" \
+    "$(block "$location" | grep -cE 'proxy_set_header +(X-Forwarded-For \$remote_addr|X-Real-IP \$remote_addr);')"
+done
 MCLOUD="$ZBR_REPO"
 
 section "disabled"
@@ -1635,7 +1700,7 @@ zbr "" shutdown > /dev/null
 zbr_env=()
 check "shutdown removes the services and their volumes" "compose|--profile|adb-relay|--profile|mdm|--profile|wireguard|down|-v" "$(docker_calls)"
 for file in .env variables.env grid.env backup/settings.env configuration/stf-proxy/nginx.conf configuration/adb-relay/stf-token \
-  configuration/stf-proxy/grid-auth.conf configuration/stf-proxy/nginx.conf.sha256; do
+  configuration/stf-proxy/grid-auth.conf configuration/stf-proxy/nginx.conf.sha256 configuration/stf-proxy/trusted-proxies.conf; do
   check "shutdown removes ${file}" "no" "$([[ -e "${MCLOUD}/${file}" ]] && echo yes || echo no)"
 done
 

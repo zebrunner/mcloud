@@ -95,6 +95,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" -keyout 
   -out "${MCLOUD}/configuration/stf-proxy/ssl/ssl.crt" > /dev/null 2>&1
 proxy_volumes=(-v "${MCLOUD}/configuration/stf-proxy/nginx.conf:/etc/nginx/nginx.conf:ro"
   -v "${MCLOUD}/configuration/stf-proxy/grid-auth.conf:/etc/nginx/grid-auth.conf:ro"
+  -v "${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf:/etc/nginx/trusted-proxies.conf:ro"
   -v "${MCLOUD}/configuration/stf-proxy/mdm:/etc/nginx/mdm:ro")
 mqtt_volumes=(-v "${MCLOUD}/configuration/mdm/mqtt.conf:/etc/nginx/nginx.conf:ro"
   -v "${MCLOUD}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro")
