@@ -439,7 +439,13 @@ doctor_services() {
       ;;
     running:unhealthy)
       problems=$((problems + 1))
-      doctor_fail "${service} is unhealthy." "docker logs ${name}"
+      if [[ "$service" == "mcloud-grid" ]]; then
+        # the healthcheck of the grid: the hub answers in time and registers the nodes; docker does not restart it
+        doctor_fail "mcloud-grid is unhealthy: the hub does not answer in time or does not register the nodes." \
+          "docker logs ${name} (HEALTH, NODE REGISTRATION), then docker restart ${name}: docker does not restart an unhealthy service"
+      else
+        doctor_fail "${service} is unhealthy." "docker logs ${name}"
+      fi
       ;;
     *)
       problems=$((problems + 1))
