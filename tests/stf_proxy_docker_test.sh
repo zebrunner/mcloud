@@ -147,7 +147,9 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
 docker network create --subnet 172.31.250.0/24 stf-proxy-test > /dev/null
 run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake --network stf-proxy-test \
   --ip "$FRONT" -p 127.0.0.1:18084:8443 \
-  --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid --network-alias stf-websocket -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
+  --network-alias stf-api --network-alias stf-app --network-alias node1 --network-alias mcloud-grid --network-alias stf-websocket \
+  --network-alias stf-auth --network-alias stf-storage-temp --network-alias stf-storage-plugin-image \
+  --network-alias stf-storage-plugin-apk -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 -p 127.0.0.1:18446:4446 \
   "${proxy_volumes[@]}" "$NGINX"
 run_check "stf-proxy answers" wait_for 30 curl -sf --max-time 2 "${URL}/api/v1/user"
