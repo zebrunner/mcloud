@@ -356,11 +356,12 @@ start() {
   if [[ -n "$MDM_PROXY_CHANGED" ]]; then
     reload_proxy=1
   fi
-  # the configuration of stf-proxy of an earlier setup has no includes of the locations of the MDM (needed with the MDM)
-  # or of the trusted proxies (its X-Forwarded-* headers are the ones of the client): the one the setup wrote is written
-  # again
+  # the configuration of stf-proxy of an earlier setup has no includes of the locations of the MDM (needed with the MDM),
+  # of the trusted proxies (its X-Forwarded-* headers are the ones of the client) or, with the WireGuard tunnel, no
+  # listener of the relay of the grid of the nodes (NODES_GRID_PORT): the one the setup wrote is written again
   local no_mdm=""
   local no_trust=""
+  local no_relay=""
   if [[ -n "$MDM_ON" ]] && ! grep -q 'include /etc/nginx/mdm/' configuration/stf-proxy/nginx.conf 2> /dev/null; then
     no_mdm=1
   fi
@@ -368,7 +369,11 @@ start() {
     ! grep -q 'include /etc/nginx/trusted-proxies.conf' configuration/stf-proxy/nginx.conf; then
     no_trust=1
   fi
-  if [[ -n "${no_mdm}${no_trust}" ]]; then
+  if wg_on && [[ -f configuration/stf-proxy/nginx.conf ]] &&
+    ! grep -q 'listen 4447 proxy_protocol;' configuration/stf-proxy/nginx.conf; then
+    no_relay=1
+  fi
+  if [[ -n "${no_mdm}${no_trust}${no_relay}" ]]; then
     if nginx_conf_generated; then
       local protocol=http
       if grep -q '^STF_URL=https://' .env; then
@@ -380,6 +385,9 @@ start() {
     else
       if [[ -n "$no_mdm" ]]; then
         echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and has no includes of the MDM: no device reaches it. Add the include lines of /etc/nginx/mdm of configuration/stf-proxy/nginx.conf.original to it or run ./zebrunner.sh setup (README.md#mdm)."
+      fi
+      if [[ -n "$no_relay" ]]; then
+        echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and has no listener of the relay of the WireGuard tunnel: the nodes do not reach the grid. Add the line 'listen 4447 proxy_protocol;' of configuration/stf-proxy/nginx.conf.original to the server of the port 4446 or run ./zebrunner.sh setup (README.md#wireguard-tunnel-of-the-nodes)."
       fi
       if [[ -n "$no_trust" ]]; then
         echo_warning "configuration/stf-proxy/nginx.conf was changed by hand and is the one of an earlier MCloud: it passes the X-Forwarded-For and X-Forwarded-Proto of the clients on to STF. Run ./zebrunner.sh setup, it writes the new one and keeps this one as nginx.conf.previous (README.md#a-proxy-in-front-of-stf-proxy)."
@@ -1254,7 +1262,7 @@ keep_env() {
       continue
     fi
     case "${line%%=*}" in
-    STF_URL | STF_PORT | NODES_HOST | NODES_ADDRESS | NODES_WG_ENDPOINT | NODES_WG_PUBLIC_KEY | NODES_WG_SERVER_ADDRESS | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
+    STF_URL | STF_PORT | NODES_HOST | NODES_ADDRESS | NODES_GRID_PORT | NODES_WG_ENDPOINT | NODES_WG_PUBLIC_KEY | NODES_WG_SERVER_ADDRESS | AUTH_SYSTEM | AUTH_URL | TAG_* | AGENT_HOSTS | ADB_RELAY_HOSTS | STF_HOST | RETHINKDB_ADDRESS) ;;
     *)
       set_line .env "$line"
       ;;

@@ -2,7 +2,7 @@
 # Tests of the WireGuard tunnel of the nodes without docker: the addresses of configuration/wireguard/network.sh, the
 # keys of patch/wireguard.sh and the sync of the peers of configuration/wireguard/wireguard.sh (the nodes of answers of
 # the STF API, the peers they make and the changes of the interface) and its relay of the ports of the nodes; wg, curl,
-# socat, ss and ip are stubs (the service itself is checked by tests/wireguard_docker_test.sh).
+# nginx, ss and ip are stubs (the service itself is checked by tests/wireguard_docker_test.sh).
 source "$(dirname "$0")/lib.sh"
 cd "$REPO" || exit 1
 # shellcheck source=../configuration/wireguard/wireguard.sh
@@ -218,62 +218,68 @@ poll() {
   done
   return 1
 }
-# relay_stopped <index>: the relay of the index of relay_pids does not run
+# relay_stopped: the relay of relay_pid does not run
 # shellcheck disable=SC2329 # called through poll
 relay_stopped() {
-  ! kill -0 "${relay_pids[$1]}" 2> /dev/null
+  ! kill -0 "$relay_pid" 2> /dev/null
 }
-# socat_calls <count>: socat was called so often
+# nginx_calls <count>: nginx was called so often
 # shellcheck disable=SC2329 # called through poll
-socat_calls() {
-  [[ "$(calls socat | grep -c .)" -eq "$1" ]]
+nginx_calls() {
+  [[ "$(calls nginx | grep -c .)" -eq "$1" ]]
 }
 check "the ports of stf-proxy and stf-triproxy-dev" "4446 7250 7270" "$RELAY_PORTS"
-output="$(printf '%s\n' "2026/11/27 10:00:00 socat[10] E connect(5, AF=2 127.0.0.1:7250, 16): Connection refused" \
-  "2026/11/27 10:00:00 socat[11] W exiting on signal 15" \
-  "2026/11/27 10:00:01 socat[12] E connect(5, AF=2 127.0.0.1:7250, 16): Connection refused" \
-  "2026/11/27 10:00:01 socat[13] N accepting connection" | relay_log 7250)"
-check "a message of socat is logged once a minute, with its level" "[ERROR] The relay of the port 7250: connect(5, AF=2 127.0.0.1:7250, 16): Connection refused
-[WARN] The relay of the port 7250: exiting on signal 15
-[INFO] The relay of the port 7250: accepting connection" "$(sed 's/^\[[^]]*\] //' <<< "$output")"
-# socat: the arguments in calls.log; it listens until ${WORK}/socat-stop-<port> exists, then it ends as with a taken port
+config="$(relay_config 10.234.0.1)"
+check "the relay listens on the WireGuard address of the server only, to the loopback address" \
+  "listen 10.234.0.1:4446 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:4446;|proxy_protocol on;|listen 10.234.0.1:7250 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:7250;|listen 10.234.0.1:7270 backlog=128 so_keepalive=60s:20s:3;|proxy_pass 127.0.0.1:7270;" \
+  "$(grep -E '^ +(listen|proxy_pass|proxy_protocol) ' <<< "$config" | sed 's/^ *//' | paste -sd '|' -)"
+check "the PROXY protocol to the grid of the nodes only" "1" "$(grep -c 'proxy_protocol on;' <<< "$config")"
+for line in "load_module /usr/lib/nginx/modules/ngx_stream_module.so;" "daemon off;" "error_log stderr crit;" \
+  "proxy_timeout 7d;" "proxy_socket_keepalive on;" "proxy_half_close on;" "events { worker_connections 4096; }"; do
+  check_contains "the relay: ${line}" "$line" "$config"
+done
+output="$(printf '%s\n' "nginx: [emerg] bind() to 10.234.0.1:7250 failed (98: Address in use)" \
+  "2026/11/27 10:00:00 [crit] 12#12: *5 accept4() failed (24: Too many open files)" \
+  "2026/11/27 10:00:01 [crit] 12#12: *9 accept4() failed (24: Too many open files)" \
+  "2026/11/27 10:00:01 [warn] 12#12: a warning" "a line of another form" | relay_log)"
+check "a message of nginx is logged once a minute, with its level" "[ERROR] The relay: bind() to 10.234.0.1:7250 failed (98: Address in use)
+[ERROR] The relay: accept4() failed (24: Too many open files)
+[WARN] The relay: a warning
+[INFO] The relay: a line of another form" "$(sed 's/^\[[^]]*\] //' <<< "$output")"
+# nginx: the arguments in calls.log, the configuration of -c in nginx.conf; it runs until ${WORK}/nginx-stops exists,
+# then it ends as with a taken port
 # shellcheck disable=SC2016
-stub socat '(IFS="|"; echo "socat|$*") >> "'"${WORK}"'/calls.log"
-port="${1#TCP4-LISTEN:}"
-port="${port%%,*}"
-until [[ -f "'"${WORK}"'/socat-stop-${port}" ]]; do sleep 0.1; done
-echo "2026/11/27 10:00:00 socat[20] E bind(5, {AF=2 10.234.0.1:${port}}, 16): Address in use" >&2
+stub nginx '(IFS="|"; echo "nginx|$*") >> "'"${WORK}"'/calls.log"
+cp "$4" "'"${WORK}"'/nginx.conf"
+until [[ -f "'"${WORK}"'/nginx-stops" ]]; do sleep 0.1; done
+echo "nginx: [emerg] bind() to 10.234.0.1:4446 failed (98: Address in use)" >&2
 exit 1'
 reset_calls
-relay_pids=()
-relay_started=()
+relay_pid=""
+relay_started=0
 RELAY_RETRY_SECONDS=30
-# the relays run in the background, their log goes to relay.log
+RELAY_CONF="${WORK}/relay.conf"
+# the relay runs in the background, its log goes to relay.log
 relays_check 10.234.0.1 >> "${WORK}/relay.log"
-poll socat_calls 3
-socket="keepalive,keepidle=60,keepintvl=20,keepcnt=3,nodelay"
-check "a relay per port: the WireGuard address only, to the loopback address, keepalive and no idle timeout" \
-  "TCP4-LISTEN:4446,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:4446,${socket}
-TCP4-LISTEN:7250,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:7250,${socket}
-TCP4-LISTEN:7270,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:7270,${socket}" \
-  "$(calls socat | sort)"
+poll nginx_calls 1
+check "the relay: nginx of its configuration, its log on stderr" "-e|stderr|-c|${WORK}/relay.conf" "$(calls nginx)"
+check "the relay: its configuration" "$config" "$(cat "${WORK}/nginx.conf")"
 reset_calls
 relays_check 10.234.0.1 >> "${WORK}/relay.log"
-check "a running relay is not started again" "" "$(calls socat)"
-touch "${WORK}/socat-stop-4446"
-run_check "the relay of 4446 stops" poll relay_stopped 0
+check "a running relay is not started again" "" "$(calls nginx)"
+touch "${WORK}/nginx-stops"
+run_check "the relay stops" poll relay_stopped
 relays_check 10.234.0.1 >> "${WORK}/relay.log"
-check "a stopped relay is not started again before RELAY_RETRY_SECONDS" "" "$(calls socat)"
+check "a stopped relay is not started again before RELAY_RETRY_SECONDS" "" "$(calls nginx)"
 RELAY_RETRY_SECONDS=0
 relays_check 10.234.0.1 >> "${WORK}/relay.log"
-poll socat_calls 1
-check "a stopped relay is started again after RELAY_RETRY_SECONDS" "TCP4-LISTEN:4446" "$(calls socat | cut -d , -f 1)"
-poll relay_stopped 0
-check_contains "the stop is logged" "[WARN] The relay of the port 4446 on 10.234.0.1 stopped (its messages are above), it is started again." \
+poll nginx_calls 1
+check "a stopped relay is started again after RELAY_RETRY_SECONDS" "1" "$(calls nginx | grep -c .)"
+poll relay_stopped
+check_contains "the stop is logged" "[WARN] The relay of the ports of the nodes on 10.234.0.1 stopped (its messages are above), it is started again." \
   "$(cat "${WORK}/relay.log")"
-check_contains "the message of socat is logged" "[ERROR] The relay of the port 4446: bind(5, {AF=2 10.234.0.1:4446}, 16): Address in use" \
+check_contains "the message of nginx is logged" "[ERROR] The relay: bind() to 10.234.0.1:4446 failed (98: Address in use)" \
   "$(cat "${WORK}/relay.log")"
-touch "${WORK}/socat-stop-7250" "${WORK}/socat-stop-7270"
 wait
 # ss: the listening sockets of ${WORK}/listening for the address and port of `src <address>:<port>`
 # shellcheck disable=SC2016

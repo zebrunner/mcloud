@@ -4,7 +4,7 @@
 # the headers each side gets, the access to the grid (/api/v1/zebrunner/hub-auth) with the headers the grid gets, the
 # internal routes, the limits of the enrollment and of the record of a node, and the X-Forwarded-* headers STF gets from
 # a client and from a trusted proxy in front (the fake, 172.31.250.10 of TRUSTED_PROXY_ADDRESSES). The containers have
-# fixed names and use the ports 18083, 18084 and 18446 of the host and the network 172.31.250.0/24.
+# fixed names and use the ports 18083, 18084, 18446 and 18447 of the host and the network 172.31.250.0/24.
 source "$(dirname "$0")/lib.sh"
 
 require_cmd docker
@@ -142,6 +142,7 @@ printf '%s\n' 'events {}' 'http {' '  server {' '    listen 3000;' \
   '    }' '  }' '  server {' '    listen 4444;' \
   '    location / {' \
   '      default_type text/plain;' \
+  '      if ($arg_id = "echo") { return 200 "node real=[$http_x_real_ip] for=[$http_x_forwarded_for]\n"; }' \
   '      return 200 "grid $request_method $request_uri upgrade=[$http_upgrade] connection=[$http_connection] agent=[$http_user_agent] auth=[$http_x_mcloud_auth] user=[$http_x_mcloud_user] admin=[$http_x_mcloud_admin] token=[$http_x_mcloud_token] authorization=[$http_authorization] cookie=[$http_cookie]\n";' \
   '    }' '  }' '}' > "${FAKE}/nginx.conf"
 docker network create --subnet 172.31.250.0/24 stf-proxy-test > /dev/null
@@ -151,6 +152,7 @@ run_check "the fake stf-api and node" docker run -d --name stf-proxy-test-fake -
   --network-alias stf-auth --network-alias stf-storage-temp --network-alias stf-storage-plugin-image \
   --network-alias stf-storage-plugin-apk -v "${FAKE}/nginx.conf:/etc/nginx/nginx.conf:ro" "$NGINX"
 run_check "stf-proxy" docker run -d --name stf-proxy-test --network stf-proxy-test -p 127.0.0.1:18083:80 -p 127.0.0.1:18446:4446 \
+  -p 127.0.0.1:18447:4447 \
   "${proxy_volumes[@]}" "$NGINX"
 run_check "stf-proxy answers" wait_for 30 curl -sf --max-time 2 "${URL}/api/v1/user"
 
@@ -280,6 +282,21 @@ for request in "POST /grid/api/proxy" "GET /wd/hub/status" "POST /wd/hub/session
   # shellcheck disable=SC2086
   check "${request} of the port of the nodes is refused" "403" "$(grid_code ${request})"
 done
+
+check "the grid of the nodes gets the address of the connection, not the headers of the node" \
+  "node real=[${peer}] for=[${peer}]" "$(curl -s --max-time 10 "${spoofed[@]}" 'http://127.0.0.1:18446/grid/api/proxy?id=echo')"
+# the listener of the relay of the WireGuard tunnel of the nodes (4447): the address of the node by the PROXY protocol
+if curl --help all 2> /dev/null | grep -q -- --haproxy-clientip; then
+  check "the relay of the tunnel: the grid gets the address of the node of the PROXY protocol, not its headers" \
+    "node real=[10.234.0.7] for=[10.234.0.7]" \
+    "$(curl -s --max-time 10 --haproxy-protocol --haproxy-clientip 10.234.0.7 "${spoofed[@]}" 'http://127.0.0.1:18447/grid/api/proxy?id=echo')"
+else
+  skip_check "the relay of the tunnel: the address of the node of the PROXY protocol" "curl without --haproxy-clientip (8.2+)"
+fi
+check "the relay of the tunnel: the paths of the grid of the nodes only" "403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --haproxy-protocol http://127.0.0.1:18447/wd/hub/status)"
+check "the listener of the relay takes no connection without the PROXY protocol" "000" \
+  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 'http://127.0.0.1:18447/grid/api/proxy?id=echo')"
 
 section "internal routes of the registry"
 for path in /api/v1/zebrunner/nodes/keys /api/v1/zebrunner/nodes/token /API/V1/Zebrunner/Nodes/keys/ \

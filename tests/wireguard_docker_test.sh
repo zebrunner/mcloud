@@ -95,12 +95,15 @@ peers_are() {
 }
 
 # node_reaches_ports: the stand-in node reaches every port of the nodes on the WireGuard address of the server, each one
-# answers with its number (the stand-ins of stf-proxy and stf-triproxy-dev behind the relay)
+# answers with its number (the stand-ins of stf-proxy and stf-triproxy-dev behind the relay), the grid of the nodes with
+# the address of the node of the PROXY protocol of the relay
 # shellcheck disable=SC2329 # called through wait_for
 node_reaches_ports() {
-  local port
+  local port expected
   for port in 4446 7250 7270; do
-    [[ "$(docker exec wireguard-test-node wget -q -O - -T 3 "http://10.239.0.1:${port}/" 2> /dev/null)" == "$port" ]] || return 1
+    expected="$port"
+    [[ "$port" != 4446 ]] || expected="4446 from 10.239.0.2"
+    [[ "$(docker exec wireguard-test-node wget -q -O - -T 3 "http://10.239.0.1:${port}/" 2> /dev/null)" == "$expected" ]] || return 1
   done
 }
 
@@ -183,6 +186,7 @@ cat > "${API}/nginx.conf" << 'EOF'
 events {}
 http {
   server { listen 4446; return 200 "4446"; }
+  server { listen 4447 proxy_protocol; return 200 "4446 from $proxy_protocol_addr"; }
   server { listen 7250; return 200 "7250"; }
   server { listen 7270; return 200 "7270"; }
   server {
@@ -227,7 +231,7 @@ cp "${REPO}/variables.env.original" "${MCLOUD}/variables.env"
 sed -i.orig -e "s|^STF_PORT=.*|STF_PORT=18083|" -e "s|^STF_URL=.*|STF_URL=http://localhost:18083|" \
   -e "s|^NODES_WIREGUARD=.*|NODES_WIREGUARD=true|" -e "s|^NODES_WG_NETWORK=.*|NODES_WG_NETWORK=${NETWORK}|" \
   -e "s|^NODES_WG_PORT=.*|NODES_WG_PORT=${PORT}|" -e "s|^NODES_WG_SYNC_SECONDS=.*|NODES_WG_SYNC_SECONDS=1|" \
-  -e "s|^NODES_ADDRESS=.*|NODES_ADDRESS=127.0.0.1|" "${MCLOUD}/.env"
+  -e "s|^NODES_ADDRESS=.*|NODES_ADDRESS=127.0.0.1|" -e "s|^NODES_GRID_PORT=.*|NODES_GRID_PORT=4447|" "${MCLOUD}/.env"
 # the files of ./zebrunner.sh start: the private key of the server, STF_TOKEN
 (umask 077 && echo "$server_private" > "${MCLOUD}/configuration/wireguard/private-key" &&
   echo test-token > "${MCLOUD}/configuration/wireguard/stf-token")
@@ -237,7 +241,7 @@ run_check "stf-proxy and stf-triproxy-dev start without the tunnel" \
 run_check "stf-proxy and stf-triproxy-dev run" wait_for 30 running stf-proxy stf-triproxy-dev
 check "the ports of the nodes are published on the loopback address" "127.0.0.1:4446 127.0.0.1:7250 127.0.0.1:7270" \
   "$({
-    docker port stf-proxy 4446/tcp
+    docker port stf-proxy 4447/tcp
     docker port stf-triproxy-dev 7250/tcp
     docker port stf-triproxy-dev 7270/tcp
   } | paste -sd ' ' -)"
@@ -321,8 +325,10 @@ check "the interface goes with it" "" "$(host 'ip link show dev mcloud 2> /dev/n
 check "nothing listens on the WireGuard address" "" "$(listeners 10.239.0.1)"
 # the loop runs in the shell of the container
 # shellcheck disable=SC2016
-check "the ports of the nodes stay published on the loopback address" "4446 7250 7270" \
-  "$(host 'for port in 4446 7250 7270; do wget -q -O - -T 3 http://127.0.0.1:${port}/; echo; done' | paste -sd ' ' -)"
+check "the ZeroMQ ports of the nodes stay published on the loopback address" "7250 7270" \
+  "$(host 'for port in 7250 7270; do wget -q -O - -T 3 http://127.0.0.1:${port}/; echo; done' | paste -sd ' ' -)"
+check "the grid of the nodes stays published on the loopback address, with the PROXY protocol only" "4446 from 127.0.0.1:000" \
+  "$(curl -s --max-time 5 --haproxy-protocol http://127.0.0.1:4446/):$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:4446/)"
 run_check "docker start wireguard" docker start wireguard
 run_check "wireguard is healthy again" wait_for 60 \
   bash -c "test \"\$(docker inspect --format '{{.State.Health.Status}}' wireguard)\" == healthy"
