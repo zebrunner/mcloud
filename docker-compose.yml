@@ -351,7 +351,26 @@ services:
     networks: [mdm]
     logging: *logging
     restart: always
-  # NanoHUB: the MDM server of iOS, its storage in MySQL; it trusts the SCEP CA of mcloud-mdm (the data volume)
+  # the certificate of the SCEP CA of mcloud-mdm for NanoHUB, copied at every start into a volume of its own: NanoHUB
+  # (published) never gets the data volume of mcloud-mdm, with the key of the CA and the unlock tokens of the devices
+  mcloud-mdm-ca:
+    image: "nginx:${TAG_NGINX}"
+    container_name: mcloud-mdm-ca
+    profiles: [mdm]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - cp /mdm-data/scep/ca.pem /mdm-ca/ca.pem.new && chmod 644 /mdm-ca/ca.pem.new && mv -f /mdm-ca/ca.pem.new /mdm-ca/ca.pem
+    volumes:
+      - "mcloud-mdm-data:/mdm-data:ro"
+      - "mcloud-mdm-ca:/mdm-ca"
+    network_mode: none
+    depends_on:
+      mcloud-mdm:
+        condition: service_healthy
+    logging: *logging
+    restart: "no"
+  # NanoHUB: the MDM server of iOS, its storage in MySQL; it trusts the SCEP CA of mcloud-mdm (its certificate only)
   mcloud-mdm-nanohub:
     image: "ghcr.io/micromdm/nanohub:${TAG_NANOHUB}"
     container_name: mcloud-mdm-nanohub
@@ -360,17 +379,17 @@ services:
       - path: configuration/mdm/env/mcloud-mdm-nanohub.env
         required: false
     environment:
-      - NANOHUB_CA=/mdm-data/scep/ca.pem
+      - NANOHUB_CA=/mdm-ca/ca.pem
       - NANOHUB_STORAGE=mysql
     volumes:
-      - "mcloud-mdm-data:/mdm-data:ro"
+      - "mcloud-mdm-ca:/mdm-ca:ro"
     # APNs: the internet of mdm
     networks: [mdm, mdm-db]
     depends_on:
       mcloud-mdm-mysql:
         condition: service_healthy
-      mcloud-mdm:
-        condition: service_healthy
+      mcloud-mdm-ca:
+        condition: service_completed_successfully
     logging: *logging
     restart: always
   mcloud-mdm-mysql:
@@ -501,6 +520,8 @@ volumes:
   stf-db-volume:
   stf-temp-volume:
   mcloud-mdm-data:
+  # the certificate of the SCEP CA only (mcloud-mdm-ca)
+  mcloud-mdm-ca:
   mcloud-mdm-mysql:
   mcloud-mdm-postgres:
   mcloud-mdm-hmdm-work:

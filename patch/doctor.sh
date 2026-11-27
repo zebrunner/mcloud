@@ -350,7 +350,7 @@ doctor_tls() {
 
 # doctor_services: every service of docker-compose.yml (with the profiles of ADB_RELAY and MDM_ENABLED) is created
 # and runs (healthy where it has a healthcheck) without restarting again and again; the one-shot services (stf-migrate,
-# mcloud-mdm-hmdm-init of the MDM) run once at the start and exit with 0
+# mcloud-mdm-hmdm-init and mcloud-mdm-ca of the MDM) run once at the start and exit with 0
 doctor_services() {
   local profiles=()
   local services ps service line state health code name restarts dir
@@ -388,11 +388,14 @@ doctor_services() {
     fi
     IFS='|' read -r _ state health code name <<< "$line"
     # the one-shot services: running is still at work, exited with 0 is done
-    if [[ "$service" == "stf-migrate" || "$service" == "mcloud-mdm-hmdm-init" ]]; then
+    if [[ "$service" == "stf-migrate" || "$service" == "mcloud-mdm-hmdm-init" || "$service" == "mcloud-mdm-ca" ]]; then
       if [[ "$state" == "exited" && "$code" != "0" ]]; then
         problems=$((problems + 1))
         if [[ "$service" == "stf-migrate" ]]; then
           doctor_fail "stf-migrate, the migration of the database of STF, failed (exit ${code}): STF does not start." "docker logs ${name}"
+        elif [[ "$service" == "mcloud-mdm-ca" ]]; then
+          doctor_fail "mcloud-mdm-ca, the copy of the certificate of the SCEP CA for NanoHUB, failed (exit ${code}): NanoHUB does not start, the MDM of iOS does not work." \
+            "docker logs ${name}; docker logs mcloud-mdm; ./zebrunner.sh start (README.md#mdm)"
         else
           doctor_fail "mcloud-mdm-hmdm-init, the setup of the admin of Headwind MDM, failed (exit ${code}): mcloud-mdm does not log in to Headwind MDM, the MDM of Android does not work." \
             "docker logs ${name}; ./zebrunner.sh start (README.md#mdm)"

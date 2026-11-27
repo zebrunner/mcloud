@@ -33,6 +33,7 @@ project_checks() {
     local networks
     networks="$(compose_networks)"
     check "the MDM services are not in infra, the network of the containers of the devices" "mcloud-mdm mdm
+mcloud-mdm-ca none
 mcloud-mdm-hmdm mdm,mdm-db
 mcloud-mdm-hmdm-init mdm-db
 mcloud-mdm-mqtt mdm
@@ -45,6 +46,10 @@ stf-proxy default,mdm" "$(grep -E '^stf-(proxy|api) ' <<< "$networks")"
       "stf-auth LDAP_BIND_CREDENTIALS" "$(compose_secrets)"
     check "every MDM service has an env file of its own, none gets mdm.env" "" \
       "$(grep -n 'path: mdm.env' docker-compose.yml)"
+    check "NanoHUB gets the certificate of the SCEP CA only, not the data volume of mcloud-mdm" "mcloud-mdm-ca:/mdm-ca:ro" \
+      "$(compose_volumes mcloud-mdm-nanohub)"
+    check "the data volume of mcloud-mdm goes to mcloud-mdm and the copy of the CA certificate only" \
+      "mcloud-mdm mcloud-mdm-ca" "$(compose_volume_users mcloud-mdm-data)"
     check "the databases of the MDM have no internet" "true" \
       "$(grep -A3 '^  mdm-db:' docker-compose.yml | sed -n 's/^ *internal: //p')"
   else

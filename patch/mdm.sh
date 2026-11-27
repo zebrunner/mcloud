@@ -106,6 +106,7 @@ write_mdm_env() {
   local hmdm_password
   local hmdm_secret
   local hmdm_sql_password
+  local hmdm_mqtt_admin_password
   token="$(mdm_secret MDM_ENROLL_TOKEN)"
   admin_token="$(mdm_secret MDM_ADMIN_TOKEN)"
   api_key="$(mdm_secret NANOHUB_API_KEY)"
@@ -113,6 +114,7 @@ write_mdm_env() {
   hmdm_password="$(mdm_secret HMDM_PASSWORD)"
   hmdm_secret="$(mdm_secret HMDM_SHARED_SECRET)"
   hmdm_sql_password="$(mdm_secret SQL_PASS)"
+  hmdm_mqtt_admin_password="$(mdm_secret HMDM_MQTT_ADMIN_PASSWORD)"
   : "${token:=$(random_string 48)}"
   : "${admin_token:=$(random_string 48)}"
   : "${api_key:=$(random_string 48)}"
@@ -120,6 +122,7 @@ write_mdm_env() {
   : "${hmdm_password:=$(random_string 32)}"
   : "${hmdm_secret:=$(random_string 32)}"
   : "${hmdm_sql_password:=$(random_string 32)}"
+  : "${hmdm_mqtt_admin_password:=$(random_string 32)}"
   # the access token of STF (STF_TOKEN of variables.env, the one of the grid): the names, nodes and users of the devices
   # in the admin UI; read again at every start
   local stf_token
@@ -145,6 +148,8 @@ write_mdm_env() {
     echo "SHARED_SECRET=${hmdm_secret}"
     echo "SQL_PASS=${hmdm_sql_password}"
     echo "POSTGRES_PASSWORD=${hmdm_sql_password}"
+    echo "# Headwind MDM: the admin of its MQTT broker (Headwind MDM publishes the pushes with it, no agent needs it)"
+    echo "HMDM_MQTT_ADMIN_PASSWORD=${hmdm_mqtt_admin_password}"
     echo "PGPASSWORD=${hmdm_sql_password}"
     if [[ -n "$stf_token" ]]; then
       echo "# mcloud-mdm: the API of STF with STF_TOKEN of variables.env (written again at every start)"
@@ -164,7 +169,7 @@ mdm_service_secrets() {
   mcloud-mdm) echo "MDM_ENROLL_TOKEN NANOHUB_API_KEY MDM_ADMIN_TOKEN HMDM_PASSWORD HMDM_SHARED_SECRET MDM_STF_URL MDM_STF_TOKEN" ;;
   mcloud-mdm-nanohub) echo "NANOHUB_API_KEY NANOHUB_STORAGE_DSN NANOHUB_WEBHOOK_URL" ;;
   mcloud-mdm-mysql) echo "MYSQL_PASSWORD" ;;
-  mcloud-mdm-hmdm) echo "SQL_PASS SHARED_SECRET" ;;
+  mcloud-mdm-hmdm) echo "SQL_PASS SHARED_SECRET HMDM_MQTT_ADMIN_PASSWORD" ;;
   mcloud-mdm-postgres) echo "POSTGRES_PASSWORD" ;;
   mcloud-mdm-hmdm-init) echo "PGPASSWORD HMDM_PASSWORD" ;;
   esac

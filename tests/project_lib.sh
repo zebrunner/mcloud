@@ -97,6 +97,36 @@ compose_networks() {
   (cd "$dir" && docker compose --profile mdm --profile adb-relay config --format json 2> /dev/null) | python3 -c '
 import json, sys
 for name, service in sorted(json.load(sys.stdin)["services"].items()):
-    print(name, ",".join(sorted(service.get("networks") or ["host"])))
+    print(name, ",".join(sorted(service.get("networks") or [service.get("network_mode", "host")])))
 '
+}
+
+# compose_mdm_json: docker compose config of the profile mdm as JSON, with the settings of the *.original files
+compose_mdm_json() {
+  local dir="${WORK}/compose-volumes"
+  mkdir -p "$dir"
+  cp "${REPO}/docker-compose.yml" "$dir/"
+  cp "${REPO}/.env.original" "${dir}/.env"
+  cp "${REPO}/variables.env.original" "${dir}/variables.env"
+  (cd "$dir" && docker compose --profile mdm config --format json 2> /dev/null)
+}
+
+# compose_volumes <service>: the named volumes of a service, "<volume>:<target>[:ro]" per line
+compose_volumes() {
+  compose_mdm_json | python3 -c '
+import json, sys
+service = json.load(sys.stdin)["services"][sys.argv[1]]
+for v in service.get("volumes") or []:
+    if v.get("type") == "volume":
+        print(v["source"] + ":" + v["target"] + (":ro" if v.get("read_only") else ""))
+' "$1"
+}
+
+# compose_volume_users <volume>: the services that mount a named volume, on one line
+compose_volume_users() {
+  compose_mdm_json | python3 -c '
+import json, sys
+services = json.load(sys.stdin)["services"]
+print(" ".join(sorted(n for n, s in services.items() if any(v.get("type") == "volume" and v.get("source") == sys.argv[1] for v in s.get("volumes") or []))))
+' "$1"
 }
