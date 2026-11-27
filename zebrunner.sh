@@ -163,7 +163,7 @@ setup() {
   fi
 
   # the placeholder of variables.env.original; a change of the secret would end the sessions and invalidate the access
-  # tokens (STF_TOKEN) of the deployment, so the one of the previous setup is kept
+  # tokens made with it (README.md#access-tokens), so the one of the previous setup is kept
   if [[ -z "$SECRET" || "$SECRET" == "password" ]]; then
     SECRET="$(random_string 48)"
   fi
@@ -1311,7 +1311,7 @@ check_old_database() {
   if ! docker volume inspect "$volume" > /dev/null 2>&1; then
     return 0
   fi
-  echo_warning "The docker volume ${volume} has the database of STF of an earlier MCloud: of a folder $(basename "$BASEDIR") removed without ./zebrunner.sh shutdown, or of another folder of this name on this server (e.g. mcloud of Zebrunner CE; docker compose names the volumes by the folder). This setup made a new SECRET: the access tokens of that database fail (the STF API answers 500 to them) and its users sign in again, so generate a new STF_TOKEN as an admin (Settings, Keys). An empty database instead: docker volume rm ${volume} before ./zebrunner.sh start. To keep the tokens of that MCloud: copy its SECRET into SECRET of variables.env, then ./zebrunner.sh restart (README.md#troubleshooting)."
+  echo_warning "The docker volume ${volume} has the database of STF of an earlier MCloud: of a folder $(basename "$BASEDIR") removed without ./zebrunner.sh shutdown, or of another folder of this name on this server (e.g. mcloud of Zebrunner CE; docker compose names the volumes by the folder). This setup made a new SECRET: the access tokens of that database an earlier STF signed with its SECRET fail (the STF API answers 401 or 500 to them) and its users sign in again, so generate a new STF_TOKEN as an admin (Settings, Keys). An empty database instead: docker volume rm ${volume} before ./zebrunner.sh start. To keep the tokens of that MCloud: copy its SECRET into SECRET of variables.env, then ./zebrunner.sh restart (README.md#troubleshooting)."
 }
 
 # check_other_deployment <command>: fails when the services of the docker compose project of this folder belong to

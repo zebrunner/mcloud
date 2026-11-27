@@ -871,7 +871,8 @@ check_contains "the volume of the folder is asked" "volume|inspect|mcloud_stf-db
 check_contains "a new setup reports the database of an earlier MCloud" \
   "The docker volume mcloud_stf-db-volume has the database of STF of an earlier MCloud" "$output"
 check_contains "the access tokens of the earlier database are explained" \
-  "the access tokens of that database fail (the STF API answers 500 to them)" "$output"
+  "the access tokens of that database an earlier STF signed with its SECRET fail (the STF API answers 401 or 500 to them)" \
+  "$output"
 reset_calls
 touch "${WORK}/db-volume"
 output="$(zbr "$(answers "" "" "" "" "")" setup)"
