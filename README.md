@@ -140,7 +140,7 @@ The completion asks the `zebrunner.sh` of the command line for the candidates (`
 | `ZEBRUNNER_LOGIN_URL`, `ZEBRUNNER_USERINFO_URL` | | the endpoints of Zebrunner IAM for `auth-zebrunner`, set by the setup of Zebrunner CE |
 | `STF_AUTH_MOCK_USE_BASIC_AUTH`, `STF_AUTH_MOCK_BASIC_AUTH_USERNAME`, `STF_AUTH_MOCK_BASIC_AUTH_PASSWORD` | `true`, `mcloud`, generated | the shared user and password in front of the mock sign-in |
 | `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_USERNAME`, `STF_AUTH_MOCK_ADMIN_BASIC_AUTH_PASSWORD` | `mcloud-admin`, generated | the user and the password the admins of STF sign in with: the shared password of the users signs in no admin; `setup` and, for a `variables.env` of an earlier MCloud, `start` make them and print them once |
-| `OAUTH_AUTHORIZATION_URL`, `OAUTH_TOKEN_URL`, `OAUTH_USERINFO_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_SCOPE`, `OAUTH_DOMAIN` | | the OAuth2 sign-in, asked by the setup; `OAUTH_CALLBACK_URL` is `<STF_URL>/auth/oauth/callback` |
+| `OAUTH_AUTHORIZATION_URL`, `OAUTH_TOKEN_URL`, `OAUTH_USERINFO_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_SCOPE`, `OAUTH_DOMAIN` | | the OAuth2 sign-in, asked by the setup; `OAUTH_CALLBACK_URL` is `<STF_URL>/auth/oauth/callback`; `OAUTH_ALLOW_MISSING_EMAIL_VERIFIED` (`false`) and `OAUTH_STATE` (`true`, not in the file), see [OAuth2](#oauth2) |
 | `LDAP_URL`, `LDAP_BIND_DN`, `LDAP_BIND_CREDENTIALS`, `LDAP_SEARCH_DN`, `LDAP_SEARCH_FIELD` | | the LDAP sign-in, asked by the setup |
 | `RETHINKDB_PORT_28015_TCP` | `tcp://rethinkdb:28015` | the database of STF |
 | `RETHINKDB_ENV_AUTHKEY` | generated | the password of the `admin` of RethinkDB the STF units connect with, `stf-migrate` sets it in the database |
@@ -162,8 +162,20 @@ The interactive setup asks the sign-in of STF; Zebrunner CE signs in through Zeb
 | Sign-in | Who is the user | The setup asks |
 | --- | --- | --- |
 | `mock` (default) | anyone who knows the shared user and password (basic authentication) types a name and an email; an admin of STF (`STF_ADMIN_*` and the users made admins) signs in only with the user and the password of the admins (`STF_AUTH_MOCK_ADMIN_BASIC_AUTH_*`), the shared ones sign in no admin. The users may still sign in as each other (any name and email): share the password with the trusted users only, use OAuth2 or LDAP for users who must not | nothing, both passwords are generated and printed |
-| `oauth2` | the user of an OpenID Connect / OAuth2 provider (Google, Azure AD, Keycloak, GitLab, ...): an email of `OAUTH_DOMAIN` that the provider does not report as unverified; the admin is the user with the email `STF_ADMIN_EMAIL` | the authorization, token and user info URLs, the client of MCloud at the provider (its redirect URL is `<STF_URL>/auth/oauth/callback`), the scope (`openid email`), the domain |
+| `oauth2` | the user of an OpenID Connect / OAuth2 provider (Google, Azure AD, Keycloak, GitLab, ...): an email of `OAUTH_DOMAIN` that the provider reports as verified (`email_verified`), see [OAuth2](#oauth2); the admin is the user with the email `STF_ADMIN_EMAIL` | the authorization, token and user info URLs, the client of MCloud at the provider (its redirect URL is `<STF_URL>/auth/oauth/callback`), the scope (`openid email`), the domain (the setup and `doctor` warn when it is empty) |
 | `ldap` | the user of the directory with its password | the URL, the bind DN and password (empty for an anonymous search), the search DN and the attribute of the user name (`uid`) |
+
+#### OAuth2
+
+The email of the profile of the user info URL is the identity of the user, so set `OAUTH_DOMAIN` (the email domain of the users, `user@<domain>` only): without it every account of the provider with a verified email signs in, with a public provider such as Google anyone; `./zebrunner.sh setup` and `doctor` warn about it. STF takes only a profile that reports the email as verified (`email_verified` `true`, or `verified_email` of the v1/v2 user info of Google) and checks the `state` parameter of the sign-in in a cookie of its own (STF of `TAG_STF` with the OAuth2 hardening; an earlier one took a profile without `email_verified`).
+
+| Variable of `variables.env` | Default | Effect |
+| --- | --- | --- |
+| `OAUTH_DOMAIN` | | the email domain of the users; empty: any (a warning of `doctor`, a failure with `OAUTH_ALLOW_MISSING_EMAIL_VERIFIED=true`) |
+| `OAUTH_ALLOW_MISSING_EMAIL_VERIFIED` | `false` | `true`: a profile without `email_verified` signs in too, for a provider that never sends it (the user info `https://graph.microsoft.com/oidc/userinfo` of Azure AD / Entra ID, a generic OAuth2 user info); only with `OAUTH_DOMAIN` and a provider where no user sets an email of somebody else (a single-tenant application of Azure AD). A profile with `email_verified` `false` is refused anyway |
+| `OAUTH_STATE` | `true` | `false` turns the `state` parameter off, for a provider that drops it (a page of another site could then sign a browser in as somebody else) |
+
+Google: authorization URL `https://accounts.google.com/o/oauth2/v2/auth`, token URL `https://oauth2.googleapis.com/token`, user info URL `https://openidconnect.googleapis.com/v1/userinfo`, scope `openid email`, `OAUTH_DOMAIN` the domain of the Google Workspace. Another OpenID Connect provider (Keycloak, Okta, Auth0, GitLab): the `authorization_endpoint`, `token_endpoint` and `userinfo_endpoint` of its `/.well-known/openid-configuration`; its user info must give `email` and `email_verified` (Keycloak: the "Email verified" of the user). `docker logs stf-auth` tells why a sign-in was refused.
 
 ### https
 
@@ -521,7 +533,7 @@ An MCloud release works with mcloud-agent of the same release only (the images o
 | Group | Checks |
 | --- | --- |
 | Host | docker answers, docker compose 2.24.0 or newer, the disk of docker (`warn` from 85%, `FAIL` from 95%), the network `infra` |
-| Settings | `STF_URL` of `.env` (`warn` for http of a public host, and for the mock sign-in at a public host: use `oauth2` or `ldap` on the internet) and the same one of `variables.env`, `AGENTS_ADDRESS` (`warn` for `0.0.0.0`, `FAIL` for an address that is not of the server; not used with the WireGuard tunnel), the secrets of `variables.env` (`SECRET` not the default, the tokens, the CURVE keys and their pair, the password of the mock sign-in, with the tunnel `NODES_WG_PRIVATE_KEY` and its public key of `.env`), the files with secrets readable for their owner only |
+| Settings | `STF_URL` of `.env` (`warn` for http of a public host, and for the mock sign-in at a public host: use `oauth2` or `ldap` on the internet) and the same one of `variables.env`, `AGENTS_ADDRESS` (`warn` for `0.0.0.0`, `FAIL` for an address that is not of the server; not used with the WireGuard tunnel), the secrets of `variables.env` (`SECRET` not the default, the tokens, the CURVE keys and their pair, the password of the mock sign-in, with the tunnel `NODES_WG_PRIVATE_KEY` and its public key of `.env`), `OAUTH_DOMAIN` of the OAuth2 sign-in (`warn` when empty, `FAIL` when empty with `OAUTH_ALLOW_MISSING_EMAIL_VERIFIED=true`), the files with secrets readable for their owner only |
 | TLS | for https: the certificate and its key, not the shared pair of Zebrunner CE, its expiry (`warn` within 30 days), its host (the host of `STF_URL`, with an openssl that has `-checkhost`), self-signed or not |
 | Services | the services of `docker-compose.yml` (with the profiles of `ADB_RELAY`, `MDM_ENABLED` and `NODES_WIREGUARD`) are created and run, healthy where they have a healthcheck, the one-shot services (`stf-migrate`, `mcloud-mdm-hmdm-init` and `mcloud-mdm-ca` of the MDM) exited with `0`, no service restarted more than 3 times, the project is not the one of another folder |
 | STF API | `STF_TOKEN` is an access token of an admin (the reason of the STF API otherwise), the grid has the same one and answers on `AGENTS_ADDRESS:4446` (the WireGuard address of the server with the tunnel) |

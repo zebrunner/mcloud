@@ -237,6 +237,17 @@ healthy
 set_value .env AUTH_SYSTEM auth-oauth2
 zbr doctor
 check_not_contains "another sign-in at a public address is no warning" "The mock sign-in is on at a public address" "$OUT"
+check_contains "the OAuth2 sign-in without OAUTH_DOMAIN is a warning" \
+  "OAUTH_DOMAIN of variables.env is empty: every account of the OAuth2 provider with a verified email signs in" "$OUT"
+check "the OAuth2 sign-in without OAUTH_DOMAIN does not fail" "0" "$STATUS"
+set_value variables.env OAUTH_ALLOW_MISSING_EMAIL_VERIFIED true
+zbr doctor
+check_contains "no OAUTH_DOMAIN with OAUTH_ALLOW_MISSING_EMAIL_VERIFIED fails" \
+  "OAUTH_DOMAIN of variables.env is empty and OAUTH_ALLOW_MISSING_EMAIL_VERIFIED is true" "$OUT"
+set_value variables.env OAUTH_DOMAIN "'example.com'"
+zbr doctor
+check_contains "the OAuth2 sign-in with OAUTH_DOMAIN" "The OAuth2 sign-in takes the emails of example.com only" "$OUT"
+check_not_contains "the OAuth2 sign-in with OAUTH_DOMAIN: no warning" "OAUTH_DOMAIN of variables.env is empty" "$OUT"
 healthy
 set_value variables.env STF_ZMQ_CURVE_SERVER_PUBLIC_KEY "$(printf 'b%.0s' $(seq 64))"
 zbr doctor

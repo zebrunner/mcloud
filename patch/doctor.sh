@@ -280,6 +280,19 @@ doctor_settings() {
     doctor_warn "The mock sign-in is on at a public address: whoever has the password of the users signs in as any user who is not an admin, with the devices and the access tokens of that user." \
       "the sign-in oauth2 or ldap of ./zebrunner.sh setup for a farm on the internet (README.md#sign-in)"
   fi
+  # the OAuth2 sign-in identifies a user by the email: without OAUTH_DOMAIN every account of the provider signs in
+  if [[ "$(doctor_value .env AUTH_SYSTEM)" == "auth-oauth2" ]]; then
+    value="$(doctor_value variables.env OAUTH_DOMAIN)"
+    if [[ -n "$value" ]]; then
+      doctor_ok "The OAuth2 sign-in takes the emails of ${value} only"
+    elif [[ "$(doctor_value variables.env OAUTH_ALLOW_MISSING_EMAIL_VERIFIED)" == "true" ]]; then
+      doctor_fail "OAUTH_DOMAIN of variables.env is empty and OAUTH_ALLOW_MISSING_EMAIL_VERIFIED is true: every account of the OAuth2 provider signs in to STF, also with an email the provider did not verify (e.g. the one of the admin)." \
+        "set OAUTH_DOMAIN of variables.env to the email domain of the users, then ./zebrunner.sh restart (README.md#sign-in)"
+    else
+      doctor_warn "OAUTH_DOMAIN of variables.env is empty: every account of the OAuth2 provider with a verified email signs in to STF (with a public provider such as Google: anyone)." \
+        "set OAUTH_DOMAIN of variables.env to the email domain of the users, then ./zebrunner.sh restart (README.md#sign-in)"
+    fi
+  fi
   private_files=""
   for file in variables.env grid.env backup/settings.env configuration/stf-proxy/ssl/ssl.key configuration/adb-relay/stf-token \
     "$WG_KEY_FILE" "$WG_TOKEN_FILE"; do
