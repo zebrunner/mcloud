@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests of the WireGuard tunnel of the nodes without docker: the addresses of configuration/wireguard/network.sh, the
 # keys of patch/wireguard.sh and the sync of the peers of configuration/wireguard/wireguard.sh (the nodes of answers of
-# the STF API, the peers they make and the changes of the interface); wg and curl are stubs (the service itself is
-# checked by tests/wireguard_docker_test.sh).
+# the STF API, the peers they make and the changes of the interface) and its relay of the ports of the nodes; wg, curl,
+# socat, ss and ip are stubs (the service itself is checked by tests/wireguard_docker_test.sh).
 source "$(dirname "$0")/lib.sh"
 cd "$REPO" || exit 1
 # shellcheck source=../configuration/wireguard/wireguard.sh
@@ -207,5 +207,104 @@ reset_calls
 output="$(sync_peers)"
 check "no request without STF_TOKEN" "" "$(calls curl)$(calls wg)"
 check_contains "an empty STF_TOKEN is logged" "STF_TOKEN of variables.env) is empty" "$output"
+
+section "the relay of the ports of the nodes"
+# poll <command...>: runs the command every 0.1 seconds until it succeeds, fails after 5 seconds
+poll() {
+  local _
+  for _ in $(seq 50); do
+    "$@" && return 0
+    sleep 0.1
+  done
+  return 1
+}
+# relay_stopped <index>: the relay of the index of relay_pids does not run
+# shellcheck disable=SC2329 # called through poll
+relay_stopped() {
+  ! kill -0 "${relay_pids[$1]}" 2> /dev/null
+}
+# socat_calls <count>: socat was called so often
+# shellcheck disable=SC2329 # called through poll
+socat_calls() {
+  [[ "$(calls socat | grep -c .)" -eq "$1" ]]
+}
+check "the ports of stf-proxy and stf-triproxy-dev" "4446 7250 7270" "$RELAY_PORTS"
+output="$(printf '%s\n' "2026/11/27 10:00:00 socat[10] E connect(5, AF=2 127.0.0.1:7250, 16): Connection refused" \
+  "2026/11/27 10:00:00 socat[11] W exiting on signal 15" \
+  "2026/11/27 10:00:01 socat[12] E connect(5, AF=2 127.0.0.1:7250, 16): Connection refused" \
+  "2026/11/27 10:00:01 socat[13] N accepting connection" | relay_log 7250)"
+check "a message of socat is logged once a minute, with its level" "[ERROR] The relay of the port 7250: connect(5, AF=2 127.0.0.1:7250, 16): Connection refused
+[WARN] The relay of the port 7250: exiting on signal 15
+[INFO] The relay of the port 7250: accepting connection" "$(sed 's/^\[[^]]*\] //' <<< "$output")"
+# socat: the arguments in calls.log; it listens until ${WORK}/socat-stop-<port> exists, then it ends as with a taken port
+# shellcheck disable=SC2016
+stub socat '(IFS="|"; echo "socat|$*") >> "'"${WORK}"'/calls.log"
+port="${1#TCP4-LISTEN:}"
+port="${port%%,*}"
+until [[ -f "'"${WORK}"'/socat-stop-${port}" ]]; do sleep 0.1; done
+echo "2026/11/27 10:00:00 socat[20] E bind(5, {AF=2 10.234.0.1:${port}}, 16): Address in use" >&2
+exit 1'
+reset_calls
+relay_pids=()
+relay_started=()
+RELAY_RETRY_SECONDS=30
+# the relays run in the background, their log goes to relay.log
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+poll socat_calls 3
+socket="keepalive,keepidle=60,keepintvl=20,keepcnt=3,nodelay"
+check "a relay per port: the WireGuard address only, to the loopback address, keepalive and no idle timeout" \
+  "TCP4-LISTEN:4446,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:4446,${socket}
+TCP4-LISTEN:7250,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:7250,${socket}
+TCP4-LISTEN:7270,bind=10.234.0.1,reuseaddr,fork,backlog=128,max-children=1024,${socket}|TCP4:127.0.0.1:7270,${socket}" \
+  "$(calls socat | sort)"
+reset_calls
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+check "a running relay is not started again" "" "$(calls socat)"
+touch "${WORK}/socat-stop-4446"
+run_check "the relay of 4446 stops" poll relay_stopped 0
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+check "a stopped relay is not started again before RELAY_RETRY_SECONDS" "" "$(calls socat)"
+RELAY_RETRY_SECONDS=0
+relays_check 10.234.0.1 >> "${WORK}/relay.log"
+poll socat_calls 1
+check "a stopped relay is started again after RELAY_RETRY_SECONDS" "TCP4-LISTEN:4446" "$(calls socat | cut -d , -f 1)"
+poll relay_stopped 0
+check_contains "the stop is logged" "[WARN] The relay of the port 4446 on 10.234.0.1 stopped (its messages are above), it is started again." \
+  "$(cat "${WORK}/relay.log")"
+check_contains "the message of socat is logged" "[ERROR] The relay of the port 4446: bind(5, {AF=2 10.234.0.1:4446}, 16): Address in use" \
+  "$(cat "${WORK}/relay.log")"
+touch "${WORK}/socat-stop-7250" "${WORK}/socat-stop-7270"
+wait
+# ss: the listening sockets of ${WORK}/listening for the address and port of `src <address>:<port>`
+# shellcheck disable=SC2016
+stub ss 'grep -F " $3 " "'"${WORK}"'/listening" 2> /dev/null; exit 0'
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 127.0.0.1:4446 10.234.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "the relay listens on every port" "0" "$(
+  relays_listen 10.234.0.1
+  echo "$?"
+)"
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 127.0.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "a port published on the loopback address is no relay" "1" "$(
+  relays_listen 10.234.0.1
+  echo "$?"
+)"
+# ip: the interface of ${WORK}/interface
+# shellcheck disable=SC2016
+stub ip 'cat "'"${WORK}"'/interface" 2> /dev/null; exit 0'
+echo "5: mcloud    inet 10.234.0.1/24 scope global mcloud" > "${WORK}/interface"
+check "not healthy without the relay of a port" "1" "$(
+  healthy
+  echo "$?"
+)"
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' 10.234.0.1:4446 10.234.0.1:7250 10.234.0.1:7270 > "${WORK}/listening"
+check "healthy: the interface with the address of the server and the relay" "0" "$(
+  healthy
+  echo "$?"
+)"
+rm -f "${WORK}/interface"
+check "not healthy without the interface" "1" "$(
+  healthy
+  echo "$?"
+)"
 
 finish

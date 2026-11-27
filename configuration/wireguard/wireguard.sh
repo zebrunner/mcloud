@@ -3,7 +3,9 @@
 # with NODES_WIREGUARD=true: it creates the interface mcloud in the network of the host with the key of the server
 # (configuration/wireguard/private-key) and its address, the first host of NODES_WG_NETWORK, and makes its peers the
 # active nodes of STF with a WireGuard key every NODES_WG_SYNC_SECONDS: the registry of STF (GET /api/v1/nodes) is the
-# only source of the peers, so a revoked node is cut at once and an enrolled one is let in without a restart.
+# only source of the peers, so a revoked node is cut at once and an enrolled one is let in without a restart. Its relay
+# listens on the WireGuard address for the ports of the nodes (socat) and connects them to the ones docker publishes on
+# the loopback address: they start at the boot in any order, and nothing listens on the WireGuard address without it.
 # tests/wireguard_test.sh sources it: keep the functions compatible with the macOS system bash 3.2, mawk and BSD awk.
 
 # the folder of this script, its awk program and the files ./zebrunner.sh start writes (mode 600): the private key of
@@ -16,6 +18,15 @@ TOKEN_FILE="${TOKEN_FILE:-${WG_DIR}/stf-token}"
 INTERFACE="${INTERFACE:-mcloud}"
 # the registry of the nodes of STF: the WireGuard key, the address and the status of every node
 NODES_PATH="/api/v1/nodes"
+# the ports of the nodes: stf-proxy (4446, the grid) and stf-triproxy-dev (7250, 7270, ZeroMQ) publish them on the
+# loopback address of the server with the tunnel (NODES_ADDRESS=127.0.0.1), which exists at the boot already, and the
+# relay listens on the WireGuard address for them once the interface is up: nothing listens there without this service
+RELAY_PORTS="${RELAY_PORTS:-4446 7250 7270}"
+RELAY_TARGET="${RELAY_TARGET:-127.0.0.1}"
+# the connections of one port at once (a device holds two of ZeroMQ, Appium registers a few times a minute)
+RELAY_MAX_CONNECTIONS="${RELAY_MAX_CONNECTIONS:-1024}"
+# a relay that stopped (e.g. its port is taken on the WireGuard address) is started again after these seconds at most
+RELAY_RETRY_SECONDS="${RELAY_RETRY_SECONDS:-30}"
 
 # the addresses of the tunnel and WG_KEY_REGEX, shared with zebrunner.sh
 # shellcheck source=network.sh
@@ -183,6 +194,87 @@ sync_peers() {
   fi
 }
 
+#### Relay
+
+# relay_run <server> <port>: the relay of a port of the nodes until socat ends, its messages in the log: socat listens on
+# the WireGuard address of the server only and connects every connection to the same port of RELAY_TARGET, the port
+# published by docker. A plain TCP relay: ZeroMQ authenticates the keys of the nodes (CURVE) and the grid the node token
+# and the host of the node URL, none of them the source address. No idle timeout (the ZeroMQ connections of the devices
+# stay open without traffic), TCP keepalive on both sides (a gone node or a closed port ends its connection), no Nagle
+# delay (the messages of ZeroMQ are small), a backlog for the devices that connect at once (after a restart of STF)
+relay_run() {
+  local socket="keepalive,keepidle=60,keepintvl=20,keepcnt=3,nodelay"
+  socat "TCP4-LISTEN:${2},bind=${1},reuseaddr,fork,backlog=128,max-children=${RELAY_MAX_CONNECTIONS},${socket}" \
+    "TCP4:${RELAY_TARGET}:${2},${socket}" 2>&1 | relay_log "$2"
+}
+
+# relay_log <port>: the messages of socat of the relay of a port (stdin) in the log, each one at most once a minute:
+# while a published port is closed (e.g. stf-proxy restarts) every connection of the nodes is refused, and ZeroMQ
+# connects again every 100 ms
+relay_log() {
+  local line message level
+  # the messages logged since the start of the minute, one per line
+  local logged=$'\n'
+  local minute="$SECONDS"
+  while IFS= read -r line; do
+    if ((SECONDS - minute >= 60)); then
+      logged=$'\n'
+      minute="$SECONDS"
+    fi
+    # <date> <time> socat[<pid>] <level> <message>
+    message="${line#*] }"
+    if [[ "$logged" == *$'\n'"${message}"$'\n'* ]]; then
+      continue
+    fi
+    logged+="${message}"$'\n'
+    case "${message:0:2}" in
+    "F " | "E ") level="ERROR" ;;
+    "W ") level="WARN" ;;
+    *) level="INFO" ;;
+    esac
+    log "$level" "The relay of the port ${1}: ${message#[FEWNI] }"
+  done
+}
+
+# relays_check <server>: a relay per port of RELAY_PORTS in the background (relay_pids, relay_started: the process and
+# the SECONDS of the start of each one, in the order of the ports): it starts the ones that do not run, a stopped one
+# again RELAY_RETRY_SECONDS after its last start
+relays_check() {
+  local port
+  local index=0
+  for port in $RELAY_PORTS; do
+    if [[ -n "${relay_pids[index]}" ]]; then
+      if kill -0 "${relay_pids[index]}" 2> /dev/null || ((SECONDS - relay_started[index] < RELAY_RETRY_SECONDS)); then
+        index=$((index + 1))
+        continue
+      fi
+      log "WARN" "The relay of the port ${port} on ${1} stopped (its messages are above), it is started again."
+    fi
+    relay_run "$1" "$port" &
+    relay_pids[index]=$!
+    relay_started[index]="$SECONDS"
+    index=$((index + 1))
+  done
+}
+
+# relays_listen <server>: every port of RELAY_PORTS listens on the address (ss of iproute2)
+relays_listen() {
+  local port
+  for port in $RELAY_PORTS; do
+    if [[ -z "$(ss -Hltn src "${1}:${port}" 2> /dev/null)" ]]; then
+      return 1
+    fi
+  done
+}
+
+# healthy: the healthcheck of the service (`wireguard.sh healthy`): the interface is up with the address of the server
+# and the relay listens there on every port of the nodes
+healthy() {
+  local server
+  server="$(wg_server_address "$NODES_WG_NETWORK")" || return 1
+  ip -o -4 address show dev "$INTERFACE" up 2> /dev/null | grep -qF " ${server}/" && relays_listen "$server"
+}
+
 #### Main
 
 # interface_down: removes the interface, its peers and its address go with it
@@ -241,13 +333,22 @@ main() {
     exit 1
   fi
   log "INFO" "The tunnel ${INTERFACE} is up: ${server}/${prefix}, UDP port ${port}; the peers are the active nodes of STF (${stf_api}), read every ${interval} seconds."
+  relay_pids=()
+  relay_started=()
+  relays_check "$server"
+  log "INFO" "The ports of the nodes on ${server} are relayed to the ones of stf-proxy and stf-triproxy-dev on ${RELAY_TARGET}: ${RELAY_PORTS// /, }."
   while true; do
     sync_peers
+    relays_check "$server"
     sleep "$interval" &
     wait $!
   done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  if [[ "$1" == "healthy" ]]; then
+    healthy
+    exit
+  fi
   main "$@"
 fi

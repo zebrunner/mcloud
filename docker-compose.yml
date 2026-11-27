@@ -85,16 +85,13 @@ services:
     ports:
       - "${STF_PORT}:80" # primary HTTP port
       # the grid of the nodes, the grid of the join string of ./zebrunner.sh node-invite: the registration of Appium only;
-      # on the WireGuard address of the server with the tunnel of the nodes (NODES_ADDRESS), AGENTS_ADDRESS otherwise
+      # on AGENTS_ADDRESS, or with the tunnel of the nodes on the loopback address (NODES_ADDRESS), which exists at the
+      # boot already: the relay of wireguard listens on the WireGuard address of the server for it
       - "${NODES_ADDRESS:-${AGENTS_ADDRESS}}:4446:4446"
     networks: [default, mdm]
     depends_on:
       stf-app:
         condition: service_healthy
-      # the WireGuard address exists once the tunnel is up; without the tunnel (no profile wireguard) nothing to wait for
-      wireguard:
-        condition: service_healthy
-        required: false
     healthcheck:
       test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/80"]
       interval: 10s
@@ -140,18 +137,18 @@ services:
     image: "alpine:${TAG_ALPINE}"
     container_name: wireguard
     profiles: [wireguard]
-    # the interface mcloud is one of the server: the ports of the nodes are published on its address, stf-proxy, the
-    # grid and adb-relay reach the nodes through it
+    # the interface mcloud is one of the server: its relay listens on its address for the ports of the nodes, stf-proxy,
+    # the grid and adb-relay reach the nodes through it
     network_mode: host
     cap_add: [NET_ADMIN]
     # the tools of the packages of alpine (apk checks their signatures), installed once per container; then the sync of
-    # the peers with the registry of STF
+    # the peers with the registry of STF and the relay of the ports of the nodes (socat)
     entrypoint:
       - sh
       - -c
       - >-
-        command -v wg > /dev/null && command -v bash > /dev/null ||
-        apk add --no-cache --quiet bash curl iproute2 wireguard-tools-wg || exit 1;
+        command -v wg > /dev/null && command -v bash > /dev/null && command -v socat > /dev/null ||
+        apk add --no-cache --quiet bash curl iproute2 socat wireguard-tools-wg || exit 1;
         exec bash /opt/wireguard/wireguard.sh
     environment:
       - NODES_WIREGUARD=${NODES_WIREGUARD:-false}
@@ -165,8 +162,8 @@ services:
       # variables.env only, written by ./zebrunner.sh
       - ./configuration/wireguard:/opt/wireguard:ro
     healthcheck:
-      # the address of the server is on the interface, it is up
-      test: ["CMD-SHELL", "ip -o -4 address show dev mcloud up | grep -q inet"]
+      # the address of the server is on the interface, it is up, and the relay listens there on the ports of the nodes
+      test: ["CMD", "bash", "/opt/wireguard/wireguard.sh", "healthy"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -283,18 +280,12 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "node", "-e", "require('net').connect(7260, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
     command: stf triproxy dev001 --bind-pub "tcp://*:7250" --bind-dealer "tcp://*:7260" --bind-pull "tcp://*:7270"
-    # the ZeroMQ ports of the nodes, on AGENTS_ADDRESS (the host of the join string of ./zebrunner.sh node-invite) or the
-    # WireGuard address of the server with the tunnel of the nodes (NODES_ADDRESS): the devices subscribe to the PUB and
-    # push to the PULL; the dealer is for the server units only
+    # the ZeroMQ ports of the nodes, on AGENTS_ADDRESS (the host of the join string of ./zebrunner.sh node-invite) or,
+    # with the tunnel of the nodes, on the loopback address (NODES_ADDRESS) for the relay of wireguard on the WireGuard
+    # address of the server: the devices subscribe to the PUB and push to the PULL; the dealer is for the server units only
     ports:
       - "${NODES_ADDRESS:-${AGENTS_ADDRESS}}:7250:7250"
       - "${NODES_ADDRESS:-${AGENTS_ADDRESS}}:7270:7270"
-    depends_on:
-      stf-migrate:
-        condition: service_completed_successfully
-      wireguard:
-        condition: service_healthy
-        required: false
   stf-websocket:
     <<: *stf
     container_name: stf-websocket
