@@ -568,6 +568,44 @@ doctor_wireguard() {
   done <<< "$nodes"
 }
 
+# doctor_mdm: the binding of the MDM calls of the nodes to their own devices (MDM_ENFORCE_NODE_BINDING): its STF
+# token, the header of the locations of stf-proxy, and what mcloud-mdm logged since its start
+doctor_mdm() {
+  local logs
+  ui_section "MDM" "" "README.md#mdm"
+  case "$(doctor_value .env MDM_ENFORCE_NODE_BINDING)" in
+  "" | false)
+    ui_info "MDM_ENFORCE_NODE_BINDING is off: every node acts on the MDM of every device (README.md#mdm)."
+    return 0
+    ;;
+  true) ;;
+  *)
+    doctor_fail "MDM_ENFORCE_NODE_BINDING of .env is '$(doctor_value .env MDM_ENFORCE_NODE_BINDING)', not true or false: mcloud-mdm does not start." \
+      "set it to true or false, then ./zebrunner.sh restart"
+    return 0
+    ;;
+  esac
+  if [[ -z "$(stf_token)" ]]; then
+    doctor_fail "MDM_ENFORCE_NODE_BINDING=true needs STF_TOKEN of variables.env: mcloud-mdm does not start." "./zebrunner.sh restart makes it (README.md#stf_token)"
+    return 0
+  fi
+  if ! grep -q 'X-MCloud-Node' configuration/stf-proxy/mdm/server-mdm.conf 2> /dev/null; then
+    doctor_fail "The locations of stf-proxy do not pass the node of the token (X-MCloud-Node): mcloud-mdm refuses every MDM call of the nodes." "./zebrunner.sh start writes them"
+    return 0
+  fi
+  # the log of mcloud-mdm since its last start
+  logs="$(docker logs mcloud-mdm 2>&1 | awk '/mcloud-mdm started/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }')"
+  if ! grep -q 'MDM_ENFORCE_NODE_BINDING: the nodes act' <<< "$logs"; then
+    doctor_warn "mcloud-mdm did not confirm MDM_ENFORCE_NODE_BINDING at its start: a TAG_MDM before the binding ignores it, every node acts on every device." \
+      "update TAG_MDM, then ./zebrunner.sh restart; docker logs mcloud-mdm"
+  elif grep -q 'the proxy names no node' <<< "$(docker logs --since 1h mcloud-mdm 2>&1)"; then
+    doctor_fail "mcloud-mdm refused MDM calls of the nodes in the last hour: stf-api sends no X-MCloud-Node (a TAG_STF before it)." \
+      "update TAG_STF, then ./zebrunner.sh restart; or MDM_ENFORCE_NODE_BINDING=false"
+  else
+    doctor_ok "MDM_ENFORCE_NODE_BINDING: the nodes act on the MDM of their own devices only"
+  fi
+}
+
 # doctor_nodes: the enrolled nodes; ./zebrunner.sh nodes check of every active one
 doctor_nodes() {
   local nodes line label address status seen
@@ -622,6 +660,9 @@ doctor() {
       doctor_ports
       if wg_on; then
         doctor_wireguard
+      fi
+      if [[ "$(doctor_value .env MDM_ENABLED)" == "true" ]]; then
+        doctor_mdm
       fi
       doctor_nodes
     fi

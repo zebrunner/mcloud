@@ -347,6 +347,8 @@ services:
       - NANOHUB_URL=http://mcloud-mdm-nanohub:9004
       - HMDM_URL=http://mcloud-mdm-hmdm:8080
       - HMDM_MQTT_PORT=${MDM_MQTT_PORT:-31443}
+      # true: the MDM calls of a node act on its own devices only (X-MCloud-Node of stf-proxy, the node of STF)
+      - MDM_ENFORCE_NODE_BINDING=${MDM_ENFORCE_NODE_BINDING:-false}
     volumes:
       - "mcloud-mdm-data:/data"
       # the Android agent (configuration/mdm/android/mcloud-mdm-agent.apk), put there by the operator

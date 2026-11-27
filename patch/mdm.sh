@@ -57,6 +57,7 @@ mdm_env_keys() {
 mdm_check() {
   local enabled
   local url
+  local stf_token
   enabled="$(mdm_setting MDM_ENABLED)"
   case "$enabled" in
   true) ;;
@@ -77,6 +78,18 @@ mdm_check() {
   if [[ -z "$(mdm_addresses)" ]]; then
     echo_warning "MDM_SITE_ADDRESSES of .env has no address: no device and no node reaches the MDM. Set the fixed public addresses of the sites of the devices (README.md#mdm)."
   fi
+  case "$(mdm_setting MDM_ENFORCE_NODE_BINDING)" in
+  "" | false) ;;
+  true)
+    stf_token="$(sed -n "s/^STF_TOKEN=//p" variables.env 2> /dev/null | tail -n 1)"
+    if [[ -z "${stf_token//[\'\"]/}" ]]; then
+      echo_warning "MDM_ENFORCE_NODE_BINDING=true needs STF_TOKEN of variables.env (mcloud-mdm asks STF for the node of each device, ./zebrunner.sh start makes it): mcloud-mdm does not start without it (README.md#mdm)."
+    fi
+    ;;
+  *)
+    echo_warning "MDM_ENFORCE_NODE_BINDING of .env is '$(mdm_setting MDM_ENFORCE_NODE_BINDING)', not true or false: mcloud-mdm does not start (README.md#mdm)."
+    ;;
+  esac
   if [[ ! -f "$MDM_AGENT_APK" ]]; then
     echo_warning "${MDM_AGENT_APK} is missing: no Android device is enrolled. Put the agent there (make agent of zebrunner/mcloud-mdm, README.md#mdm)."
   fi
@@ -232,7 +245,8 @@ mdm_locations() {
   # shellcheck disable=SC2016
   printf '%s\n' '# written by ./zebrunner.sh setup and start (README.md#mdm): the paths of the devices and of the nodes, from the' \
     '# addresses of MDM_SITE_ADDRESSES only; the API of NanoHUB, the device listener of mcloud-mdm and the web panel of' \
-    '# Headwind MDM are not published' \
+    '# Headwind MDM are not published; the address and the scheme of the client are the ones of stf-proxy (or of a proxy' \
+    '# of TRUSTED_PROXY_ADDRESSES in front of it): the forwarding headers of any other client never reach the MDM' \
     '' \
     '# iOS: the MDM protocol (NanoHUB checks the signature of the device identity of every request)' \
     'location ~ ^/(mdm|checkin)$ {' \
@@ -240,6 +254,9 @@ mdm_locations() {
     '    return 403;' \
     '  }' \
     '  proxy_set_header Host $host;' \
+    '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+    '  proxy_set_header X-Forwarded-For $remote_addr;' \
+    '  proxy_set_header X-Real-IP $remote_addr;' \
     '  set $upstream_nanohub mcloud-mdm-nanohub:9004;' \
     '  proxy_pass http://$upstream_nanohub;' \
     '}' \
@@ -250,6 +267,9 @@ mdm_locations() {
     '    return 403;' \
     '  }' \
     '  proxy_set_header Host $host;' \
+    '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+    '  proxy_set_header X-Forwarded-For $remote_addr;' \
+    '  proxy_set_header X-Real-IP $remote_addr;' \
     '  proxy_set_header Authorization "";' \
     '  proxy_set_header Cookie "";' \
     '  set $upstream_mdm mcloud-mdm:8080;' \
@@ -262,7 +282,14 @@ mdm_locations() {
     '    return 403;' \
     '  }' \
     '  auth_request /_mdm_node_auth;' \
+    '  # the label of the node of the token (stf-api answers it in X-MCloud-Node), never the one of the client: an empty' \
+    '  # one is not sent; mcloud-mdm acts only on the devices of that node with MDM_ENFORCE_NODE_BINDING=true' \
+    '  auth_request_set $mdm_node $upstream_http_x_mcloud_node;' \
+    '  proxy_set_header X-MCloud-Node $mdm_node;' \
     '  proxy_set_header Host $host;' \
+    '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+    '  proxy_set_header X-Forwarded-For $remote_addr;' \
+    '  proxy_set_header X-Real-IP $remote_addr;' \
     "  proxy_set_header Authorization \"Bearer $1\";" \
     '  set $upstream_mdm mcloud-mdm:8080;' \
     '  proxy_pass http://$upstream_mdm;' \
@@ -277,6 +304,8 @@ mdm_locations() {
     '  proxy_set_header Authorization $http_authorization;' \
     '  proxy_set_header Host stf-proxy;' \
     '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+    '  proxy_set_header X-Forwarded-For $remote_addr;' \
+    '  proxy_set_header X-Real-IP $remote_addr;' \
     '}' \
     '' \
     '# Android: the paths of the agents of Headwind MDM under /hmdm, the prefix stripped' \
@@ -288,6 +317,8 @@ mdm_locations() {
     '  set $upstream_hmdm mcloud-mdm-hmdm:8080;' \
     '  rewrite ^/hmdm(/.*)$ $1 break;' \
     '  proxy_set_header Host $host;' \
+    '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+    '  proxy_set_header X-Forwarded-For $remote_addr;' \
     '  proxy_set_header X-Real-IP $remote_addr;' \
     '  proxy_pass http://$upstream_hmdm;' \
     '}' \
@@ -310,6 +341,9 @@ mdm_locations() {
       '  set $upstream_mdm_admin mcloud-mdm:8081;' \
       '  rewrite ^/mcloud/mdm(/.*)$ $1 break;' \
       '  proxy_set_header Host $http_host;' \
+      '  proxy_set_header X-Forwarded-Proto $forwarded_proto;' \
+      '  proxy_set_header X-Forwarded-For $remote_addr;' \
+      '  proxy_set_header X-Real-IP $remote_addr;' \
       '  # the admin token of mcloud-mdm, never the one of a client' \
       "  proxy_set_header Authorization \"Bearer ${2}\";" \
       '  proxy_pass http://$upstream_mdm_admin;' \

@@ -12,7 +12,8 @@ copy_repo "$MCLOUD"
 
 # the stubs read their answers from ${STUB_DIR}: docker-down (no daemon), compose-version, disk (percent),
 # no-network, project-dir (the folder of the compose project), services (config --services), ps (compose ps lines),
-# restarts (the restart count of every container), handshakes (docker exec: wg show of the service wireguard); ip:
+# restarts (the restart count of every container), handshakes (docker exec: wg show of the service wireguard),
+# mdm-logs and mdm-logs-recent (docker logs of mcloud-mdm, with --since); ip:
 # ip-wireguard (the interface of the tunnel); curl: user.json and user.status (GET /api/v1/user), nodes.json and
 # nodes.status, devices.json, grid.status (the grid on 4446), url.status (STF_URL), closed-ports (one per line)
 # shellcheck disable=SC2016 # the stub bodies are expanded when the stubs run
@@ -32,6 +33,9 @@ if [[ "$1" == compose ]]; then
   [[ "$*" == *" ps -a "* ]] && cat "${STUB_DIR}/ps"
 fi
 [[ "$1 $2" == "exec wireguard" ]] && cat "${STUB_DIR}/handshakes" 2> /dev/null
+if [[ "$1" == logs ]]; then
+  if [[ "$2" == --since ]]; then cat "${STUB_DIR}/mdm-logs-recent" 2> /dev/null; else cat "${STUB_DIR}/mdm-logs" 2> /dev/null; fi
+fi
 exit 0'
 # shellcheck disable=SC2016
 stub df 'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
@@ -78,7 +82,8 @@ TOKEN="$(printf 'a%.0s' $(seq 64))"
 # running, the admin token and one node with a reachable device
 healthy() {
   local secret public
-  rm -f "${WORK}"/docker-down "${WORK}"/no-network "${WORK}"/project-dir "${WORK}"/restarts "${WORK}"/closed-ports
+  rm -f "${WORK}"/docker-down "${WORK}"/no-network "${WORK}"/project-dir "${WORK}"/restarts "${WORK}"/closed-ports \
+    "${WORK}"/mdm-logs "${WORK}"/mdm-logs-recent "${MCLOUD}/configuration/stf-proxy/mdm/server-mdm.conf"
   echo 2.29.7 > "${WORK}/compose-version"
   echo 40 > "${WORK}/disk"
   echo "$SERVICES" | tr ' ' '\n' > "${WORK}/services"
@@ -364,6 +369,46 @@ healthy
 echo 404 > "${WORK}/nodes.status"
 zbr doctor
 check_contains "an STF without the registry of the nodes" "The STF of TAG_STF has no registry of the nodes." "$OUT"
+
+section "the node binding of the MDM"
+healthy
+zbr doctor
+check_not_contains "no MDM: no group MDM" "MDM_ENFORCE_NODE_BINDING" "$OUT"
+set_value .env MDM_ENABLED true
+zbr doctor
+check_contains "the binding off is a fact" "MDM_ENFORCE_NODE_BINDING is off: every node acts on the MDM of every device" "$OUT"
+set_value .env MDM_ENFORCE_NODE_BINDING yes
+zbr doctor
+check_contains "an invalid value fails" "MDM_ENFORCE_NODE_BINDING of .env is 'yes', not true or false" "$OUT"
+set_value .env MDM_ENFORCE_NODE_BINDING true
+set_value variables.env STF_TOKEN ""
+zbr doctor
+check_contains "the binding without STF_TOKEN fails" "MDM_ENFORCE_NODE_BINDING=true needs STF_TOKEN of variables.env" "$OUT"
+set_value variables.env STF_TOKEN "$TOKEN"
+mkdir -p "${MCLOUD}/configuration/stf-proxy/mdm"
+echo "proxy_set_header Authorization x;" > "${MCLOUD}/configuration/stf-proxy/mdm/server-mdm.conf"
+zbr doctor
+check_contains "locations without the header fail" "The locations of stf-proxy do not pass the node of the token" "$OUT"
+echo "proxy_set_header X-MCloud-Node \$mdm_node;" > "${MCLOUD}/configuration/stf-proxy/mdm/server-mdm.conf"
+printf '%s\n' 'msg="mcloud-mdm started"' 'msg="node call refused: no node"' > "${WORK}/mdm-logs"
+zbr doctor
+check_contains "an mcloud-mdm without the setting is a warning" "mcloud-mdm did not confirm MDM_ENFORCE_NODE_BINDING at its start" "$OUT"
+printf '%s\n' 'msg="MDM_ENFORCE_NODE_BINDING: the nodes act on the MDM of their own devices only"' 'msg="mcloud-mdm started"' \
+  > "${WORK}/mdm-logs"
+zbr doctor
+check_contains "the confirmation of an earlier start does not count" "mcloud-mdm did not confirm" "$OUT"
+printf '%s\n' 'msg="mcloud-mdm started"' 'msg="MDM_ENFORCE_NODE_BINDING: the nodes act on the MDM of their own devices only"' \
+  > "${WORK}/mdm-logs"
+echo 'msg="node call refused: the proxy names no node (X-MCloud-Node)"' > "${WORK}/mdm-logs-recent"
+zbr doctor
+check_contains "refusals for a missing header fail" "stf-api sends no X-MCloud-Node (a TAG_STF before it)" "$OUT"
+rm -f "${WORK}/mdm-logs-recent"
+zbr doctor
+check_contains "the binding on" "MDM_ENFORCE_NODE_BINDING: the nodes act on the MDM of their own devices only" "$OUT"
+check_contains "the logs of mcloud-mdm are read" "logs|--since|1h|mcloud-mdm" "$(calls docker)"
+check "doctor with the binding changes nothing" "" \
+  "$(calls docker | grep -vE '^(version|compose|info|network\|inspect|ps|inspect|logs)\|')"
+reset_calls
 
 section "the WireGuard tunnel"
 WG_PRIVATE="dwdtCnMYpX08FsFyUbJmRd9ML4frwJkqsXf7pR25LCo="

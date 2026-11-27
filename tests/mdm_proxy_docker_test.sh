@@ -101,12 +101,16 @@ mqtt_volumes=(-v "${MCLOUD}/configuration/mdm/mqtt.conf:/etc/nginx/nginx.conf:ro
   -v "${MCLOUD}/configuration/stf-proxy/ssl:/etc/nginx/ssl:ro")
 
 section "the stand-ins"
-# stf-api: a node with the token good-node, an admin of STF with the token admin-token; mcloud-mdm, NanoHUB: what they get
+# stf-api: a node with the token good-node (the label node-a in X-MCloud-Node), a node of an stf without that header
+# (old-stf-node), an admin of STF with the token admin-token; mcloud-mdm, NanoHUB: what they get
 # shellcheck disable=SC2016 # the variables of nginx
 printf '%s\n' 'events {}' 'http {' \
+  '  map $http_authorization $node_label { "Bearer good-node" node-a; default ""; }' \
+  '  map $http_x_mcloud_node $echo_node { "" ""; default " node=[$http_x_mcloud_node]"; }' \
   '  server {' '    listen 3000;' \
   '    location = /api/v1/nodes/self {' \
-  '      if ($http_authorization != "Bearer good-node") { return 401; }' \
+  '      if ($http_authorization !~ "^Bearer (good-node|old-stf-node)$") { return 401; }' \
+  '      add_header X-MCloud-Node $node_label always;' \
   '      return 200 "{}";' \
   '    }' \
   '    location = /api/v1/zebrunner/hub-auth {' \
@@ -116,9 +120,13 @@ printf '%s\n' 'events {}' 'http {' \
   '    }' \
   '    location / { default_type text/plain; return 200 "stf $request_uri\n"; }' \
   '  }' \
-  '  server { listen 8080; location / { default_type text/plain; return 200 "mdm $request_method $request_uri authorization=[$http_authorization]\n"; } }' \
+  '  server { listen 8080; location / { default_type text/plain;' \
+  '    if ($arg_echo = forwarded) { return 200 "mdm xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] xri=[$http_x_real_ip]\n"; }' \
+  '    return 200 "mdm $request_method $request_uri authorization=[$http_authorization]$echo_node\n"; } }' \
   '  server { listen 8081; location / { default_type text/plain; return 200 "admin $request_uri host=[$http_host] authorization=[$http_authorization]\n"; } }' \
-  '  server { listen 9004; location / { default_type text/plain; return 200 "nanohub $request_method $request_uri\n"; } }' \
+  '  server { listen 9004; location / { default_type text/plain;' \
+  '    if ($arg_echo = forwarded) { return 200 "nanohub xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] xri=[$http_x_real_ip]\n"; }' \
+  '    return 200 "nanohub $request_method $request_uri\n"; } }' \
   '}' > "${FAKE}/nginx.conf"
 # Headwind MDM: its HTTP and its MQTT
 # shellcheck disable=SC2016
@@ -150,14 +158,45 @@ section "the nodes"
 check "no node token: 401" "401" "$(http_code '/mdm/enroll?udid=u1')"
 check "a wrong node token: 401" "401" "$(http_code '/mdm/enroll?udid=u1' -H 'Authorization: Bearer bad')"
 check "a node: mcloud-mdm gets the enrollment token, not the node token" \
-  "mdm GET /mdm/enroll?udid=u1 authorization=[Bearer ${TOKEN}]" "$(body '/mdm/enroll?udid=u1' -H 'Authorization: Bearer good-node')"
-for path in '/mdm/status?udid=u1' '/android/enroll?serial=s1' '/android/status?serial=s1' '/android/release'; do
-  check "${path%%\?*} for a node" "mdm GET ${path} authorization=[Bearer ${TOKEN}]" \
+  "mdm GET /mdm/enroll?udid=u1 authorization=[Bearer ${TOKEN}] node=[node-a]" "$(body '/mdm/enroll?udid=u1' -H 'Authorization: Bearer good-node')"
+for path in '/mdm/status?udid=u1' '/android/enroll?serial=s1' '/android/status?serial=s1' '/android/release?serial=s1'; do
+  check "${path%%\?*} for a node" "mdm GET ${path} authorization=[Bearer ${TOKEN}] node=[node-a]" \
     "$(body "$path" -H 'Authorization: Bearer good-node')"
   check "${path%%\?*} without a node token: 401" "401" "$(http_code "$path")"
 done
-check "the release of an iOS device for a node" "mdm POST /mdm/release?udid=u1 authorization=[Bearer ${TOKEN}]" \
+check "the release of an iOS device for a node" "mdm POST /mdm/release?udid=u1 authorization=[Bearer ${TOKEN}] node=[node-a]" \
   "$(body '/mdm/release?udid=u1' -X POST -H 'Authorization: Bearer good-node')"
+check "the node is the one of stf-api, never the one of the client" \
+  "mdm GET /mdm/status?udid=u1 authorization=[Bearer ${TOKEN}] node=[node-a]" \
+  "$(body '/mdm/status?udid=u1' -H 'Authorization: Bearer good-node' -H 'X-MCloud-Node: node-b')"
+check "an stf without X-MCloud-Node: no node, the one of the client dropped (mcloud-mdm refuses then)" \
+  "mdm GET /mdm/status?udid=u1 authorization=[Bearer ${TOKEN}]" \
+  "$(body '/mdm/status?udid=u1' -H 'Authorization: Bearer old-stf-node' -H 'X-MCloud-Node: node-b')"
+
+section "the forwarding headers"
+forged=(-H 'X-Forwarded-For: 203.0.113.77' -H 'X-Real-IP: 203.0.113.78' -H 'X-Forwarded-Proto: https')
+for path in '/mdm/status?udid=u1&echo=forwarded' '/scep?echo=forwarded' '/mdm?echo=forwarded'; do
+  answer="$(body "$path" -H 'Authorization: Bearer good-node' "${forged[@]}")"
+  check_contains "${path%%\?*}: the scheme of stf-proxy, not the one of the client" "xfp=[http]" "$answer"
+  check_not_contains "${path%%\?*}: the addresses of the client are ignored" "203.0.113.7" "$answer"
+  client="$(sed -n 's/.* xff=\[\([^]]*\)\].*/\1/p' <<< "$answer")"
+  check "${path%%\?*}: X-Real-IP is the address of the connection, as X-Forwarded-For" "yes" \
+    "$([[ -n "$client" && "$answer" == *"xri=[${client}]"* ]] && echo yes)"
+done
+# a trusted proxy in front (every address here, so the one of the host): its X-Forwarded-For and X-Forwarded-Proto
+# shellcheck disable=SC2016 # the variables of nginx
+printf '%s\n' 'set_real_ip_from 0.0.0.0/0;' 'set_real_ip_from ::/0;' \
+  'geo $realip_remote_addr $trusted_proxy { default 0; 0.0.0.0/0 1; ::/0 1; }' \
+  > "${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf"
+run_check "stf-proxy reads the trusted proxies" docker exec mdm-proxy-test nginx -s reload
+sleep 1
+check "a trusted proxy in front gives the scheme and its X-Forwarded-For the address of the client" \
+  "mdm xfp=[https] xff=[203.0.113.77] xri=[203.0.113.77]" \
+  "$(body '/mdm/status?udid=u1&echo=forwarded' -H 'Authorization: Bearer good-node' "${forged[@]}")"
+# shellcheck disable=SC2016
+printf '%s\n' 'geo $realip_remote_addr $trusted_proxy { default 0; }' > "${MCLOUD}/configuration/stf-proxy/trusted-proxies.conf"
+run_check "stf-proxy without trusted proxies again" docker exec mdm-proxy-test nginx -s reload
+sleep 1
 
 section "Headwind MDM"
 check "the configuration of an agent, the prefix stripped" "hmdm POST /rest/public/sync/configuration/s1" \
